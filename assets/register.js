@@ -289,11 +289,6 @@ function stepDetails(){
         ${F('birth','Date of birth', { req:true, type:'date', attr:`max="${DB.today()}"` })}
         ${F('birthPlace','Place of birth', { req:true, ph:'City / municipality, province' })}
       </div>
-      <div class="grid g2">
-        ${F('sirb','SIRB number', { hint:'optional' })}
-        ${F('passport','Passport number', { hint:'optional' })}
-      </div>
-
       <h4 class="p-group">Contact details</h4>
       <div class="grid g2">
         ${F('mobile','Mobile number', { req:true, type:'tel', ph:'09XX XXX XXXX', attr:'autocomplete="tel"' })}
@@ -308,11 +303,6 @@ function stepDetails(){
         ${F('agency','Company', { req:true, list:'agencyList',
                                   hint:'manning agency or employer', ph:'Direct hire / walk-in' })}
       </div>
-      <label class="fld"><span>Who is paying the training fee?</span>
-        <select name="payer">
-          <option value="Self-paid"     ${d.payer!=='Agency-billed'?'selected':''}>I will pay for it myself</option>
-          <option value="Agency-billed" ${d.payer==='Agency-billed'?'selected':''}>My company will pay</option>
-        </select></label>
       <datalist id="rankList">${ranks.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
       <datalist id="agencyList">${agencies.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
 
@@ -323,10 +313,6 @@ function stepDetails(){
         ${F('emergencyRelation','Relationship', { ph:'e.g. Spouse, Parent' })}
         ${F('emergencyMobile','Contact number', { req:true, type:'tel', ph:'09XX XXX XXXX' })}
       </div>
-
-      <h4 class="p-group">Anything else?</h4>
-      <label class="fld"><span>Notes for the registrar <small>optional</small></span>
-        <textarea name="remarks" placeholder="Dietary needs, medical conditions, preferred contact time…">${esc(d.remarks||'')}</textarea></label>
     </form>
 
     <div class="p-acts">
@@ -353,8 +339,8 @@ function stepReview(){
 
     <h4 class="p-group">Seafarer identity</h4>
     <div class="p-review">
-      <dl class="def">${L('SRN', `<span class="mono">${esc(d.srn)}</span>`)}${L('Name', esc(full))}</dl>
-      <dl class="def">${L('SIRB', `<span class="mono">${esc(d.sirb||'')}</span>`)}${L('Passport', `<span class="mono">${esc(d.passport||'')}</span>`)}</dl>
+      <dl class="def">${L('SRN', `<span class="mono">${esc(d.srn)}</span>`)}</dl>
+      <dl class="def">${L('Name', esc(full))}</dl>
     </div>
 
     <h4 class="p-group">Personal and contact</h4>
@@ -376,7 +362,6 @@ function stepReview(){
       <dl class="def">
         ${L('Rank / position', esc(d.rank))}
         ${L('Company', esc(d.agency))}
-        ${L('Fee billed to', esc(d.payer || 'Self-paid'))}
       </dl>
       <dl class="def">
         ${L('Contact person', esc(d.emergencyName))}
@@ -384,7 +369,6 @@ function stepReview(){
         ${L('Contact number', esc(d.emergencyMobile))}
       </dl>
     </div>
-    ${d.remarks ? `<dl class="def">${L('Notes', esc(d.remarks))}</dl>` : ''}
 
     <div class="hr"></div>
     <div class="note warn">

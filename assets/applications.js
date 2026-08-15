@@ -103,8 +103,7 @@ const APPS = (() => {
     rank:'Rank / position', agency:'Company',
     emergencyName:'Emergency contact person', emergencyRelation:'Relationship',
     emergencyMobile:'Emergency contact number',
-    sirb:'SIRB number', passport:'Passport number',
-    batchId:'Schedule', batchFull:'Schedule', batchStarted:'Schedule', duplicate:'Application',
+    duplicate:'Application',
   };
 
   function validate(p){
@@ -163,7 +162,6 @@ const APPS = (() => {
       last:t(p.last), first:t(p.first), middle:t(p.middle), suffix:t(p.suffix),
       // personal
       sex:p.sex || 'M', birth:p.birth || '', birthPlace:t(p.birthPlace),
-      sirb:t(p.sirb), passport:t(p.passport),
       // contact
       mobile:t(p.mobile), email:t(p.email).toLowerCase(), address:t(p.address),
       // employment
@@ -171,8 +169,9 @@ const APPS = (() => {
       // emergency
       emergencyName:t(p.emergencyName), emergencyRelation:t(p.emergencyRelation),
       emergencyMobile:t(p.emergencyMobile),
-      payer:p.payer || 'Self-paid',
-      remarks:t(p.remarks),
+      /* SIRB and passport are NOT collected online. The registrar records them
+         from the originals, which the applicant brings on the first training
+         day — a typed document number nobody has seen is worth nothing. */
       traineeId:'', enrollmentId:'', decidedBy:'', decidedOn:'', reason:'',
       history:[{ ts:now, status:'Submitted', by:'Public Portal', note:'Application received online' }],
     };
@@ -266,7 +265,7 @@ const APPS = (() => {
       ['mobile','email','address','rank','agency',
        'emergencyName','emergencyRelation','emergencyMobile']
         .forEach(f => { if(app[f]) trainee[f] = app[f]; });
-      ['srn','sirb','passport','suffix','birthPlace']
+      ['srn','suffix','birthPlace']
         .forEach(f => { if(app[f] && !trainee[f]) trainee[f] = app[f]; });
     }else{
       trainee = {
@@ -274,7 +273,7 @@ const APPS = (() => {
         srn:app.srn,
         last:app.last, first:app.first, middle:app.middle, suffix:app.suffix,
         sex:app.sex, birth:app.birth, birthPlace:app.birthPlace,
-        sirb:app.sirb, passport:app.passport,
+        sirb:'', passport:'',        // recorded by the registrar from the originals
         rank:app.rank, agency:app.agency,
         mobile:app.mobile, email:app.email, address:app.address,
         emergencyName:app.emergencyName, emergencyRelation:app.emergencyRelation,

@@ -299,7 +299,9 @@ VIEWS.admissions = () => {
             b ? UI.dateRange(b.start,b.end) + ' · ' + UI.esc(b.center)
               : UI.esc(crs?.duration || '') + ' · <i>schedule not yet assigned</i>'}</span>`; } },
       { h:'Contact', k:a => `${UI.esc(a.mobile)}<br><span class="muted" style="font-size:11.5px">${UI.esc(a.email || '—')}</span>` },
-      { h:'Payer', k:a => `<span class="tag t-${a.payer === 'Agency-billed' ? 'info' : 'muted'}">${UI.esc(a.payer || 'Self-paid')}</span>` },
+      { h:'Company', k:a => a.agency
+          ? UI.esc(a.agency)
+          : '<span class="muted">Direct hire / walk-in</span>' },
       { h:'Submitted', k:a => { const d = APPS.ageDays(a);
           return `${UI.date(a.submitted)}<br><span class="muted" style="font-size:11.5px">${d === 0 ? 'today' : d + ' day(s) ago'}</span>`; } },
       { h:'Status', k:a => UI.statusTag(a.status) },
@@ -881,7 +883,6 @@ function applicationModal(a){
     body:`
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
         ${UI.statusTag(a.status)}
-        <span class="tag t-${a.payer === 'Agency-billed' ? 'info' : 'muted'}">${UI.esc(a.payer || 'Self-paid')}</span>
         ${APPS.isOpen(a) && APPS.ageDays(a) >= 3
           ? `<span class="tag t-warn">Waiting ${APPS.ageDays(a)} days</span>` : ''}
       </div>
@@ -911,8 +912,6 @@ function applicationModal(a){
       <div class="grid g2">
         <dl class="def">
           <dt>SRN</dt><dd class="mono"><b>${UI.esc(a.srn || '—')}</b></dd>
-          <dt>SIRB</dt><dd class="mono">${UI.esc(a.sirb || '—')}</dd>
-          <dt>Passport</dt><dd class="mono">${UI.esc(a.passport || '—')}</dd>
           <dt>Sex / Birthdate</dt><dd>${a.sex === 'F' ? 'Female' : 'Male'} · ${UI.date(a.birth)}</dd>
           <dt>Place of birth</dt><dd>${UI.esc(a.birthPlace || '—')}</dd>
           <dt>Rank / position</dt><dd>${UI.esc(a.rank || '—')}</dd>
@@ -924,10 +923,13 @@ function applicationModal(a){
           <dt>Address</dt><dd>${UI.esc(a.address || '—')}</dd>
           <dt>Emergency contact</dt><dd>${UI.esc(a.emergencyName || '—')}${a.emergencyRelation ? ` <span class="muted">(${UI.esc(a.emergencyRelation)})</span>` : ''}</dd>
           <dt>Emergency number</dt><dd>${UI.esc(a.emergencyMobile || '—')}</dd>
-          <dt>Notes</dt><dd>${UI.esc(a.remarks || '—')}</dd>
           ${a.reason ? `<dt>Reason</dt><dd>${UI.esc(a.reason)}</dd>` : ''}
           ${a.enrollmentId ? `<dt>Enrollment</dt><dd class="mono">${UI.esc(ENR(a.enrollmentId)?.no || '—')}</dd>` : ''}
         </dl>
+      </div>
+      <div class="note" style="margin:14px 0 0">
+        SIRB and passport numbers are not collected online. Record them from the
+        originals on the trainee's file before the first training day.
       </div>
 
       <div class="hr"></div>
@@ -996,11 +998,9 @@ function convertForm(a){
           const s = APPS.seatsTaken(o);
           return { v:o.id, l:`${UI.dateRange(o.start,o.end)} · ${o.center} · ${UI.peso(o.fee)} · ${s.free} seat(s) left` };
         }), { req:true })}
-      ${UI.row(
-        UI.f.select('mode','Enrollment status','Enrolled',
-          [{v:'Enrolled',l:'Enrolled — issue the invoice now'},
-           {v:'Reserved',l:'Reserved — hold the seat, bill later'}]),
-        UI.f.text('payer','Fee billed to', a.payer || 'Self-paid', { ro:true }))}
+      ${UI.f.select('mode','Enrollment status','Enrolled',
+        [{v:'Enrolled',l:'Enrolled — issue the invoice now'},
+         {v:'Reserved',l:'Reserved — hold the seat, bill later'}])}
       <div class="hr"></div>
       <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
       <div class="note" id="batchNote" style="margin-bottom:12px"></div>
