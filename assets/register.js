@@ -74,8 +74,8 @@ const catTable = rows => `
     <table class="p-cat-tbl">
       <thead>
         <tr>
-          <th scope="col">Course</th>
-          <th scope="col" class="p-cat-dur">Days</th>
+          <th scope="col">Courses</th>
+          <th scope="col" class="p-cat-dur">Days of Training</th>
           <th scope="col" class="p-cat-mode">Mode of Training</th>
         </tr>
       </thead>
