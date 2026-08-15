@@ -9,7 +9,7 @@
    Those are commercial terms between Tara Barko and its partners; the public
    catalogue shows a course title and how long it takes, and nothing else.
 
-   223 unique courses, reduced from 344 matrix rows.
+   222 unique courses, reduced from 344 matrix rows.
    Generated from: PRICE & REBATES MATRIX - DO NOT DELETE - COURSES.csv
 */
 
@@ -245,7 +245,8 @@ const COURSE_CATALOGUE = [
     "days": 1,
     "duration": "1 day",
     "modes": [
-      "Distance learning"
+      "Distance learning",
+      "Face to face"
     ]
   },
   {
@@ -309,7 +310,7 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "CCMD",
-    "title": "CCMD - Crowd and Crisis Management for Domestic",
+    "title": "CCMD - CROWD AND CRISIS MANAGEMENT FOR DOMESTIC",
     "days": 3,
     "duration": "3 days",
     "note": "Blended"
@@ -544,12 +545,6 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "FOOD",
-    "title": "FOOD & BEVERAGES - FNB",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "FOOD",
     "title": "FOOD & BEVERAGES - NCII",
     "days": 3,
     "duration": "3 days"
@@ -672,7 +667,7 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "HAZMAT",
-    "title": "HAZMAT - Hazardous Materials",
+    "title": "HAZMAT - HAZARDOUS MATERIALS",
     "days": 1,
     "duration": "1 day",
     "note": "Module"
@@ -734,27 +729,27 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "II",
-    "title": "II - 4 Deck Ratings",
+    "title": "II - 4 DECK RATINGS",
     "days": 1.5,
     "daysTo": 2,
     "duration": "1.5–2 days"
   },
   {
     "code": "II",
-    "title": "II - 5 AB Deck",
+    "title": "II - 5 AB DECK",
     "days": 2,
     "duration": "2 days"
   },
   {
     "code": "III",
-    "title": "III - 4 Engine Ratings",
+    "title": "III - 4 ENGINE RATINGS",
     "days": 1.5,
     "daysTo": 2,
     "duration": "1.5–2 days"
   },
   {
     "code": "III",
-    "title": "III - 5 AB Engine",
+    "title": "III - 5 AB ENGINE",
     "days": 2,
     "duration": "2 days"
   },
@@ -842,13 +837,13 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "MARPOL",
-    "title": "MARPOL - CONSOLIDATED MARPOL ANNEXI - VI (21 hrs)",
+    "title": "MARPOL - CONSOLIDATED MARPOL ANNEXI - VI (21 HRS)",
     "days": 3,
     "duration": "3 days"
   },
   {
     "code": "MARPOL",
-    "title": "MARPOL - CONSOLIDATED MARPOL ANNEXI - VI (40 hrs)",
+    "title": "MARPOL - CONSOLIDATED MARPOL ANNEXI - VI (40 HRS)",
     "days": 5,
     "duration": "5 days"
   },

@@ -127,6 +127,17 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
   padding:1px 7px; border-radius:20px; vertical-align:1px; margin-left:5px;
 }
 
+/* ---------- "other courses may be available" ---------- */
+.p-more{
+  margin-top:20px; padding:16px 18px; font-size:13px; line-height:1.55;
+  color:var(--text-2); background:var(--tb-blue-soft);
+  border-left:4px solid var(--tb-blue); border-radius:0 10px 10px 0;
+}
+.p-more b{ color:var(--tb-blue-900); display:block; margin-bottom:3px; font-size:13.5px; }
+.p-more-contact{
+  display:block; margin-top:8px; font-weight:700; color:var(--tb-orange-600);
+}
+
 /* ---------- catalogue pager ---------- */
 .p-pager{
   display:flex; flex-wrap:wrap; gap:5px; justify-content:center;

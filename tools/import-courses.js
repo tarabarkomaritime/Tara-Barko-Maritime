@@ -74,8 +74,9 @@ const ALIAS = [
   [/^AB DECK COURSE$/,    'AB DECK'],
   [/^AB ENGINE COURSE$/,  'AB ENGINE'],
   [/^GOC GMDSS$/,         'GOC FOR GMDSS'],
-  [/^II 4$/,              'II - 4 Deck Ratings'],
-  [/^III 4$/,             'III - 4 Engine Ratings'],
+  [/^II 4$/,              'II - 4 DECK RATINGS'],
+  [/^III 4$/,             'III - 4 ENGINE RATINGS'],
+  [/^FOOD & BEVERAGES FNB$/, 'FOOD & BEVERAGES - NCII'],   // same course, two codes
   [/^CSHI PASSENGER SAFETY.*HULL INTEGRITY TRAINING$/,
     'PASSENGER SAFETY, CARGO SAFETY AND HULL INTEGRITY TRAINING'],
 ];
@@ -161,6 +162,7 @@ rows.forEach((r, i) => {
   e.sources.push(center);
   e.spellings.add(title);
   if(mode && !e.modes.includes(mode)) e.modes.push(mode);
+  else if(!mode) e.plain = true;      // listed with no mode — i.e. taught in person
   if(dur.days != null) e.durations.push(dur);
   else e.missingDuration = true;
   if(dur.note && !e.note) e.note = dur.note;
@@ -170,14 +172,26 @@ rows.forEach((r, i) => {
 });
 
 /* Resolve each merged entry's duration to a single value or a range. */
+/* A course listed both plainly and with a delivery mode is taught in person as
+   well — the matrix just does not bother writing "face to face" on the default
+   row. Without this, BT-PSSR reads as distance-learning-only, which is wrong.
+   Accommodation is not a delivery mode, so it does not trigger the inference. */
+const DELIVERY = ['Face to face','Blended','Distance learning'];
+
 const catalogue = [...byKey.values()].map(e => {
   const lo = e.durations.length ? Math.min(...e.durations.map(d => d.days)) : null;
   const hi = e.durations.length ? Math.max(...e.durations.map(d => d.daysTo ?? d.days)) : null;
+
+  const modes = e.modes.slice();
+  if(e.plain && modes.some(m => DELIVERY.includes(m)) && !modes.includes('Face to face')){
+    modes.push('Face to face');
+  }
+
   return {
     key:e.key,
     title:e.title,
     base:e.base,
-    modes:e.modes.slice().sort(),
+    modes:modes.sort(),
     spellings:[...e.spellings],
     days:lo,
     daysTo:hi !== lo ? hi : undefined,
@@ -291,9 +305,14 @@ if(skipped.length){
 }
 
 /* ---------- emit ---------- */
+/* Titles ship upper-cased. The matrix mixes cases for the same kind of entry
+   ("CCMD - Crowd and Crisis Management for Domestic" beside "BTR - BASIC
+   TRAINING REFRESHER"), and a catalogue that switches case down the column reads
+   as sloppy. Doing it here rather than in CSS keeps the internal system, the
+   acknowledgement slip and the public list identical. */
 const publicRows = catalogue.map(c => ({
   code:c.key.split(' ')[0].slice(0,10),
-  title:c.title,
+  title:c.title.toUpperCase(),
   days:c.days,
   daysTo:c.daysTo,
   duration:c.duration,

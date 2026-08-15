@@ -131,7 +131,15 @@ function viewCourses(){
           </div>`).join('')}
       </div>
       ${pager(page, pages)}`
-    : `<div class="empty">No course matches &ldquo;${esc(P.q)}&rdquo;.</div>`}`;
+    : `<div class="empty">No course matches &ldquo;${esc(P.q)}&rdquo;.</div>`}
+
+    <div class="p-more">
+      <b>Other courses may be available.</b>
+      This list covers the courses we book most often. If you need one that is not here,
+      contact TB Maritime &mdash; we work with several accredited training centers and can
+      usually arrange it.
+      <span class="p-more-contact">${esc(CO().contact)}</span>
+    </div>`;
 }
 
 /* ================= ENROLL NOW ================= */
