@@ -43,7 +43,7 @@ const DB = (() => {
   const DEFAULT_COMPANY = {
     name:'TARA BARKO MARITIME TRAINING & ASSESSMENT CENTER, INC.',
     address:'2nd Flr. Seafarer Bldg., Kalaw Ave., Ermita, Manila 1000',
-    contact:'(02) 8523-4567  •  registrar@tarabarko.ph',
+    contact:'0985 804 4310  •  tarabarkomaritime@gmail.com',
     tin:'009-482-771-000',
     accreditation:'MARINA-STCW Accreditation No. TBM-2024-0117',
     vatRate:12,
@@ -79,6 +79,14 @@ const DB = (() => {
     d.seq          = d.seq || {};
     if(d.seq.application == null) d.seq.application = d.applications.length;
     d.company      = { ...DEFAULT_COMPANY, ...(d.company||{}) };
+
+    /* A stored company profile normally wins over the default — it is what the
+       admin typed in Settings. The one exception is the placeholder contact that
+       shipped with early builds: leaving it in place would print a phone number
+       that reaches nobody on every page an applicant reads. */
+    if(d.company.contact === '(02) 8523-4567  •  registrar@tarabarko.ph'){
+      d.company.contact = DEFAULT_COMPANY.contact;
+    }
     return d;
   }
 
