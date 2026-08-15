@@ -182,7 +182,8 @@ const DELIVERY = ['Face to face','Blended','Distance learning'];
    against the course key, so `^AFF$` hits AFF alone and leaves AFF - R be.
    Each entry is a business decision, not a data fix — give it a reason. */
 const MODE_EXCLUDE = [
-  { course:/^AFF$/, mode:'Distance learning' },   // not offered
+  { course:/^AFF$/,  mode:'Distance learning' },   // not offered
+  { course:/^SCRB$/, mode:'Distance learning' },   // not offered
 ];
 
 const catalogue = [...byKey.values()].map(e => {
