@@ -40,7 +40,7 @@ const courseOf = id => DB.get().courses.find(c => c.id === id);
    than a confident pointer to a page that does not exist. */
 const pageName = () => {
   const p = (CO().page || '').trim();
-  return p ? `<b>${esc(p)}</b>` : 'our page';
+  return p ? `<b>${esc(p)}</b>` : 'our official Facebook page';
 };
 
 /* A course may be delivered several ways — face to face, blended, distance
@@ -518,9 +518,14 @@ function paneDone(){
 function requirementsList(){
   const items = String(CO().requirements || '').split('\n').map(s => s.trim()).filter(Boolean);
   if(!items.length) return '';
+  /* The heading is literal capitals rather than a CSS transform, because the
+     configured page can be a URL and upper-casing a path is wrong. When one is
+     set it goes on its own line, in its own case. */
+  const page = (CO().page || '').trim();
   return `
     <div class="p-reqs">
-      <h5>Please send the following requirements to ${pageName()}</h5>
+      <h5>PLEASE SEND THE FOLLOWING REQUIREMENTS TO OUR OFFICIAL FACEBOOK PAGE</h5>
+      ${page ? `<p class="p-reqs-page">${esc(page)}</p>` : ''}
       <ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>
     </div>`;
 }

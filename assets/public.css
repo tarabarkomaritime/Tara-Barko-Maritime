@@ -339,6 +339,11 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
 }
 .p-reqs h5{
   margin:0 0 8px; font-size:12.5px; font-weight:800; color:var(--tb-blue-900);
+  letter-spacing:.02em; line-height:1.4;
+}
+.p-reqs-page{
+  margin:-4px 0 9px; font-size:12.5px; font-weight:700; color:var(--tb-orange-600);
+  font-family:var(--mono);
 }
 .p-reqs ul{ margin:0; padding-left:20px; }
 .p-reqs li{
