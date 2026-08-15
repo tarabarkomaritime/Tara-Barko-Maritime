@@ -52,6 +52,16 @@ const DB = (() => {
        Left blank on purpose — the acknowledgement then reads "our page" rather
        than naming somewhere that does not exist. Fill it in under Settings. */
     page:'',
+    /* Documents the applicant sends in along with that screenshot, one per line.
+       Listed on the acknowledgement so a single screenshot captures both the
+       enrollment and what still has to follow it. Editable in Settings. */
+    requirements:[
+      'Basic Training Certificate / COP',
+      'Any Government Valid ID',
+      'Medical PEME Format',
+      '2x2 Photo',
+      'SRN Screenshot',
+    ].join('\n'),
     vatRate:12,
     vatInclusive:true,
     fiscalYear:new Date().getFullYear(),

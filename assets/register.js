@@ -492,6 +492,8 @@ function paneDone(){
           <dt>Status</dt><dd>${UI.statusTag('Submitted')}</dd>
         </dl>
       </div>
+      ${requirementsList()}
+
       <div class="note p-slip-note">
         <b>What happens next.</b> Take a screenshot of this confirmation and send it to
         ${pageName()}. The Registrar will check your enrollment details and enroll you
@@ -507,6 +509,19 @@ function paneDone(){
         <button class="btn btn-ghost" id="printSlip">Print slip</button>
         <button class="btn btn-accent" id="another">Enroll in another course</button>
       </div>
+    </div>`;
+}
+
+/* The documents that follow the enrollment. Rendered inside the slip so one
+   screenshot carries both the confirmation and the list of what is still owed —
+   the applicant is about to send that screenshot anyway. */
+function requirementsList(){
+  const items = String(CO().requirements || '').split('\n').map(s => s.trim()).filter(Boolean);
+  if(!items.length) return '';
+  return `
+    <div class="p-reqs">
+      <h5>Please send the following requirements to ${pageName()}</h5>
+      <ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>
     </div>`;
 }
 
@@ -609,11 +624,12 @@ function trackResult(a){
         ? `<div class="note bad p-flush">Please contact the Registrar at ${esc(CO().contact)}
              if you would like to re-apply.</div>`
         : closed ? ''
-        : `<div class="note p-flush">If you have not already, send a screenshot of your
+        : `<div class="note">If you have not already, send a screenshot of your
              submitted enrollment to ${pageName()} &mdash; the Registrar checks your
              details from there, then contacts you on your Facebook account with the
              schedule, the training center and the fee. Enrollments submitted outside our
-             office hours are processed on the following business day.</div>`}
+             office hours are processed on the following business day.</div>
+           ${requirementsList()}`}
     </div>`;
 }
 

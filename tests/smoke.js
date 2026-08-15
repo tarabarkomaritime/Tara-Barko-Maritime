@@ -265,6 +265,22 @@ check('invoice line names the partner center', () =>
   run('OUT.invoice.items[0].desc').includes(run('PICK.center'))
   || run('OUT.invoice.items[0].desc'));
 
+console.log('\n- requirements list -');
+check('company profile ships the requirements', () =>
+  run(`String(DB.get().company.requirements||'').split('\\n').filter(Boolean).length`) === 5
+  || run(`String(DB.get().company.requirements||'').split('\\n').filter(Boolean).length`));
+check('covers what the office asked for', () => {
+  const txt = run('DB.get().company.requirements').toLowerCase();
+  const need = ['basic training certificate','valid id','peme','2x2','srn screenshot'];
+  const gap = need.filter(x => !txt.includes(x));
+  return gap.length === 0 || 'missing: ' + gap.join(', ');
+});
+check('survives a backup round-trip', () => {
+  const before = run('DB.get().company.requirements');
+  run('globalThis.SNAPR = JSON.stringify(DB.get()); DB.reset(false); DB.importJSON(SNAPR);');
+  return run('DB.get().company.requirements') === before || 'lost on restore';
+});
+
 console.log('\n- catalogue -');
 check('catalogue loaded',        () => run('DB.get().courses.length') > 200 || run('DB.get().courses.length'));
 check('no fees in the catalogue',() => run('DB.get().courses.every(c => c.fee === undefined)') === true || 'a course carries a fee');
