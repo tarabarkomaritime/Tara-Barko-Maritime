@@ -34,6 +34,14 @@ const MAX_PAGE_BUTTONS = 15;   // beyond this the pager windows around the curre
 
 const courseOf = id => DB.get().courses.find(c => c.id === id);
 
+/* Where the applicant sends their screenshot. Named if the office has filled it
+   in under Settings, otherwise the generic phrase — better a vague instruction
+   than a confident pointer to a page that does not exist. */
+const pageName = () => {
+  const p = (CO().page || '').trim();
+  return p ? `<b>${esc(p)}</b>` : 'our page';
+};
+
 /* A course may be delivered several ways — face to face, blended, distance
    learning. They are one course, so they share one row and wear their modes. */
 const modeTags = c => (c.modes || [])
@@ -441,6 +449,24 @@ function paneDone(){
       <p class="muted p-appno">Application no. <span class="mono">${esc(a.no)}</span></p>
     </div>
 
+    <div class="p-next">
+      <span class="p-next-n">1</span>
+      <div>
+        <b>Screenshot this page and send it to ${pageName()}.</b>
+        Your enrollment is not checked until we receive it &mdash; this is the step that
+        tells the TB Maritime team you are ready.
+      </div>
+    </div>
+    <div class="p-next">
+      <span class="p-next-n">2</span>
+      <div>
+        <b>We check your details and enroll you.</b>
+        The TB Maritime team reviews what you submitted and enrolls you in the course you
+        selected, then contacts you on <b>${esc(a.mobile)}</b> with the schedule, the
+        training center and the fee.
+      </div>
+    </div>
+
     <div class="p-slip" id="slip">
       <div class="p-slip-head">
         <img src="assets/logo.svg" alt="" class="p-slip-logo">
@@ -472,10 +498,11 @@ function paneDone(){
         </dl>
       </div>
       <div class="note p-slip-note">
-        <b>What happens next.</b> The registrar reviews your enrollment, usually within one
-        working day, then calls you on the mobile number above with the schedule, the
-        training center and the fee. Bring this slip and your original SIRB, passport and SRN
-        on your first training day. <b>This slip is not an official receipt.</b>
+        <b>What happens next.</b> Take a screenshot of this confirmation and send it to
+        ${pageName()}. The TB Maritime team will check your enrollment details and enroll you
+        in the course you selected. Bring this slip and your original SIRB, passport and SRN
+        on your first training day.
+        <b>This does not serve as your official receipt.</b>
       </div>
     </div>
 
@@ -566,9 +593,10 @@ function trackResult(a){
         ? `<div class="note bad p-flush">Please contact the registrar at ${esc(CO().contact)}
              if you would like to re-apply.</div>`
         : closed ? ''
-        : `<div class="note p-flush">The registrar will call you on <b>${esc(a.mobile)}</b>
-             once a decision is made. Enrollments are normally reviewed within one working
-             day.</div>`}
+        : `<div class="note p-flush">If you have not already, send a screenshot of your
+             submitted enrollment to ${pageName()} &mdash; the TB Maritime team checks your
+             details from there. You will be contacted on <b>${esc(a.mobile)}</b> with the
+             schedule, the training center and the fee.</div>`}
     </div>`;
 }
 

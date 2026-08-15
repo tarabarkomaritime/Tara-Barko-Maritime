@@ -317,6 +317,23 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
 }
 .p-appno{ font-size:12px; margin:0; }
 
+/* The two things the applicant must actually do after submitting. Numbered,
+   because step 1 is what makes the enrollment happen and skipping it silently
+   stalls everything. */
+.p-next{
+  display:flex; gap:13px; align-items:flex-start;
+  background:var(--surface); border:1px solid var(--border);
+  border-left:4px solid var(--tb-orange); border-radius:0 10px 10px 0;
+  padding:14px 16px; margin-bottom:10px; font-size:12.5px; line-height:1.55;
+  color:var(--text-2);
+}
+.p-next b{ color:var(--tb-blue-900); display:block; margin-bottom:2px; font-size:13px; }
+.p-next-n{
+  flex:none; width:24px; height:24px; border-radius:50%;
+  background:var(--tb-orange); color:#fff; font-weight:800; font-size:12px;
+  display:grid; place-items:center;
+}
+
 .p-slip{ border:2px solid var(--tb-blue); border-radius:12px; padding:24px 26px; background:var(--surface); }
 .p-slip-head{
   display:flex; gap:16px; align-items:flex-start;

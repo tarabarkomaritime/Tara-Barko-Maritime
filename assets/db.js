@@ -48,6 +48,10 @@ const DB = (() => {
     /* One line per row when displayed. Editable in Settings so the office can
        change them without a code change. */
     hours:'Monday to Friday, 8:00 AM – 5:00 PM\nSaturday, 8:00 AM – 5:00 PM',
+    /* Where an applicant sends the screenshot of their submitted enrollment.
+       Left blank on purpose — the acknowledgement then reads "our page" rather
+       than naming somewhere that does not exist. Fill it in under Settings. */
+    page:'',
     vatRate:12,
     vatInclusive:true,
     fiscalYear:new Date().getFullYear(),
