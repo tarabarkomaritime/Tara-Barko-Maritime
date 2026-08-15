@@ -67,16 +67,6 @@ const APPS = (() => {
       .sort((a,b) => a.start.localeCompare(b.start));
   }
 
-  /* How many people are waiting for a course with no schedule assigned yet. This
-     is the number that tells the registrar which course to open a batch for. */
-  function demand(){
-    const out = {};
-    D().applications.filter(a => isOpen(a) && !a.batchId).forEach(a => {
-      out[a.courseId] = (out[a.courseId] || 0) + 1;
-    });
-    return out;
-  }
-
   const course = id => D().courses.find(c => c.id === id);
   const batch  = id => D().batches.find(b => b.id === id);
 
@@ -84,8 +74,10 @@ const APPS = (() => {
      Field order here mirrors the order the applicant fills them in, which is the
      order the registrar reads them back. Grouped: identity, personal, contact,
      employment, emergency. */
+  /* No course here. The applicant registers their details; which course, which
+     dated run and at which partner center are all settled with the Registrar
+     afterwards and recorded at conversion. */
   const REQUIRED = [
-    'courseId',                              // what they want to take
     'srn',                                   // identity
     'last','first',
     'birth','birthPlace',                    // personal
@@ -96,7 +88,6 @@ const APPS = (() => {
 
   /* Shown next to a highlighted field, and reused by the registrar's screen. */
   const LABELS = {
-    courseId:'Course',
     srn:'SRN', last:'Last Name', first:'First Name', middle:'Middle Name', suffix:'Suffix',
     sex:'Sex', birth:'Date of Birth', birthPlace:'Place of Birth',
     mobile:'Mobile Number', email:'Email Address', address:'Home Address',
@@ -110,8 +101,6 @@ const APPS = (() => {
   function validate(p){
     const errors = [];
     REQUIRED.forEach(f => { if(!String(p[f] || '').trim()) errors.push(f); });
-
-    if(p.courseId && !course(p.courseId)) errors.push('courseId');
 
     if(p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) errors.push('email');
     if(p.birth && p.birth >= DB.today()) errors.push('birth');
@@ -135,15 +124,12 @@ const APPS = (() => {
     if(p.facebook  && !linkish(p.facebook))  errors.push('facebook');
     if(p.messenger && !linkish(p.messenger)) errors.push('messenger');
 
-    /* Same person, same course, still pending — a double submit, not a second
-       enrollment. Matched on SRN when we have one, otherwise on name. */
+    /* One open registration per seafarer. Without a course to distinguish them,
+       a second submission while the first is still being handled is a duplicate
+       — the Registrar settles every course they want in the same conversation. */
     const srn = String(p.srn || '').trim().toUpperCase();
-    if(p.courseId && D().applications.some(a => {
-      if(a.courseId !== p.courseId || !isOpen(a)) return false;
-      if(srn && a.srn) return a.srn.toUpperCase() === srn;
-      return a.last.toLowerCase().trim()  === String(p.last||'').toLowerCase().trim() &&
-             a.first.toLowerCase().trim() === String(p.first||'').toLowerCase().trim();
-    })) errors.push('duplicate');
+    if(srn && D().applications.some(a =>
+      isOpen(a) && t(a.srn).toUpperCase() === srn)) errors.push('duplicate');
 
     return errors;
   }
@@ -161,10 +147,8 @@ const APPS = (() => {
       submitted:DB.today(),
       channel:'Public Portal',
       status:'Submitted',
-      /* The applicant chooses a course. Which dated run at which partner center
-         they land on is the registrar's call at approval — so batchId stays empty
-         until conversion. */
-      courseId:p.courseId, batchId:'',
+      /* Both settled by the Registrar at conversion, from the batch they pick. */
+      courseId:'', batchId:'',
       // identity
       srn:t(p.srn).toUpperCase(),
       last:t(p.last), first:t(p.first), middle:t(p.middle), suffix:t(p.suffix),
@@ -269,12 +253,12 @@ const APPS = (() => {
     if(app.enrollmentId) throw new Error('This application has already been enrolled.');
     if(app.status !== 'Approved') throw new Error('Approve the application before enrolling it.');
 
-    /* The registrar picks the schedule here — the applicant only asked for a
-       course. opts.batchId is therefore required, and must run that course. */
-    const b = batch(opts.batchId || app.batchId), c = course(app.courseId);
-    if(!c) throw new Error('The course this application asked for no longer exists.');
-    if(!b) throw new Error('Choose a schedule to place this applicant on.');
-    if(b.courseId !== c.id) throw new Error(`That schedule does not run ${c.title}.`);
+    /* The applicant registered their details, not a course. The batch the
+       Registrar picks here decides both the course and the schedule. */
+    const b = batch(opts.batchId || app.batchId);
+    if(!b) throw new Error('Choose a course and schedule to place this applicant on.');
+    const c = course(b.courseId);
+    if(!c) throw new Error('That schedule points at a course no longer in the catalogue.');
 
     const enrolledSeats = D().enrollments
       .filter(e => e.batchId === b.id && ['Enrolled','Reserved','Completed'].includes(e.status)).length;
@@ -342,7 +326,8 @@ const APPS = (() => {
     /* 4 — close the application against what was actually created */
     app.traineeId = trainee.id;
     app.enrollmentId = enr.id;
-    app.batchId = b.id;                       // the schedule the registrar chose
+    app.batchId = b.id;                       // the schedule the Registrar chose
+    app.courseId = c.id;                      // and the course it runs
     advance(app, 'Enrolled', by,
       `Enrolled as ${enr.no}${inv ? ' · billed ' + inv.no : ' · reserved, not yet billed'}`);
     DB.activity('Converted application to enrollment', `${app.no} → ${enr.no}`);
@@ -372,7 +357,7 @@ const APPS = (() => {
 
   return {
     OPEN_STATES, FINAL_STATES, ALL_STATES, NEXT, REQUIRED, LABELS,
-    isOpen, isFinal, refCode, seatsTaken, openBatches, demand,
+    isOpen, isFinal, refCode, seatsTaken, openBatches,
     validate, submit, track, trackAll, advance, reject, withdraw,
     matchTrainee, convert, pending, counts, find, forName, ageDays,
     course, batch,

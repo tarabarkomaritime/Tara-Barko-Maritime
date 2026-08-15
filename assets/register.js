@@ -193,7 +193,7 @@ const req = `<span class="p-req">*</span>`;
 
 /* ----- step 1 · details ----- */
 function stepDetails(){
-  const d = P.draft, c = courseOf(d.courseId);
+  const d = P.draft;
   const agencies = [...new Set(DB.get().trainees.map(t => t.agency).filter(Boolean))].sort();
   const ranks = ['Master','Chief Mate','2nd Officer','3rd Officer','Deck Cadet','Bosun',
     'Able Seaman','Ordinary Seaman','Chief Engineer','2nd Engineer','3rd Engineer',
@@ -209,31 +209,16 @@ function stepDetails(){
       <input type="${opts.type||'text'}" ${attrs}></label>`;
   };
 
-  const active = DB.get().courses.filter(x => x.active).sort(byTitle);
-
   return `
     <h2>Your Details</h2>
-    <p class="p-lead">Fields marked ${req} are required. We will confirm the schedule, the
-       training center and the fee after we check your enrollment.</p>
+    <p class="p-lead">Fields marked ${req} are required. We will settle the course, the
+       schedule, the training center and the fee with you after we check your enrollment.</p>
     ${P.errors.length ? `<div class="note warn">
        <b>Please check the highlighted fields.</b>
        ${[...new Set(P.errors)].map(e => APPS.LABELS[e]).filter(Boolean).slice(0,6).join(' &middot; ')}
      </div>` : ''}
 
     <form id="detailForm" autocomplete="on">
-
-      <h4 class="p-group">Course</h4>
-      <label class="fld ${bad('courseId')}">
-        <span>Course You Are Enrolling In ${req}
-          <small>type to search all ${active.length} courses</small></span>
-        <input name="courseTitle" list="courseList" value="${esc(c ? c.title : (d.courseTitle || ''))}"
-               placeholder="e.g. Basic Training" autocomplete="off" required></label>
-      <datalist id="courseList">
-        ${active.map(x => `<option value="${esc(x.title)}">`).join('')}
-      </datalist>
-      <p class="p-note-inline" id="courseHint">${c
-        ? `${esc(c.title)} &mdash; ${esc(c.duration || 'duration to be confirmed')}`
-        : 'Start typing and pick your course from the list.'}</p>
 
       <h4 class="p-group">Seafarer Identity</h4>
       ${F('srn','SRN', { req:true, hint:'Seafarer Registration Number', ph:'e.g. SRN-123456' })}
@@ -302,7 +287,7 @@ function stepDetails(){
 
 /* ----- step 3 · review ----- */
 function stepReview(){
-  const d = P.draft, c = courseOf(d.courseId);
+  const d = P.draft;
   const L = (k,v) => `<dt>${esc(k)}</dt><dd>${v || '<span class="muted">Not provided</span>'}</dd>`;
   const full = `${d.last}${d.suffix ? ' ' + d.suffix : ''}, ${d.first} ${d.middle || ''}`.trim();
 
@@ -310,11 +295,6 @@ function stepReview(){
     <h2>Review and Submit</h2>
     <p class="p-lead">Check your details carefully. After submitting, changes have to go
        through the Registrar.</p>
-
-    <div class="note">
-      <b>${esc(c.title)}</b>${(c.modes||[]).length ? ` &middot; ${esc(c.modes.join(' / '))}` : ''}<br>
-      ${esc(c.duration || 'Duration to be confirmed')}
-    </div>
 
     <h4 class="p-group">Seafarer Identity</h4>
     <div class="p-review">
@@ -353,13 +333,12 @@ function stepReview(){
 
     <div class="hr"></div>
     <div class="note warn">
-      <b>No fee is shown or collected here.</b> The training fee depends on which partner
-      center and which dates we can place you on. The Registrar will contact you on your
-      Facebook account within one working day with the schedule and the exact amount, and
-      your official invoice is issued at that point.
+      <b>No course or fee is set here.</b> The Registrar will contact you on your Facebook
+      account within one working day to settle the course, the schedule, the training center
+      and the exact amount. Your official invoice is issued at that point.
     </div>
 
-    ${P.errors.includes('duplicate') ? `<div class="note bad">You already have an enrollment waiting for this course. Track it instead using your reference code.</div>` : ''}
+    ${P.errors.includes('duplicate') ? `<div class="note bad">You already have an enrollment being handled under that SRN. Track it instead, or message us to add another course to it.</div>` : ''}
 
     ${termsPanel()}
 
@@ -411,7 +390,7 @@ function termsPanel(){
 
 /* ----- confirmation ----- */
 function paneDone(){
-  const a = P.result, c = courseOf(a.courseId);
+  const a = P.result;
   return `
     <div class="p-panel p-center">
       <div class="p-ok-mark">&#10003;</div>
@@ -447,8 +426,7 @@ function paneDone(){
           <dt>Facebook</dt><dd>${esc(a.facebook)}</dd>
         </dl>
         <dl class="def">
-          <dt>Course</dt><dd><b>${esc(c.title)}</b></dd>
-          <dt>Duration</dt><dd>${esc(c.duration || 'To be confirmed')}</dd>
+          <dt>Course</dt><dd><span class="muted">To be settled with the Registrar</span></dd>
           <dt>Schedule</dt><dd><span class="muted">To be assigned by the Registrar</span></dd>
           <dt>Reference code</dt><dd class="mono"><b>${esc(a.ref)}</b></dd>
           <dt>Status</dt><dd>${UI.statusTag('Submitted')}</dd>
@@ -466,10 +444,10 @@ function paneDone(){
     </div>
 
     <div class="p-acts no-print">
-      <a class="btn btn-ghost" href="#/enroll/track?srn=${encodeURIComponent(a.srn)}">Track this enrollment</a>
+      <a class="btn btn-ghost" href="#/enroll/track?srn=${encodeURIComponent(a.srn)}">Track This Enrollment</a>
       <div class="p-acts-right">
-        <button class="btn btn-ghost" id="printSlip">Print slip</button>
-        <button class="btn btn-accent" id="another">Enroll in another course</button>
+        <button class="btn btn-ghost" id="printSlip">Print Slip</button>
+        <button class="btn btn-accent" id="another">Submit Another Enrollment</button>
       </div>
     </div>`;
 }
@@ -541,8 +519,8 @@ function otherEnrollments(list){
 }
 
 function trackResult(a){
-  const b = a.batchId ? APPS.batch(a.batchId) : null;   // assigned only at approval
-  const c = courseOf(a.courseId);
+  const b = a.batchId ? APPS.batch(a.batchId) : null;   // both assigned only at conversion
+  const c = a.courseId ? courseOf(a.courseId) : null;
   const reached = STAGE_ORDER.indexOf(a.status);
   const closed = a.status === 'Rejected' || a.status === 'Withdrawn';
 
@@ -573,8 +551,9 @@ function trackResult(a){
       </div>
       <div class="hr"></div>
       <dl class="def">
-        <dt>Course</dt><dd><b>${esc(c.title)}</b></dd>
-        <dt>Duration</dt><dd>${esc(c.duration || 'To be confirmed')}</dd>
+        <dt>Course</dt><dd>${c
+          ? `<b>${esc(c.title)}</b> <span class="muted">&middot; ${esc(c.duration || '')}</span>`
+          : '<span class="muted">Not yet settled — the Registrar will confirm your course</span>'}</dd>
         <dt>Schedule</dt><dd>${b
           ? `${UI.dateRange(b.start,b.end)} &middot; ${esc(b.center)} &middot; ${esc(b.room)}`
           : '<span class="muted">Not yet assigned — the Registrar will confirm your dates</span>'}</dd>
@@ -614,11 +593,6 @@ function render(){
 
   if(P.view === 'enroll'){
     P.tab = sub === 'track' ? 'track' : 'apply';
-    if(P.tab === 'apply' && params.get('course')){
-      const c = courseOf(params.get('course'));
-      if(c){ P.draft.courseId = c.id; P.draft.courseTitle = c.title; }
-      P.result = null;
-    }
     if(P.tab === 'track' && params.get('srn')) P.trackSrn = params.get('srn');
   }
 
@@ -632,38 +606,14 @@ function render(){
   window.scrollTo(0,0);
 }
 
-/* Capture the details step without validating, so Back never loses typing.
-   The course is typed as a title against a datalist — resolve it to an id here,
-   and keep the raw text so a typo survives the round trip and can be corrected
-   rather than silently blanked. */
+/* Capture the details step without validating, so Back never loses typing. */
 function captureDetails(){
   const form = document.getElementById('detailForm');
-  if(!form) return;
-  Object.assign(P.draft, Object.fromEntries(new FormData(form).entries()));
-
-  const typed = String(P.draft.courseTitle || '').trim().toLowerCase();
-  const hit = DB.get().courses.find(c => c.active && c.title.toLowerCase() === typed);
-  P.draft.courseId = hit ? hit.id : '';
+  if(form) Object.assign(P.draft, Object.fromEntries(new FormData(form).entries()));
 }
 
 function wire(){
   const on = (id, ev, fn) => { const el = document.getElementById(id); if(el) el[ev] = fn; };
-
-  /* Course field: confirm the match under the input as they type. Updated in
-     place rather than through render(), which would rebuild the form and throw
-     away everything else they have typed so far. */
-  const courseInput = document.querySelector('#detailForm [name=courseTitle]');
-  const courseHint  = document.getElementById('courseHint');
-  if(courseInput && courseHint) courseInput.oninput = () => {
-    const typed = courseInput.value.trim().toLowerCase();
-    const hit = DB.get().courses.find(c => c.active && c.title.toLowerCase() === typed);
-    courseHint.textContent = hit
-      ? `${hit.title} — ${hit.duration || 'duration to be confirmed'}`
-      : typed ? 'No exact match yet — keep typing and pick from the list.'
-              : 'Start typing and pick your course from the list.';
-    courseHint.classList.toggle('ok', !!hit);
-    if(hit) courseInput.closest('.fld')?.classList.remove('bad');
-  };
 
   on('next2','onclick', () => {
     captureDetails();
@@ -722,7 +672,7 @@ function wire(){
   on('another','onclick', () => {
     /* Keep who they are, drop what they enrolled in. */
     const keep = { ...P.result };
-    ['id','no','ref','submitted','channel','status','courseId','courseTitle','batchId',
+    ['id','no','ref','submitted','channel','status','courseId','batchId',
      'traineeId','enrollmentId','decidedBy','decidedOn','reason','history','remarks',
      'termsVersion','termsAccepted','termsAcceptedAt']
       .forEach(k => delete keep[k]);

@@ -67,8 +67,7 @@ check('unplaced applications hold no seat', () => {
   const r = run(`(() => {
     const b = DB.get().batches.find(x => x.status === 'Open');
     const before = APPS.seatsTaken(b);
-    const c = DB.get().courses.find(x => x.id === b.courseId);
-    APPS.submit({ courseId:c.id, srn:'SRN-SEAT01', last:'Seatcheck', first:'Ana',
+    APPS.submit({ srn:'SRN-SEAT01', last:'Seatcheck', first:'Ana',
       birth:'1990-01-01', birthPlace:'Manila', mobile:'09170000001',
       email:'seat@mail.com', address:'Manila', facebook:'facebook.com/ana.seatcheck',
       rank:'Oiler', agency:'Direct Hire / Walk-in',
@@ -78,13 +77,14 @@ check('unplaced applications hold no seat', () => {
   })()`);
   return r.beforeFree === r.afterFree || JSON.stringify(r);
 });
-check('demand() counts unplaced applications', () =>
-  run('Object.values(APPS.demand()).reduce((s,n) => s + n, 0)') > 0 || 'no demand recorded');
-check('openBatches filters by course', () => {
+check('openBatches can filter by course', () => {
   const r = run(`(() => { const b = DB.get().batches.find(x => x.status === 'Open');
     return APPS.openBatches(b.courseId).every(x => x.courseId === b.courseId); })()`);
   return r === true || 'returned a batch for another course';
 });
+check('openBatches unfiltered returns them all', () =>
+  run('APPS.openBatches().length') >= run('APPS.openBatches(DB.get().batches[4].courseId).length')
+  || 'filtered set is larger than the whole');
 
 console.log('\n- validation -');
 check('every required field is reported', () => {
@@ -92,6 +92,8 @@ check('every required field is reported', () => {
   const missing = run('APPS.REQUIRED').filter(f => !e.includes(f));
   return missing.length === 0 || 'not reported: ' + missing.join(', ');
 });
+check('a course is NOT required', () =>
+  run(`!APPS.REQUIRED.includes('courseId')`) === true || 'still required');
 check('required set covers the brief', () => {
   const need = ['srn','last','first','birth','birthPlace','mobile','email','address',
                 'rank','agency','emergencyName','emergencyMobile'];
@@ -126,7 +128,6 @@ check('messenger is optional but still checked', () => {
 
 console.log('\n- submit -');
 const FULL = `{
-    courseId: DB.get().batches[4].courseId,
     srn:'srn-999001',
     last:'Testino', first:'Pedro', middle:'Cruz', suffix:'Jr.',
     sex:'M', birth:'1990-05-04', birthPlace:'Lucena City, Quezon',
@@ -139,6 +140,9 @@ const FULL = `{
   }`;
 run(`globalThis.NEW = APPS.submit(${FULL});`);
 check('returns a record',      () => run('!!NEW.id') === true || 'no id');
+check('carries no course or schedule yet', () =>
+  (run('NEW.courseId') === '' && run('NEW.batchId') === '') ||
+  `course:${run('NEW.courseId')} batch:${run('NEW.batchId')}`);
 check('ref is 6 chars',        () => run('NEW.ref.length') === 6 || run('NEW.ref'));
 check('ref avoids O/0/I/1/L',  () => !/[O0I1L]/.test(run('NEW.ref')) || run('NEW.ref'));
 check('status is Submitted',   () => run('NEW.status') === 'Submitted' || run('NEW.status'));
@@ -182,14 +186,13 @@ check('audit trail names the terms version', () =>
   run('NEW.history[0].note').includes(run('TERMS.version')) || run('NEW.history[0].note'));
 
 console.log('\n- duplicate guard -');
-check('same person + same course blocked', () => {
-  const e = run(`APPS.validate({ ...${FULL}, courseId:NEW.courseId })`);
+check('a second open registration for the same SRN is blocked', () => {
+  const e = run(`APPS.validate(${FULL})`);
   return e.includes('duplicate') || JSON.stringify(e);
 });
-check('same person, different course allowed', () => {
-  const e = run(`APPS.validate({ ...${FULL},
-    courseId: DB.get().batches.find(b => b.courseId !== NEW.courseId).courseId })`);
-  return !e.includes('duplicate') || 'blocked a legitimate second course';
+check('a different SRN is not blocked', () => {
+  const e = run(`APPS.validate({ ...${FULL}, srn:'SRN-OTHER-1' })`);
+  return !e.includes('duplicate') || 'blocked a different seafarer';
 });
 
 console.log('\n- tracking -');
@@ -199,15 +202,13 @@ check('surrounding spaces ok',   () => run(`APPS.track('  '+NEW.srn+'  ','  Test
 check('wrong surname finds nothing', () => run(`APPS.track(NEW.srn,'Wrong')`) === null || 'leaked');
 check('SRN alone finds nothing', () => run(`APPS.track(NEW.srn,'')`) === null || 'leaked');
 check('surname alone finds nothing', () => run(`APPS.track('','Testino')`) === null || 'leaked');
-check('trackAll returns every enrollment for that SRN, newest first', () => {
+check('trackAll returns every registration for that SRN, newest first', () => {
   const r = run(`(() => {
-    const b = DB.get().batches.find(x => x.status === 'Open' && x.courseId !== NEW.courseId);
-    APPS.submit({ ...${FULL}, courseId:b.courseId });
     const all = APPS.trackAll(NEW.srn, 'Testino');
     return { n:all.length, dates:all.map(a => a.submitted) };
   })()`);
   const sorted = [...r.dates].sort().reverse().join() === r.dates.join();
-  return (r.n >= 2 && sorted) || JSON.stringify(r);
+  return (r.n >= 1 && sorted) || JSON.stringify(r);
 });
 
 console.log('\n- lifecycle guards -');
@@ -230,7 +231,7 @@ const before = {
 };
 run(`APPS.advance(NEW,'Under Review','tester','');
      APPS.advance(NEW,'Approved','tester','');
-     globalThis.PICK = APPS.openBatches(NEW.courseId)[0];
+     globalThis.PICK = APPS.openBatches()[0];
      globalThis.OUT = APPS.convert(NEW,{ by:'tester', batchId:PICK.id, mode:'Enrolled',
        addons:[{desc:'Training kit & assessment fee',account:'4100',price:450}] });`);
 check('creates a new trainee', () => run('DB.get().trainees.length') === before.trainees + 1 || 'no');
@@ -247,19 +248,12 @@ check('invoice total = chosen batch fee + addon', () => {
 });
 check('conversion records the chosen schedule', () =>
   run('NEW.batchId === PICK.id') === true || 'batchId not written back');
+check('conversion records the course from that batch', () =>
+  run('NEW.courseId === PICK.courseId') === true || 'courseId not written back');
 check('convert without a schedule throws', () => {
   try{ run(`(() => { const a = DB.get().applications.find(x => x.status === 'Submitted');
     APPS.advance(a,'Approved','tester',''); APPS.convert(a,{by:'tester'}); })()`); return 'allowed'; }
-  catch(e){ return /Choose a schedule/.test(e.message) || e.message; }
-});
-check('convert onto the wrong course throws', () => {
-  try{ run(`(() => {
-    const a = DB.get().applications.find(x => APPS.isOpen(x) && !x.enrollmentId && x.status !== 'Approved');
-    if(a) APPS.advance(a,'Approved','tester','');
-    const wrong = DB.get().batches.find(b => b.courseId !== a.courseId);
-    APPS.convert(a,{by:'tester', batchId:wrong.id});
-  })()`); return 'allowed'; }
-  catch(e){ return /does not run/.test(e.message) || e.message; }
+  catch(e){ return /Choose a course and schedule/.test(e.message) || e.message; }
 });
 check('invoice line names the partner center', () =>
   run('OUT.invoice.items[0].desc').includes(run('PICK.center'))
@@ -321,7 +315,6 @@ console.log('\n- convert: existing seafarer (refresher) -');
 run(`
   globalThis.EXIST = DB.get().trainees[0];
   globalThis.APP2 = APPS.submit({
-    courseId: APPS.openBatches().find(b => !DB.get().enrollments.some(e => e.batchId === b.id && e.traineeId === EXIST.id)).courseId,
     srn:EXIST.srn, last:EXIST.last, first:EXIST.first, sex:EXIST.sex,
     birth:EXIST.birth, birthPlace:'Cebu City, Cebu',
     rank:'Chief Mate', mobile:'09998887777', email:'refresher@mail.com',
@@ -331,7 +324,7 @@ run(`
     emergencyName:'Ligaya Reyes', emergencyRelation:'Sister', emergencyMobile:'09171112222',
   });
   APPS.advance(APP2,'Approved','tester','');
-  globalThis.PICK2 = APPS.openBatches(APP2.courseId)[0];
+  globalThis.PICK2 = APPS.openBatches().find(b => !DB.get().enrollments.some(e => e.batchId === b.id && e.traineeId === EXIST.id));
   globalThis.OUT2 = APPS.convert(APP2,{ by:'tester', batchId:PICK2.id, mode:'Reserved' });
 `);
 const t2 = run('DB.get().trainees.length');

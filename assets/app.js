@@ -228,7 +228,7 @@ VIEWS.dashboard = () => {
           return UI.table([
             { h:'Applicant', k:a => `<b>${UI.esc(APPS.forName(a))}</b><br>
                 <span class="muted mono" style="font-size:11px">${UI.esc(a.ref)}</span>` },
-            { h:'Course', k:a => UI.esc(CRS(a.courseId)?.code || '—'), w:'70px' },
+            { h:'Rank', k:a => UI.esc(a.rank || '—') },
             { h:'Waiting', k:a => { const n = APPS.ageDays(a);
                 return n >= 3 ? `<b style="color:var(--warn)">${n}d</b>` : `${n}d`; }, cls:'num' },
             { h:'Status', k:a => UI.statusTag(a.status) },
@@ -304,10 +304,11 @@ VIEWS.admissions = () => {
           <span class="muted mono" style="font-size:11px">Ref ${UI.esc(a.ref)}</span>`, w:'150px' },
       { h:'Applicant', k:a => `<b>${UI.esc(APPS.forName(a))}</b><br>
           <span class="muted" style="font-size:11.5px">${UI.esc(a.rank || '—')}${a.agency ? ' · ' + UI.esc(a.agency) : ''}</span>` },
-      { h:'Course requested', k:a => { const crs = CRS(a.courseId), b = a.batchId ? BAT(a.batchId) : null;
-          return `<b>${UI.esc(crs?.title || '—')}</b><br><span class="muted" style="font-size:11.5px">${
-            b ? UI.dateRange(b.start,b.end) + ' · ' + UI.esc(b.center)
-              : UI.esc(crs?.duration || '') + ' · <i>schedule not yet assigned</i>'}</span>`; } },
+      { h:'Course and Schedule', k:a => { const crs = a.courseId ? CRS(a.courseId) : null,
+              b = a.batchId ? BAT(a.batchId) : null;
+          return crs && b
+            ? `<b>${UI.esc(crs.title)}</b><br><span class="muted" style="font-size:11.5px">${UI.dateRange(b.start,b.end)} · ${UI.esc(b.center)}</span>`
+            : `<span class="muted"><i>Settle with the applicant, then enroll</i></span>`; } },
       { h:'Contact', k:a => `${UI.esc(a.mobile)}<br><span class="muted" style="font-size:11.5px">${UI.esc(a.email || '—')}</span>` },
       { h:'Company', k:a => a.agency
           ? UI.esc(a.agency)
@@ -874,9 +875,10 @@ VIEWS.settings = () => {
 
 /* ----- admissions ----- */
 function applicationModal(a){
-  const c = CRS(a.courseId), b = a.batchId ? BAT(a.batchId) : null;
+  const c = a.courseId ? CRS(a.courseId) : null;
+  const b = a.batchId ? BAT(a.batchId) : null;
   const match = APPS.matchTrainee(a);
-  const options = c ? APPS.openBatches(c.id) : [];
+  const options = APPS.openBatches();
   const closed = APPS.isFinal(a);
 
   /* Only offer transitions the lifecycle actually permits. */
@@ -908,17 +910,16 @@ function applicationModal(a){
         this application creates a new master record.</div>` : ''}
 
       <div class="note ${!closed && !options.length && !b ? 'warn' : ''}">
-        <b>${UI.esc(c?.title || 'Course no longer in the catalogue')}</b>
-        ${(c?.modes||[]).length ? ` · ${UI.esc(c.modes.join(' / '))}` : ''}<br>
-        ${UI.esc(c?.duration || 'Duration to be confirmed')}<br>
-        ${b
-          ? `<b>Placed on</b> ${UI.dateRange(b.start,b.end)} · ${UI.esc(b.center)} ·
+        ${c && b
+          ? `<b>${UI.esc(c.title)}</b>${(c.modes||[]).length ? ` · ${UI.esc(c.modes.join(' / '))}` : ''}<br>
+             ${UI.esc(c.duration || '')}<br>
+             <b>Placed on</b> ${UI.dateRange(b.start,b.end)} · ${UI.esc(b.center)} ·
              ${UI.esc(b.room)} · fee ${UI.peso(b.fee)}`
           : options.length
-            ? `<b>${options.length} open schedule(s)</b> to choose from at enrollment —
-               earliest ${UI.dateRange(options[0].start, options[0].end)} at ${UI.esc(options[0].center)},
-               ${UI.peso(options[0].fee)}`
-            : `<b>No open schedule for this course.</b> Schedule a batch before enrolling this applicant.`}
+            ? `<b>No course chosen yet.</b> The applicant registered their details; settle the
+               course with them, then pick the matching schedule when you enroll.<br>
+               ${options.length} open schedule(s) available.`
+            : `<b>No open schedules at all.</b> Schedule a batch before enrolling this applicant.`}
       </div>
 
       <div class="grid g2">
@@ -990,16 +991,14 @@ function applicationModal(a){
 /* Approve → enroll: one confirmation that creates the trainee, the enrollment and
    (unless it is only reserved) the invoice and its journal entry. */
 function convertForm(a){
-  const c = CRS(a.courseId);
-  if(!c){ UI.toast('The course this application asked for no longer exists.', 'bad'); return; }
-
-  /* The applicant asked for a course; the registrar chooses which dated run at
-     which partner center they go on. That choice sets the fee. */
-  const options = APPS.openBatches(c.id);
+  /* The applicant registered their details only. The Registrar settles the
+     course with them off-system, then picks the batch here — that one choice
+     fixes the course, the dates, the partner center and the fee together. */
+  const options = APPS.openBatches();
   if(!options.length){
-    UI.confirm(`No open schedule for ${c.title}.`, () => { location.hash = '#/batches'; },
+    UI.confirm('No open schedules with a free seat.', () => { location.hash = '#/batches'; },
       { yes:'Schedule a batch', title:'Nothing to place them on',
-        detail:'This applicant asked for a course that has no open batch with a free seat. Schedule one first, then come back and enroll them.' });
+        detail:'Every batch is full, closed or already started. Schedule one first, then come back and enroll this applicant.' });
     return;
   }
   const match = APPS.matchTrainee(a);
@@ -1007,7 +1006,7 @@ function convertForm(a){
 
   UI.modal({
     title:'Enroll applicant — ' + APPS.forName(a),
-    sub:`${a.no} · ${c.title}`,
+    sub:`${a.no} · choose the course and schedule`,
     wide:true,
     submitLabel:'Enroll and post',
     body:`
@@ -1017,10 +1016,10 @@ function convertForm(a){
              (${UI.esc(match.trainee.no)}), matched on ${UI.esc(match.on)}.`
           : `A new trainee master record will be created for this applicant.`}
       </div>
-      <h4 style="margin:0 0 8px;font-size:13px">Place them on a schedule</h4>
-      ${UI.f.select('batchId','Schedule', first.id, options.map(o => {
-          const s = APPS.seatsTaken(o);
-          return { v:o.id, l:`${UI.dateRange(o.start,o.end)} · ${o.center} · ${UI.peso(o.fee)} · ${s.free} seat(s) left` };
+      <h4 style="margin:0 0 8px;font-size:13px">Course and schedule</h4>
+      ${UI.f.select('batchId','Course and schedule', first.id, options.map(o => {
+          const s = APPS.seatsTaken(o), oc = CRS(o.courseId);
+          return { v:o.id, l:`${oc ? oc.title : '—'} · ${UI.dateRange(o.start,o.end)} · ${o.center} · ${UI.peso(o.fee)} · ${s.free} seat(s) left` };
         }), { req:true })}
       ${UI.f.select('mode','Enrollment status','Enrolled',
         [{v:'Enrolled',l:'Enrolled — issue the invoice now'},
@@ -1028,6 +1027,7 @@ function convertForm(a){
       <div class="hr"></div>
       <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
       <div class="note" id="batchNote" style="margin-bottom:12px"></div>
+      <input type="hidden" name="_" value="">
       <div class="chips" id="addonBox" style="margin-bottom:12px">
         ${addons().map((ad,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
             <input type="checkbox" name="addon${i}" value="${i}" style="width:auto;margin:0"> ${UI.esc(ad.desc)} — ${UI.peso(ad.price)}</label>`).join('')}
@@ -1057,8 +1057,9 @@ function convertForm(a){
   const form = document.getElementById('mForm');
   const recalc = () => {
     const b = BAT(form.batchId.value) || first;
+    const bc = CRS(b.courseId);
     document.getElementById('batchNote').innerHTML =
-      `<b>${UI.esc(c.title)}</b> · ${UI.esc(c.duration || '')}<br>
+      `<b>${UI.esc(bc ? bc.title : '—')}</b> · ${UI.esc(bc?.duration || '')}<br>
        ${UI.esc(b.center)} · ${UI.dateRange(b.start,b.end)} · ${UI.esc(b.room)} · fee ${UI.peso(b.fee)}`;
     const items = [{ qty:1, price:b.fee }];
     addons().forEach((ad,i) => { if(form['addon'+i] && form['addon'+i].checked) items.push({ qty:1, price:ad.price }); });

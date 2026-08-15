@@ -337,8 +337,7 @@ const DB = (() => {
     const KIN = [['Marilou','Spouse'],['Rosario','Mother'],['Editha','Spouse'],
                  ['Ligaya','Sister'],['Corazon','Mother']];
 
-    const AP = (bi, [fn,ln,mn,sfx,sex,rank,agency], daysAgo, status, extra) => {
-      const b = data.batches[bi];
+    const AP = (_unused, [fn,ln,mn,sfx,sex,rank,agency], daysAgo, status, extra) => {
       data.seq.application++;
       const i = data.seq.application - 1;
       const [kin, rel] = KIN[i % KIN.length];
@@ -347,9 +346,9 @@ const DB = (() => {
         no:`APP-${new Date().getFullYear()}-${String(data.seq.application).padStart(4,'0')}`,
         ref:['K7QX2M','R4HB9T','P2LN6V','W8DC3Y','M5TG7J'][i] || uid('R').slice(2,8).toUpperCase(),
         submitted:dOff(-daysAgo), channel:'Public Portal', status,
-        /* Applicants ask for a course; the registrar assigns the dated run at a
-           partner center when they approve it. */
-        courseId:b.courseId, batchId:'',
+        /* Applicants register their details only. The Registrar settles the
+           course with them, then picks the batch — which fixes both. */
+        courseId:'', batchId:'',
         srn:`SRN-${400000 + daysAgo*311}`,
         last:ln, first:fn, middle:mn, suffix:sfx,
         sex, birth:`199${daysAgo%10}-0${(daysAgo%9)+1}-1${daysAgo%9}`,
