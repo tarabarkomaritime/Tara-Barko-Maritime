@@ -311,7 +311,9 @@ const DB = (() => {
         no:`APP-${new Date().getFullYear()}-${String(data.seq.application).padStart(4,'0')}`,
         ref:['K7QX2M','R4HB9T','P2LN6V','W8DC3Y','M5TG7J'][i] || uid('R').slice(2,8).toUpperCase(),
         submitted:dOff(-daysAgo), channel:'Public Portal', status,
-        courseId:b.courseId, batchId:b.id,
+        /* Applicants ask for a course; the registrar assigns the dated run at a
+           partner center when they approve it. */
+        courseId:b.courseId, batchId:'',
         srn:`SRN-${400000 + daysAgo*311}`,
         last:ln, first:fn, middle:mn, suffix:sfx,
         sex, birth:`199${daysAgo%10}-0${(daysAgo%9)+1}-1${daysAgo%9}`,

@@ -294,8 +294,10 @@ VIEWS.admissions = () => {
           <span class="muted mono" style="font-size:11px">Ref ${UI.esc(a.ref)}</span>`, w:'150px' },
       { h:'Applicant', k:a => `<b>${UI.esc(APPS.forName(a))}</b><br>
           <span class="muted" style="font-size:11.5px">${UI.esc(a.rank || '—')}${a.agency ? ' · ' + UI.esc(a.agency) : ''}</span>` },
-      { h:'Course', k:a => { const crs = CRS(a.courseId), b = BAT(a.batchId);
-          return `<b>${UI.esc(crs?.code || '—')}</b><br><span class="muted" style="font-size:11.5px">${b ? UI.dateRange(b.start,b.end) : '—'}</span>`; } },
+      { h:'Course requested', k:a => { const crs = CRS(a.courseId), b = a.batchId ? BAT(a.batchId) : null;
+          return `<b>${UI.esc(crs?.title || '—')}</b><br><span class="muted" style="font-size:11.5px">${
+            b ? UI.dateRange(b.start,b.end) + ' · ' + UI.esc(b.center)
+              : UI.esc(crs?.duration || '') + ' · <i>schedule not yet assigned</i>'}</span>`; } },
       { h:'Contact', k:a => `${UI.esc(a.mobile)}<br><span class="muted" style="font-size:11.5px">${UI.esc(a.email || '—')}</span>` },
       { h:'Payer', k:a => `<span class="tag t-${a.payer === 'Agency-billed' ? 'info' : 'muted'}">${UI.esc(a.payer || 'Self-paid')}</span>` },
       { h:'Submitted', k:a => { const d = APPS.ageDays(a);
@@ -858,9 +860,9 @@ VIEWS.settings = () => {
 
 /* ----- admissions ----- */
 function applicationModal(a){
-  const c = CRS(a.courseId), b = BAT(a.batchId);
+  const c = CRS(a.courseId), b = a.batchId ? BAT(a.batchId) : null;
   const match = APPS.matchTrainee(a);
-  const seatInfo = b ? APPS.seatsTaken(b) : null;
+  const options = c ? APPS.openBatches(c.id) : [];
   const closed = APPS.isFinal(a);
 
   /* Only offer transitions the lifecycle actually permits. */
@@ -892,12 +894,18 @@ function applicationModal(a){
       ${!match && !a.traineeId ? `<div class="note">No matching trainee on file. Enrolling
         this application creates a new master record.</div>` : ''}
 
-      <div class="note ${seatInfo && seatInfo.free <= 0 ? 'bad' : ''}">
-        <b>${UI.esc(c?.code || '—')} — ${UI.esc(c?.title || '')}</b><br>
-        ${b ? `${UI.dateRange(b.start,b.end)} · ${UI.esc(b.room)} · ${UI.esc(b.instructor)} ·
-               ${seatInfo.enrolled}/${b.capacity} seats taken, ${seatInfo.pending} pending application(s)`
-            : 'The selected batch no longer exists.'}<br>
-        ${UI.esc(c?.duration || '')} · fee ${UI.peso(b?.fee || 0)} at ${UI.esc(b?.center || '—')}
+      <div class="note ${!closed && !options.length && !b ? 'warn' : ''}">
+        <b>${UI.esc(c?.title || 'Course no longer in the catalogue')}</b>
+        ${c?.mode ? ` · ${UI.esc(c.mode)}` : ''}<br>
+        ${UI.esc(c?.duration || 'Duration to be confirmed')}<br>
+        ${b
+          ? `<b>Placed on</b> ${UI.dateRange(b.start,b.end)} · ${UI.esc(b.center)} ·
+             ${UI.esc(b.room)} · fee ${UI.peso(b.fee)}`
+          : options.length
+            ? `<b>${options.length} open schedule(s)</b> to choose from at enrollment —
+               earliest ${UI.dateRange(options[0].start, options[0].end)} at ${UI.esc(options[0].center)},
+               ${UI.peso(options[0].fee)}`
+            : `<b>No open schedule for this course.</b> Schedule a batch before enrolling this applicant.`}
       </div>
 
       <div class="grid g2">
@@ -956,13 +964,24 @@ function applicationModal(a){
 /* Approve → enroll: one confirmation that creates the trainee, the enrollment and
    (unless it is only reserved) the invoice and its journal entry. */
 function convertForm(a){
-  const c = CRS(a.courseId), b = BAT(a.batchId);
-  if(!b){ UI.toast('The batch this application selected no longer exists.', 'bad'); return; }
+  const c = CRS(a.courseId);
+  if(!c){ UI.toast('The course this application asked for no longer exists.', 'bad'); return; }
+
+  /* The applicant asked for a course; the registrar chooses which dated run at
+     which partner center they go on. That choice sets the fee. */
+  const options = APPS.openBatches(c.id);
+  if(!options.length){
+    UI.confirm(`No open schedule for ${c.title}.`, () => { location.hash = '#/batches'; },
+      { yes:'Schedule a batch', title:'Nothing to place them on',
+        detail:'This applicant asked for a course that has no open batch with a free seat. Schedule one first, then come back and enroll them.' });
+    return;
+  }
   const match = APPS.matchTrainee(a);
+  const first = options[0];
 
   UI.modal({
     title:'Enroll applicant — ' + APPS.forName(a),
-    sub:`${a.no} · ${c.code} · ${UI.dateRange(b.start,b.end)}`,
+    sub:`${a.no} · ${c.title}`,
     wide:true,
     submitLabel:'Enroll and post',
     body:`
@@ -972,6 +991,11 @@ function convertForm(a){
              (${UI.esc(match.trainee.no)}), matched on ${UI.esc(match.on)}.`
           : `A new trainee master record will be created for this applicant.`}
       </div>
+      <h4 style="margin:0 0 8px;font-size:13px">Place them on a schedule</h4>
+      ${UI.f.select('batchId','Schedule', first.id, options.map(o => {
+          const s = APPS.seatsTaken(o);
+          return { v:o.id, l:`${UI.dateRange(o.start,o.end)} · ${o.center} · ${UI.peso(o.fee)} · ${s.free} seat(s) left` };
+        }), { req:true })}
       ${UI.row(
         UI.f.select('mode','Enrollment status','Enrolled',
           [{v:'Enrolled',l:'Enrolled — issue the invoice now'},
@@ -979,9 +1003,7 @@ function convertForm(a){
         UI.f.text('payer','Fee billed to', a.payer || 'Self-paid', { ro:true }))}
       <div class="hr"></div>
       <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
-      <div class="note" style="margin-bottom:12px">
-        <b>${UI.esc(c.title)}</b> · ${UI.esc(b.center)} · fee ${UI.peso(b.fee)}
-      </div>
+      <div class="note" id="batchNote" style="margin-bottom:12px"></div>
       <div class="chips" id="addonBox" style="margin-bottom:12px">
         ${addons().map((ad,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
             <input type="checkbox" name="addon${i}" value="${i}" style="width:auto;margin:0"> ${UI.esc(ad.desc)} — ${UI.peso(ad.price)}</label>`).join('')}
@@ -994,7 +1016,7 @@ function convertForm(a){
       const chosen = addons().filter((ad,i) => fd['addon'+i]);
       try{
         const out = APPS.convert(a, {
-          by:SESSION.name, mode:fd.mode, addons:chosen,
+          by:SESSION.name, batchId:fd.batchId, mode:fd.mode, addons:chosen,
           discount:fd.discount, discountNote:fd.discountNote,
         });
         UI.toast(out.invoice
@@ -1010,7 +1032,11 @@ function convertForm(a){
 
   const form = document.getElementById('mForm');
   const recalc = () => {
-    const items = [{ qty:1, price:c.fee }];
+    const b = BAT(form.batchId.value) || first;
+    document.getElementById('batchNote').innerHTML =
+      `<b>${UI.esc(c.title)}</b> · ${UI.esc(c.duration || '')}<br>
+       ${UI.esc(b.center)} · ${UI.dateRange(b.start,b.end)} · ${UI.esc(b.room)} · fee ${UI.peso(b.fee)}`;
+    const items = [{ qty:1, price:b.fee }];
     addons().forEach((ad,i) => { if(form['addon'+i] && form['addon'+i].checked) items.push({ qty:1, price:ad.price }); });
     const t = ACC.computeInvoice(items, form.discount.value);
     const reserved = form.mode.value === 'Reserved';

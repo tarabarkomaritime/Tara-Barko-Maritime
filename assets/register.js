@@ -29,9 +29,9 @@ const courseOf = id => DB.get().courses.find(c => c.id === id);
 function viewCourses(){
   const d = DB.get();
   const q = (P.q || '').toLowerCase();
-  const open = APPS.openBatches();
-  const courses = d.courses.filter(c => c.active &&
-    (!q || [c.code, c.title, c.mode].join(' ').toLowerCase().includes(q)));
+  const active = d.courses.filter(c => c.active);
+  const courses = active.filter(c =>
+    !q || [c.code, c.title, c.mode].join(' ').toLowerCase().includes(q));
 
   return `
     <section class="p-hero">
@@ -39,43 +39,23 @@ function viewCourses(){
         <span class="p-eyebrow">MARINA &amp; STCW accredited</span>
         <h1>Train with Tara Barko Maritime.</h1>
         <p>Basic safety, advanced safety, medical, security and simulator courses for
-           Filipino seafarers. Reserve your seat online, keep your reference code, and
-           settle the fee at our office — no need to queue just to apply.</p>
+           Filipino seafarers. Tell us which course you need &mdash; we will find you a
+           seat and call you to confirm the schedule and the fee.</p>
         <div class="p-hero-acts">
           <a class="btn btn-accent btn-lg" href="#/enroll">Enroll now</a>
           <a class="btn btn-onblue btn-lg" href="#/enroll/track">Track my enrollment</a>
         </div>
       </div>
       <div class="p-hero-stats">
-        <div><b>${d.courses.filter(c => c.active).length}</b><span>accredited courses</span></div>
-        <div><b>${open.length}</b><span>open schedules</span></div>
-        <div><b>${open.reduce((s,b) => s + APPS.seatsTaken(b).free, 0)}</b><span>seats available</span></div>
+        <div><b>${active.length}</b><span>accredited courses</span></div>
+        <div><b>1</b><span>working day to reply</span></div>
       </div>
     </section>
 
     <div class="p-sec-head">
-      <h2>Open schedules</h2>
-      <p>${open.length ? 'Seats shown are already net of applications waiting for approval.'
-                       : 'No batch is accepting online registration right now.'}</p>
-    </div>
-    ${open.length ? open.map(b => {
-      const c = courseOf(b.courseId), s = APPS.seatsTaken(b), low = s.free <= 3;
-      return `
-        <div class="p-sched">
-          <div class="p-when">${esc(c.title)}
-            <small>${UI.dateRange(b.start,b.end)} &middot; ${esc(b.center)} &middot; ${esc(b.room)}</small></div>
-          <span class="p-flex"></span>
-          <div class="p-seats">Seats left <b class="${low?'low':''}">${s.free}</b> of ${b.capacity}</div>
-          <div class="p-seats p-seats-fee"><b>${peso(b.fee)}</b></div>
-          <a class="btn btn-accent btn-sm" href="#/enroll?batch=${b.id}">Enroll</a>
-        </div>`;
-    }).join('') : `<div class="empty"><span class="big">&#9875;</span>
-        Please check back soon, or call the registrar at ${esc(CO().contact)}.</div>`}
-
-    <div class="p-sec-head">
       <h2>Course catalogue</h2>
-      <p>${d.courses.filter(c => c.active).length} accredited courses. Fees depend on the
-         training center and the schedule &mdash; ask the registrar for a quotation.</p>
+      <p>${active.length} accredited courses. Fees and dates depend on the training center
+         &mdash; the registrar confirms both when your enrollment is approved.</p>
     </div>
     <div class="toolbar" style="margin-bottom:14px">
       <input type="search" id="cq" value="${esc(P.q||'')}"
@@ -102,7 +82,7 @@ function viewEnroll(){
 
   const body = P.tab === 'track' ? paneTrack()
              : P.result ? paneDone()
-             : `${stepBar()}<div class="p-panel">${[stepSchedule, stepDetails, stepReview][P.step-1]()}</div>`;
+             : `${stepBar()}<div class="p-panel">${[stepCourse, stepDetails, stepReview][P.step-1]()}</div>`;
 
   return `<div class="p-narrow">
     <div class="p-sec-head p-sec-center">
@@ -117,7 +97,7 @@ function viewEnroll(){
 }
 
 /* ----- wizard chrome ----- */
-const STEPS = ['Choose a schedule','Your details','Review and submit'];
+const STEPS = ['Choose a course','Your details','Review and submit'];
 
 function stepBar(){
   return `<div class="p-steps">${STEPS.map((s,i) => {
@@ -130,43 +110,53 @@ function stepBar(){
 const bad = f => P.errors.includes(f) ? 'bad' : '';
 const req = `<span class="p-req">*</span>`;
 
-/* ----- step 1 · schedule ----- */
-function stepSchedule(){
-  const open = APPS.openBatches();
-  if(!open.length){
-    return `<h2>Choose a schedule</h2>
-      <p class="p-lead">Online registration is temporarily closed.</p>
-      <div class="empty"><span class="big">&#9875;</span>
-        No batch is accepting applications at the moment. Please call
-        ${esc(CO().contact)} for the next schedule.</div>`;
-  }
+/* ----- step 1 · course ----- */
+/* 239 courses, so this is a search box rather than a list of radio buttons. The
+   applicant picks the course; the registrar picks the dated run at a partner
+   center, because which centers have seats free is not public information. */
+function stepCourse(){
+  const q = (P.cq || '').toLowerCase().trim();
+  const active = DB.get().courses.filter(c => c.active);
+  const chosen = P.draft.courseId ? courseOf(P.draft.courseId) : null;
 
-  const byCategory = {};
-  open.forEach(b => {
-    const c = courseOf(b.courseId);
-    (byCategory[b.center] = byCategory[b.center] || []).push(b);
-  });
+  const matches = !q ? [] : active
+    .filter(c => [c.code, c.title, c.mode].join(' ').toLowerCase().includes(q))
+    .slice(0, 40);
 
   return `
-    <h2>Choose a schedule</h2>
-    <p class="p-lead">Select the batch you want to join.</p>
-    ${P.errors.includes('batchId') ? `<div class="note warn">Please select a schedule to continue.</div>` : ''}
-    ${Object.entries(byCategory).map(([cat, list]) => `
-      <h4 class="p-group">${esc(cat)}</h4>
-      ${list.map(b => {
-        const c = courseOf(b.courseId), s = APPS.seatsTaken(b), low = s.free <= 3;
-        const on = P.draft.batchId === b.id;
-        return `
-          <label class="p-sched p-pick ${on?'chosen':''}">
-            <input type="radio" name="batchId" value="${b.id}" ${on?'checked':''}>
-            <div class="p-when">${esc(c.title)}
-              <small>${UI.dateRange(b.start,b.end)} &middot; ${esc(c.duration || '')} &middot; ${esc(b.room)}</small></div>
-            <span class="p-flex"></span>
-            <div class="p-seats">Seats left <b class="${low?'low':''}">${s.free}</b> of ${b.capacity}</div>
-            <div class="p-seats p-seats-fee"><b>${peso(b.fee)}</b></div>
-          </label>`;
-      }).join('')}
-    `).join('')}
+    <h2>Choose a course</h2>
+    <p class="p-lead">Search for the course you need. We will confirm the schedule, the
+       training center and the fee when we call you.</p>
+    ${P.errors.includes('courseId') ? `<div class="note warn">Please choose a course to continue.</div>` : ''}
+
+    ${chosen ? `
+      <div class="p-chosen">
+        <div>
+          <span class="p-chosen-lbl">Selected course</span>
+          <b>${esc(chosen.title)}</b>${chosen.mode ? ` <span class="p-mode">${esc(chosen.mode)}</span>` : ''}
+          <small>${esc(chosen.duration || 'Duration to be confirmed')}</small>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="clearCourse">Change</button>
+      </div>` : ''}
+
+    <label class="fld"><span>Search the catalogue</span>
+      <input type="search" id="courseQ" value="${esc(P.cq||'')}"
+             placeholder="e.g. Basic Training, AFF, medical, watchkeeping…"></label>
+
+    ${q ? (matches.length ? `
+      <div class="p-cat p-cat-pick">
+        ${matches.map(c => `
+          <button type="button" class="p-cat-row p-cat-btn ${P.draft.courseId === c.id ? 'on' : ''}" data-course="${c.id}">
+            <span class="p-cat-title">${esc(c.title)}${c.mode ? ` <span class="p-mode">${esc(c.mode)}</span>` : ''}</span>
+            <span class="p-cat-dur">${esc(c.duration || '—')}</span>
+          </button>`).join('')}
+      </div>
+      ${matches.length === 40 ? `<p class="p-hint">Showing the first 40 matches — keep typing to narrow it down.</p>` : ''}`
+      : `<div class="empty">No course matches &ldquo;${esc(P.cq)}&rdquo;. Try a shorter word, or call
+           the registrar at ${esc(CO().contact)}.</div>`)
+      : `<p class="p-hint">Start typing to search all
+           ${active.length} accredited courses.</p>`}
+
     <div class="p-acts">
       <a class="btn btn-ghost" href="#/courses">&larr; Back to courses</a>
       <button class="btn btn-accent" id="next1">Continue &rarr;</button>
@@ -175,7 +165,7 @@ function stepSchedule(){
 
 /* ----- step 2 · details ----- */
 function stepDetails(){
-  const d = P.draft, b = APPS.batch(d.batchId), c = courseOf(b.courseId);
+  const d = P.draft, c = courseOf(d.courseId);
   const agencies = [...new Set(DB.get().trainees.map(t => t.agency).filter(Boolean))].sort();
   const ranks = ['Master','Chief Mate','2nd Officer','3rd Officer','Deck Cadet','Bosun',
     'Able Seaman','Ordinary Seaman','Chief Engineer','2nd Engineer','3rd Engineer',
@@ -193,8 +183,8 @@ function stepDetails(){
 
   return `
     <h2>Your details</h2>
-    <p class="p-lead">Applying for <b>${esc(c.title)}</b>,
-       ${UI.dateRange(b.start,b.end)} at ${esc(b.center)}. Fields marked ${req} are required.</p>
+    <p class="p-lead">Enrolling in <b>${esc(c.title)}</b>
+       (${esc(c.duration || 'duration to be confirmed')}). Fields marked ${req} are required.</p>
     ${P.errors.length ? `<div class="note warn">
        <b>Please check the highlighted fields.</b>
        ${[...new Set(P.errors)].map(e => APPS.LABELS[e]).filter(Boolean).slice(0,6).join(' &middot; ')}
@@ -275,8 +265,7 @@ function stepDetails(){
 
 /* ----- step 3 · review ----- */
 function stepReview(){
-  const d = P.draft, b = APPS.batch(d.batchId), c = courseOf(b.courseId);
-  const t = ACC.computeInvoice([{ qty:1, price:b.fee }], 0);
+  const d = P.draft, c = courseOf(d.courseId);
   const L = (k,v) => `<dt>${esc(k)}</dt><dd>${v || '<span class="muted">Not provided</span>'}</dd>`;
   const full = `${d.last}${d.suffix ? ' ' + d.suffix : ''}, ${d.first} ${d.middle || ''}`.trim();
 
@@ -286,9 +275,8 @@ function stepReview(){
        through the registrar.</p>
 
     <div class="note">
-      <b>${esc(c.title)}</b><br>
-      ${UI.dateRange(b.start,b.end)} &middot; ${esc(c.duration || '')} &middot;
-      ${esc(b.center)} &middot; ${esc(b.room)} &middot; Instructor ${esc(b.instructor)}
+      <b>${esc(c.title)}</b>${c.mode ? ` &middot; ${esc(c.mode)}` : ''}<br>
+      ${esc(c.duration || 'Duration to be confirmed')}
     </div>
 
     <h4 class="p-group">Seafarer identity</h4>
@@ -327,23 +315,14 @@ function stepReview(){
     ${d.remarks ? `<dl class="def">${L('Notes', esc(d.remarks))}</dl>` : ''}
 
     <div class="hr"></div>
-    <div class="p-total">
-      <table>
-        <tr><td>Published course fee</td><td class="num">${UI.num(t.subtotal)}</td></tr>
-        <tr><td>VAT-able amount</td><td class="num">${UI.num(t.net)}</td></tr>
-        <tr><td>VAT (${CO().vatRate}%)</td><td class="num">${UI.num(t.vat)}</td></tr>
-        <tr class="p-total-row"><td>Estimated amount due</td><td class="num">${peso(t.total)}</td></tr>
-      </table>
-    </div>
     <div class="note warn">
-      This is an <b>estimate of the course fee only</b>. Training kits, assessment fees, ID
-      processing and insurance are added by the registrar when your enrollment is confirmed.
-      Your official invoice is issued at that point &mdash; not now.
-      <b>No payment is collected through this website.</b>
+      <b>No fee is shown or collected here.</b> The training fee depends on which partner
+      center and which dates we can place you on. The registrar will call you within one
+      working day with the schedule and the exact amount, and your official invoice is
+      issued at that point.
     </div>
 
-    ${P.errors.includes('duplicate') ? `<div class="note bad">You already have an application waiting for this batch. Track it instead using your reference code.</div>` : ''}
-    ${P.errors.includes('batchFull') ? `<div class="note bad">The last seat on this batch was taken while you were filling in the form. Please go back and choose another schedule.</div>` : ''}
+    ${P.errors.includes('duplicate') ? `<div class="note bad">You already have an enrollment waiting for this course. Track it instead using your reference code.</div>` : ''}
 
     <label class="p-consent">
       <input type="checkbox" id="consent">
@@ -359,7 +338,7 @@ function stepReview(){
 
 /* ----- confirmation ----- */
 function paneDone(){
-  const a = P.result, b = APPS.batch(a.batchId), c = courseOf(a.courseId);
+  const a = P.result, c = courseOf(a.courseId);
   return `
     <div class="p-panel p-center">
       <div class="p-ok-mark">&#10003;</div>
@@ -394,17 +373,17 @@ function paneDone(){
         </dl>
         <dl class="def">
           <dt>Course</dt><dd><b>${esc(c.title)}</b></dd>
-          <dt>Schedule</dt><dd>${UI.dateRange(b.start,b.end)}</dd>
-          <dt>Venue</dt><dd>${esc(b.room)}</dd>
+          <dt>Duration</dt><dd>${esc(c.duration || 'To be confirmed')}</dd>
+          <dt>Schedule</dt><dd><span class="muted">To be assigned by the registrar</span></dd>
           <dt>Reference code</dt><dd class="mono"><b>${esc(a.ref)}</b></dd>
           <dt>Status</dt><dd>${UI.statusTag('Submitted')}</dd>
         </dl>
       </div>
       <div class="note p-slip-note">
         <b>What happens next.</b> The registrar reviews your enrollment, usually within one
-        working day. You will be called on the mobile number above to confirm your seat and
-        settle the fee. Bring this slip and your original SIRB, passport and SRN on your first
-        training day. <b>This slip is not an official receipt.</b>
+        working day, then calls you on the mobile number above with the schedule, the
+        training center and the fee. Bring this slip and your original SIRB, passport and SRN
+        on your first training day. <b>This slip is not an official receipt.</b>
       </div>
     </div>
 
@@ -445,7 +424,8 @@ function paneTrack(){
 }
 
 function trackResult(a){
-  const b = APPS.batch(a.batchId), c = courseOf(a.courseId);
+  const b = a.batchId ? APPS.batch(a.batchId) : null;   // assigned only at approval
+  const c = courseOf(a.courseId);
   const reached = STAGE_ORDER.indexOf(a.status);
   const closed = a.status === 'Rejected' || a.status === 'Withdrawn';
 
@@ -477,7 +457,10 @@ function trackResult(a){
       <div class="hr"></div>
       <dl class="def">
         <dt>Course</dt><dd><b>${esc(c.title)}</b></dd>
-        <dt>Schedule</dt><dd>${UI.dateRange(b.start,b.end)} &middot; ${esc(b.center)} &middot; ${esc(b.room)}</dd>
+        <dt>Duration</dt><dd>${esc(c.duration || 'To be confirmed')}</dd>
+        <dt>Schedule</dt><dd>${b
+          ? `${UI.dateRange(b.start,b.end)} &middot; ${esc(b.center)} &middot; ${esc(b.room)}`
+          : '<span class="muted">Not yet assigned — the registrar will confirm your dates</span>'}</dd>
         <dt>SRN</dt><dd class="mono">${esc(a.srn)}</dd>
       </dl>
       <div class="hr"></div>
@@ -511,8 +494,8 @@ function render(){
 
   if(P.view === 'enroll'){
     P.tab = sub === 'track' ? 'track' : 'apply';
-    if(P.tab === 'apply' && params.get('batch')){
-      P.draft.batchId = params.get('batch');
+    if(P.tab === 'apply' && params.get('course')){
+      P.draft.courseId = params.get('course');
       P.result = null;
     }
     if(P.tab === 'track' && params.get('ref')) P.trackRef = params.get('ref');
@@ -537,18 +520,28 @@ function captureDetails(){
 function wire(){
   const on = (id, ev, fn) => { const el = document.getElementById(id); if(el) el[ev] = fn; };
 
-  document.querySelectorAll('input[name="batchId"]').forEach(r => r.onchange = () => {
-    P.draft.batchId = r.value; P.errors = []; render();
+  /* step 1 — course search and selection */
+  const cqi = document.getElementById('courseQ');
+  if(cqi) cqi.oninput = () => {
+    P.cq = cqi.value;
+    const pos = cqi.selectionStart;
+    render();
+    const again = document.getElementById('courseQ');
+    if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
+  };
+  document.querySelectorAll('[data-course]').forEach(btn => btn.onclick = () => {
+    P.draft.courseId = btn.dataset.course; P.errors = []; render();
   });
+  on('clearCourse','onclick', () => { P.draft.courseId = ''; render(); });
   on('next1','onclick', () => {
-    if(!P.draft.batchId){ P.errors = ['batchId']; return render(); }
+    if(!P.draft.courseId){ P.errors = ['courseId']; return render(); }
     P.errors = []; P.step = 2; render();
   });
 
   on('back2','onclick', () => { captureDetails(); P.step = 1; P.errors = []; render(); });
   on('next2','onclick', () => {
     captureDetails();
-    P.errors = APPS.validate(P.draft).filter(e => e !== 'duplicate' && e !== 'batchFull');
+    P.errors = APPS.validate(P.draft).filter(e => e !== 'duplicate');
     if(P.errors.length){
       render();
       const first = document.querySelector('.fld.bad input');
@@ -581,7 +574,7 @@ function wire(){
     ['id','no','ref','submitted','channel','status','courseId','batchId',
      'traineeId','enrollmentId','decidedBy','decidedOn','reason','history','remarks']
       .forEach(k => delete keep[k]);
-    P.result = null; P.draft = keep; P.step = 1; P.errors = [];
+    P.result = null; P.draft = keep; P.step = 1; P.errors = []; P.cq = '';
     location.hash = '#/enroll';
     render();
   });

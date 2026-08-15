@@ -46,9 +46,9 @@ const APPS = (() => {
   }
 
   /* ---------- seat accounting ----------
-     A pending application is a soft claim on a seat. Counting it stops the portal
-     from accepting twenty applications for the last twelve ECDIS chairs, which is
-     the failure the registrar would otherwise absorb by hand. */
+     Applications no longer pick a schedule, so a pending one holds a seat only
+     once the registrar has placed it on a batch. Until then it is demand for a
+     course, not a claim on a chair. */
   function seatsTaken(batch){
     const enrolled = D().enrollments
       .filter(e => e.batchId === batch.id && ['Enrolled','Reserved','Completed'].includes(e.status)).length;
@@ -57,12 +57,24 @@ const APPS = (() => {
     return { enrolled, pending, total:enrolled + pending, free:Math.max(0, batch.capacity - enrolled - pending) };
   }
 
-  /* Batches the public may apply to: open, not yet started, and with a free seat. */
-  function openBatches(){
+  /* Schedules the registrar may place an applicant on: open, not yet started,
+     with a free seat. Internal only — the public never sees these. */
+  function openBatches(courseId){
     const today = DB.today();
     return D().batches
       .filter(b => b.status === 'Open' && b.start >= today && seatsTaken(b).free > 0)
+      .filter(b => !courseId || b.courseId === courseId)
       .sort((a,b) => a.start.localeCompare(b.start));
+  }
+
+  /* How many people are waiting for a course with no schedule assigned yet. This
+     is the number that tells the registrar which course to open a batch for. */
+  function demand(){
+    const out = {};
+    D().applications.filter(a => isOpen(a) && !a.batchId).forEach(a => {
+      out[a.courseId] = (out[a.courseId] || 0) + 1;
+    });
+    return out;
   }
 
   const course = id => D().courses.find(c => c.id === id);
@@ -73,17 +85,18 @@ const APPS = (() => {
      order the registrar reads them back. Grouped: identity, personal, contact,
      employment, emergency. */
   const REQUIRED = [
+    'courseId',                              // what they want to take
     'srn',                                   // identity
     'last','first',
     'birth','birthPlace',                    // personal
     'mobile','email','address',              // contact
     'rank','agency',                         // employment ("Company" on the form)
     'emergencyName','emergencyMobile',       // emergency
-    'batchId',
   ];
 
   /* Shown next to a highlighted field, and reused by the registrar's screen. */
   const LABELS = {
+    courseId:'Course',
     srn:'SRN', last:'Last name', first:'First name', middle:'Middle name', suffix:'Suffix',
     sex:'Sex', birth:'Date of birth', birthPlace:'Place of birth',
     mobile:'Mobile number', email:'Email address', address:'Address',
@@ -98,10 +111,7 @@ const APPS = (() => {
     const errors = [];
     REQUIRED.forEach(f => { if(!String(p[f] || '').trim()) errors.push(f); });
 
-    const b = batch(p.batchId);
-    if(p.batchId && !b) errors.push('batchId');
-    if(b && seatsTaken(b).free <= 0) errors.push('batchFull');
-    if(b && b.start < DB.today()) errors.push('batchStarted');
+    if(p.courseId && !course(p.courseId)) errors.push('courseId');
 
     if(p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) errors.push('email');
     if(p.birth && p.birth >= DB.today()) errors.push('birth');
@@ -118,13 +128,16 @@ const APPS = (() => {
       errors.push('emergencyMobile');
     }
 
-    /* Same person, same batch, still pending — a double submit, not a second course. */
-    if(b && D().applications.some(a =>
-        a.batchId === b.id && isOpen(a) &&
-        a.last.toLowerCase().trim()  === String(p.last||'').toLowerCase().trim() &&
-        a.first.toLowerCase().trim() === String(p.first||'').toLowerCase().trim())){
-      errors.push('duplicate');
-    }
+    /* Same person, same course, still pending — a double submit, not a second
+       enrollment. Matched on SRN when we have one, otherwise on name. */
+    const srn = String(p.srn || '').trim().toUpperCase();
+    if(p.courseId && D().applications.some(a => {
+      if(a.courseId !== p.courseId || !isOpen(a)) return false;
+      if(srn && a.srn) return a.srn.toUpperCase() === srn;
+      return a.last.toLowerCase().trim()  === String(p.last||'').toLowerCase().trim() &&
+             a.first.toLowerCase().trim() === String(p.first||'').toLowerCase().trim();
+    })) errors.push('duplicate');
+
     return errors;
   }
 
@@ -133,7 +146,6 @@ const APPS = (() => {
     const errors = validate(p);
     if(errors.length){ const e = new Error('Validation failed'); e.errors = errors; throw e; }
 
-    const b = batch(p.batchId);
     const now = new Date().toISOString();
     const app = {
       id:DB.uid('app'),
@@ -142,7 +154,10 @@ const APPS = (() => {
       submitted:DB.today(),
       channel:'Public Portal',
       status:'Submitted',
-      courseId:b.courseId, batchId:b.id,
+      /* The applicant chooses a course. Which dated run at which partner center
+         they land on is the registrar's call at approval — so batchId stays empty
+         until conversion. */
+      courseId:p.courseId, batchId:'',
       // identity
       srn:t(p.srn).toUpperCase(),
       last:t(p.last), first:t(p.first), middle:t(p.middle), suffix:t(p.suffix),
@@ -229,8 +244,12 @@ const APPS = (() => {
     if(app.enrollmentId) throw new Error('This application has already been enrolled.');
     if(app.status !== 'Approved') throw new Error('Approve the application before enrolling it.');
 
-    const b = batch(app.batchId), c = course(app.courseId);
-    if(!b || !c) throw new Error('The batch this application selected no longer exists.');
+    /* The registrar picks the schedule here — the applicant only asked for a
+       course. opts.batchId is therefore required, and must run that course. */
+    const b = batch(opts.batchId || app.batchId), c = course(app.courseId);
+    if(!c) throw new Error('The course this application asked for no longer exists.');
+    if(!b) throw new Error('Choose a schedule to place this applicant on.');
+    if(b.courseId !== c.id) throw new Error(`That schedule does not run ${c.title}.`);
 
     const enrolledSeats = D().enrollments
       .filter(e => e.batchId === b.id && ['Enrolled','Reserved','Completed'].includes(e.status)).length;
@@ -297,6 +316,7 @@ const APPS = (() => {
     /* 4 — close the application against what was actually created */
     app.traineeId = trainee.id;
     app.enrollmentId = enr.id;
+    app.batchId = b.id;                       // the schedule the registrar chose
     advance(app, 'Enrolled', by,
       `Enrolled as ${enr.no}${inv ? ' · billed ' + inv.no : ' · reserved, not yet billed'}`);
     DB.activity('Converted application to enrollment', `${app.no} → ${enr.no}`);
@@ -326,7 +346,7 @@ const APPS = (() => {
 
   return {
     OPEN_STATES, FINAL_STATES, ALL_STATES, NEXT, REQUIRED, LABELS,
-    isOpen, isFinal, refCode, seatsTaken, openBatches,
+    isOpen, isFinal, refCode, seatsTaken, openBatches, demand,
     validate, submit, track, advance, reject, withdraw,
     matchTrainee, convert, pending, counts, find, forName, ageDays,
     course, batch,

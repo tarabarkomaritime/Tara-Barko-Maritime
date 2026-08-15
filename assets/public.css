@@ -126,6 +126,29 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
   background:var(--tb-orange-soft); color:var(--tb-orange-600);
   padding:1px 7px; border-radius:20px; vertical-align:1px; margin-left:5px;
 }
+
+/* course picker inside the wizard */
+.p-cat-pick{ margin-top:6px; max-height:320px; overflow-y:auto; }
+.p-cat-btn{
+  display:flex; width:100%; text-align:left; background:none; border:0;
+  border-bottom:1px solid var(--border); font:inherit; cursor:pointer;
+  align-items:baseline; gap:16px; padding:11px 17px;
+}
+.p-cat-btn:last-child{ border-bottom:0; }
+.p-cat-btn:hover{ background:var(--tb-blue-soft); }
+.p-cat-btn.on{ background:var(--tb-orange-soft); box-shadow:inset 3px 0 0 var(--tb-orange); }
+.p-chosen{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  background:var(--tb-orange-soft); border:1px solid var(--tb-orange);
+  border-radius:10px; padding:12px 15px; margin-bottom:16px;
+}
+.p-chosen > div{ flex:1; min-width:200px; }
+.p-chosen-lbl{
+  display:block; font-size:10px; font-weight:800; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--tb-orange-600); margin-bottom:3px;
+}
+.p-chosen b{ font-size:14.5px; color:var(--tb-blue-900); }
+.p-chosen small{ display:block; font-size:12px; color:var(--text-2); margin-top:2px; }
 @media (max-width:560px){
   .p-cat-row{ flex-direction:column; gap:2px; padding:10px 14px; }
   .p-cat-dur{ text-align:left; min-width:0; font-size:12px; }
