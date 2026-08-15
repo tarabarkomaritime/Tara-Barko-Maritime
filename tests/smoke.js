@@ -30,7 +30,9 @@ ctx.window = ctx;
 ctx.globalThis = ctx;
 vm.createContext(ctx);
 
-for(const f of ['db.js','accounting.js','applications.js']){
+/* Same order as the two HTML entry points: the generated catalogue must exist
+   before db.js seeds from it, and accounting.js before anything calls DB.load(). */
+for(const f of ['courses.js','db.js','accounting.js','applications.js']){
   vm.runInContext(fs.readFileSync(path.join(ASSETS,f),'utf8'), ctx, { filename:f });
 }
 
@@ -70,34 +72,58 @@ check('pending apps reduce free seats', () => {
 });
 
 console.log('\n- validation -');
-check('rejects missing required fields', () => {
-  const e = run(`APPS.validate({ batchId:APPS.openBatches()[0].id })`);
-  return (e.includes('last') && e.includes('first') && e.includes('mobile')) || JSON.stringify(e);
+check('every required field is reported', () => {
+  const e = run(`APPS.validate({})`);
+  const missing = run('APPS.REQUIRED').filter(f => !e.includes(f));
+  return missing.length === 0 || 'not reported: ' + missing.join(', ');
+});
+check('required set covers the brief', () => {
+  const need = ['srn','last','first','birth','birthPlace','mobile','email','address',
+                'rank','agency','emergencyName','emergencyMobile'];
+  const have = run('APPS.REQUIRED');
+  const gap = need.filter(f => !have.includes(f));
+  return gap.length === 0 || 'missing: ' + gap.join(', ');
+});
+check('every field has a label', () => {
+  const L = run('APPS.LABELS');
+  const gap = run('APPS.REQUIRED').filter(f => !L[f]);
+  return gap.length === 0 || 'unlabelled: ' + gap.join(', ');
 });
 check('rejects bad email', () => run(`APPS.validate({ email:'nope' }).includes('email')`) === true || 'not caught');
 check('rejects future birthdate', () => run(`APPS.validate({ birth:'2099-01-01' }).includes('birth')`) === true || 'not caught');
+check('rejects a short mobile', () => run(`APPS.validate({ mobile:'0917' }).includes('mobile')`) === true || 'not caught');
+check('rejects self as emergency contact', () =>
+  run(`APPS.validate({ mobile:'09171234567', emergencyMobile:'0917 123 4567' }).includes('emergencyMobile')`) === true || 'not caught');
 
 console.log('\n- submit -');
-run(`
-  globalThis.NEW = APPS.submit({
+const FULL = `{
     batchId: APPS.openBatches()[0].id,
-    last:'Testino', first:'Pedro', middle:'Cruz', sex:'M', birth:'1990-05-04',
-    rank:'Oiler', mobile:'09171234567', email:'PEDRO.T@Mail.com',
-    srn:'SRN-999001', agency:'Direct Hire / Walk-in', payer:'Self-paid',
-  });
-`);
+    srn:'srn-999001',
+    last:'Testino', first:'Pedro', middle:'Cruz', suffix:'Jr.',
+    sex:'M', birth:'1990-05-04', birthPlace:'Lucena City, Quezon',
+    mobile:'09171234567', email:'PEDRO.T@Mail.com', address:'Barangay 5, Lucena City',
+    rank:'Oiler', agency:'Direct Hire / Walk-in', payer:'Self-paid',
+    emergencyName:'Marilou Testino', emergencyRelation:'Spouse', emergencyMobile:'09189876543',
+  }`;
+run(`globalThis.NEW = APPS.submit(${FULL});`);
 check('returns a record',      () => run('!!NEW.id') === true || 'no id');
 check('ref is 6 chars',        () => run('NEW.ref.length') === 6 || run('NEW.ref'));
 check('ref avoids O/0/I/1/L',  () => !/[O0I1L]/.test(run('NEW.ref')) || run('NEW.ref'));
 check('status is Submitted',   () => run('NEW.status') === 'Submitted' || run('NEW.status'));
 check('email lowercased',      () => run('NEW.email') === 'pedro.t@mail.com' || run('NEW.email'));
+check('SRN uppercased',        () => run('NEW.srn') === 'SRN-999001' || run('NEW.srn'));
+check('stores place of birth', () => run('NEW.birthPlace') === 'Lucena City, Quezon' || run('NEW.birthPlace'));
+check('stores emergency contact', () =>
+  (run('NEW.emergencyName') === 'Marilou Testino' && run('NEW.emergencyMobile') === '09189876543')
+  || 'not stored');
+check('suffix in formatted name', () =>
+  run('APPS.forName(NEW)') === 'Testino Jr., Pedro C.' || run('APPS.forName(NEW)'));
 check('history seeded',        () => run('NEW.history.length') === 1 || run('NEW.history.length'));
 check('persisted to store',    () => run('DB.get().applications.length') === 6 || run('DB.get().applications.length'));
 
 console.log('\n- duplicate guard -');
 check('same person + batch blocked', () => {
-  const e = run(`APPS.validate({ batchId:NEW.batchId, last:'Testino', first:'Pedro', sex:'M',
-    birth:'1990-05-04', rank:'Oiler', mobile:'09171234567' })`);
+  const e = run(`APPS.validate({ ...${FULL}, batchId:NEW.batchId })`);
   return e.includes('duplicate') || JSON.stringify(e);
 });
 
@@ -136,10 +162,29 @@ check('posts a journal entry', () => run('DB.get().journal.length') === before.j
 check('application now Enrolled', () => run('NEW.status') === 'Enrolled' || run('NEW.status'));
 check('application links enrollment', () => run('NEW.enrollmentId === OUT.enrollment.id') === true || 'no link');
 check('invoice includes the addon', () => run('OUT.invoice.items.length') === 2 || run('OUT.invoice.items.length'));
-check('invoice total = fee + addon', () => {
-  const t = run('OUT.invoice.total'), fee = run('APPS.course(NEW.courseId).fee');
+check('invoice total = batch fee + addon', () => {
+  const t = run('OUT.invoice.total'), fee = run('APPS.batch(NEW.batchId).fee');
   return Math.abs(t - (fee + 450)) < 0.01 || `total ${t}, expected ${fee + 450}`;
 });
+check('invoice line names the partner center', () =>
+  run('OUT.invoice.items[0].desc').includes(run('APPS.batch(NEW.batchId).center'))
+  || run('OUT.invoice.items[0].desc'));
+
+console.log('\n- catalogue -');
+check('catalogue loaded',        () => run('DB.get().courses.length') > 200 || run('DB.get().courses.length'));
+check('no fees in the catalogue',() => run('DB.get().courses.every(c => c.fee === undefined)') === true || 'a course carries a fee');
+check('no partner names either', () => run('DB.get().courses.every(c => !c.center)') === true || 'a course names a center');
+check('every course has a title',() => run(`DB.get().courses.every(c => c.title && c.title.trim())`) === true || 'blank title');
+check('titles are unique',       () => {
+  const t = run('DB.get().courses.map(c => c.title.toUpperCase())');
+  const dupes = t.filter((x,i) => t.indexOf(x) !== i);
+  return dupes.length === 0 || 'duplicates survived: ' + [...new Set(dupes)].slice(0,5).join(', ');
+});
+check('duration string present or explicitly unknown', () =>
+  run(`DB.get().courses.every(c => typeof c.duration === 'string' && c.duration.length > 0)`) === true
+  || 'a course has no duration string');
+check('batches carry fee and center', () =>
+  run('DB.get().batches.every(b => typeof b.fee === "number" && !!b.center)') === true || 'a batch is missing fee or center');
 check('ledger still balances after convert', () => {
   const t = run('ACC.trialBalance()');
   return Math.abs(t.totalDr - t.totalCr) < 0.01 || `dr ${t.totalDr} cr ${t.totalCr}`;
@@ -149,14 +194,28 @@ check('double convert throws', () => {
   catch(e){ return /already been enrolled/.test(e.message) || e.message; }
 });
 
+console.log('\n- convert: new trainee carries every field -');
+check('trainee gets the full record', () => {
+  const t = run('OUT.trainee');
+  const want = { srn:'SRN-999001', suffix:'Jr.', birthPlace:'Lucena City, Quezon',
+                 emergencyName:'Marilou Testino', emergencyRelation:'Spouse',
+                 emergencyMobile:'09189876543', address:'Barangay 5, Lucena City',
+                 agency:'Direct Hire / Walk-in' };
+  const gap = Object.entries(want).filter(([k,v]) => t[k] !== v).map(([k]) => k);
+  return gap.length === 0 || 'wrong or missing: ' + gap.join(', ');
+});
+
 console.log('\n- convert: existing seafarer (refresher) -');
 run(`
   globalThis.EXIST = DB.get().trainees[0];
   globalThis.APP2 = APPS.submit({
     batchId: APPS.openBatches().find(b => !DB.get().enrollments.some(e => e.batchId === b.id && e.traineeId === EXIST.id)).id,
-    last:EXIST.last, first:EXIST.first, sex:EXIST.sex, birth:EXIST.birth,
-    rank:'Chief Mate', mobile:'09998887777', srn:EXIST.srn, payer:'Agency-billed',
+    srn:EXIST.srn, last:EXIST.last, first:EXIST.first, sex:EXIST.sex,
+    birth:EXIST.birth, birthPlace:'Cebu City, Cebu',
+    rank:'Chief Mate', mobile:'09998887777', email:'refresher@mail.com',
+    address:'Lapu-Lapu City, Cebu', payer:'Agency-billed',
     agency:'Wallem Maritime Services',
+    emergencyName:'Ligaya Reyes', emergencyRelation:'Sister', emergencyMobile:'09171112222',
   });
   APPS.advance(APP2,'Approved','tester','');
   globalThis.OUT2 = APPS.convert(APP2,{ by:'tester', mode:'Reserved' });
@@ -166,6 +225,8 @@ check('reuses the existing record', () => run('OUT2.reused') === true || 'create
 check('matched on SRN',             () => run('OUT2.matchedOn') === 'SRN' || run('OUT2.matchedOn'));
 check('no new trainee created',     () => t2 === before.trainees + 1 || `registry grew to ${t2}`);
 check('refreshes contact details',  () => run(`OUT2.trainee.mobile`) === '09998887777' || run('OUT2.trainee.mobile'));
+check('refreshes next of kin',      () => run(`OUT2.trainee.emergencyName`) === 'Ligaya Reyes' || run('OUT2.trainee.emergencyName'));
+check('keeps the original trainee no', () => run(`OUT2.trainee.no === EXIST.no`) === true || 'renumbered');
 check('reserved -> no invoice',     () => run('OUT2.invoice') === null || 'billed a reservation');
 check('reserved enrollment status', () => run('OUT2.enrollment.status') === 'Reserved' || run('OUT2.enrollment.status'));
 

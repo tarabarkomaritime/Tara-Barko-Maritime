@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Tara Barko Maritime — Public Registration Front-End Concepts</title>
+<style>
+/* ==========================================================================
+   Front-end design concepts for the Tara Barko Maritime public registration
+   portal. Built to be printed to PDF at A4 portrait — one .sheet per page.
+   Every concept uses the same brand palette and the same two navigation tabs
+   (Courses, Enroll Now) with Track Enrollment as a sub-tab inside Enroll Now.
+   ========================================================================== */
+
+:root{
+  --blue-900:#0d2166; --blue-800:#132c8a; --blue:#1b3ea9; --blue-500:#2a52c9;
+  --blue-soft:#e7ecfb; --orange:#f1531f; --orange-600:#d43f0e; --orange-soft:#ffe4d8;
+  --ink:#14203f; --ink-2:#48557a; --muted:#7a85a3;
+  --line:#dde3f1; --line-2:#c2cbe4; --paper:#fff; --wash:#f6f8fd;
+  --ok:#12805c; --ok-bg:#e3f5ee;
+  --mono:"SF Mono",Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:"Segoe UI",Inter,system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  background:#8b93ad; color:var(--ink); font-size:11px; line-height:1.45;
+  -webkit-font-smoothing:antialiased; -webkit-print-color-adjust:exact; print-color-adjust:exact;
+}
+/* 296mm rather than 297: at exactly one A4 height, sub-pixel rounding in the
+   print layout spills every sheet onto a blank second page. */
+.sheet{
+  width:210mm; height:296mm; margin:0 auto 8mm; background:#fff;
+  padding:14mm 14mm 12mm; position:relative; overflow:hidden;
+  page-break-after:always; break-after:page;
+}
+.sheet:last-child{page-break-after:auto;break-after:auto}
+
+/* ---------- sheet furniture ---------- */
+.sh-head{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid var(--line);padding-bottom:7px;margin-bottom:12px}
+.sh-num{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--orange);letter-spacing:.12em}
+.sh-title{font-size:16px;font-weight:800;color:var(--blue-900);margin:0;letter-spacing:-.01em}
+.sh-sub{font-size:10.5px;color:var(--muted);margin-left:auto}
+.sh-foot{
+  position:absolute;left:14mm;right:14mm;bottom:7mm;display:flex;justify-content:space-between;
+  font-size:8.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:5px;
+}
+.lede{font-size:11px;color:var(--ink-2);margin:0 0 12px;max-width:150mm}
+.tag-row{display:flex;gap:5px;flex-wrap:wrap;margin:0 0 12px}
+.tg{font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 8px;border-radius:20px;background:var(--blue-soft);color:var(--blue)}
+.tg.o{background:var(--orange-soft);color:var(--orange-600)}
+
+/* browser frame around each mockup */
+.frame{border:1px solid var(--line-2);border-radius:7px;overflow:hidden;box-shadow:0 3px 12px rgba(13,33,102,.13);margin-bottom:11px}
+.frame-bar{background:#eaeef7;border-bottom:1px solid var(--line);padding:5px 9px;display:flex;align-items:center;gap:5px}
+.dot{width:7px;height:7px;border-radius:50%;background:#c8d0e3}
+.frame-url{margin-left:8px;background:#fff;border:1px solid var(--line);border-radius:20px;
+  padding:2px 10px;font-size:8px;color:var(--muted);font-family:var(--mono)}
+.cap{font-size:9px;color:var(--muted);margin:-6px 0 12px;font-style:italic}
+
+/* ---------- shared mockup atoms ---------- */
+.logo{width:30px;height:30px;flex:none}
+.logo-lg{width:40px;height:40px;flex:none}
+.brandtxt strong{display:block;font-size:10.5px;font-weight:800;letter-spacing:.07em;line-height:1.1}
+.brandtxt span{display:block;font-size:7px;letter-spacing:.15em;font-weight:700}
+.nav{display:flex;gap:5px;margin-left:auto}
+.nav a{font-size:9.5px;font-weight:700;padding:7px 15px;border-radius:7px;text-decoration:none;white-space:nowrap}
+
+.seg{display:flex;gap:3px;padding:3px;border-radius:8px;border:1px solid var(--line);background:#fff;margin-bottom:9px}
+.seg span{flex:1;text-align:center;padding:7px;font-size:9.5px;font-weight:700;border-radius:6px;color:var(--ink-2)}
+.seg span.on{background:var(--blue);color:#fff}
+
+.steps{display:flex;margin-bottom:9px}
+.steps div{flex:1;padding:6px 8px;font-size:8.5px;font-weight:700;color:var(--muted);
+  background:var(--wash);border:1px solid var(--line);border-right:0;display:flex;gap:5px;align-items:center}
+.steps div:first-child{border-radius:6px 0 0 6px}
+.steps div:last-child{border-right:1px solid var(--line);border-radius:0 6px 6px 0}
+.steps i{width:14px;height:14px;border-radius:50%;background:var(--line-2);color:#fff;
+  display:grid;place-items:center;font-size:7.5px;font-style:normal;flex:none}
+.steps .on{background:#fff;border-color:var(--orange);color:var(--blue-900)}
+.steps .on i{background:var(--orange)}
+.steps .dn{background:var(--ok-bg);color:var(--ok)} .steps .dn i{background:var(--ok)}
+
+.grp{font-size:8px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--orange);
+  border-bottom:1.5px solid var(--orange-soft);padding-bottom:3px;margin:11px 0 7px}
+.fields{display:grid;gap:6px}
+.f2{grid-template-columns:1fr 1fr} .f3{grid-template-columns:1fr 1fr 1fr} .f1{grid-template-columns:1fr}
+.fld label{display:block;font-size:8px;font-weight:700;color:var(--ink-2);margin-bottom:2.5px}
+.fld label b{color:var(--orange)}
+.fld i{display:block;border:1px solid var(--line-2);border-radius:5px;background:#fff;
+  height:17px;font-style:normal;font-size:8px;color:var(--muted);padding:3px 7px;line-height:1.3}
+.fld i.fill{color:var(--ink);font-weight:600}
+
+.btn{display:inline-block;font-size:9.5px;font-weight:700;padding:8px 18px;border-radius:7px;text-decoration:none}
+.btn-o{background:var(--orange);color:#fff}
+.btn-b{background:var(--blue);color:#fff}
+.btn-g{background:#fff;border:1px solid var(--line-2);color:var(--ink-2)}
+
+.sched{display:flex;align-items:center;gap:10px;padding:8px 11px;border:1px solid var(--line);
+  border-radius:8px;background:#fff;margin-bottom:6px;font-size:9px}
+.sched b{color:var(--blue)} .sched .sm{display:block;color:var(--muted);font-size:8px;margin-top:1px}
+.sched .sp{margin-left:auto;white-space:nowrap;font-size:8.5px;color:var(--ink-2)}
+.sched .sp b{color:var(--ok);font-size:10px}
+.pill{background:var(--orange);color:#fff;font-size:8.5px;font-weight:700;padding:5px 11px;border-radius:6px}
+
+.ccards{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.cc{border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:#fff;border-top:2.5px solid var(--blue)}
+.cc .k{font-family:var(--mono);font-size:7.5px;font-weight:800;color:var(--orange);letter-spacing:.08em}
+.cc h5{margin:3px 0 4px;font-size:9.5px;color:var(--blue-900);line-height:1.25}
+.cc .p{font-size:13px;font-weight:800;color:var(--blue);margin-top:5px}
+.cc .p s{display:block;font-size:7.5px;font-weight:500;color:var(--muted);text-decoration:none}
+
+/* course catalogue — title and duration only, no fees, no partner names */
+.cat{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.cat div{display:flex;align-items:baseline;gap:12px;padding:6px 11px;border-bottom:1px solid var(--line);font-size:9px}
+.cat div:last-child{border-bottom:0}
+.cat div:nth-child(even){background:var(--wash)}
+.cat .t{flex:1;font-weight:600;color:var(--blue-900)}
+.cat .d{flex:none;font-weight:700;color:var(--blue);font-variant-numeric:tabular-nums;min-width:62px;text-align:right}
+.mode{display:inline-block;font-size:7px;font-weight:700;background:var(--orange-soft);color:var(--orange-600);
+  padding:1px 6px;border-radius:20px;margin-left:5px;vertical-align:1px}
+
+.tl{list-style:none;margin:0;padding:0}
+.tl li{position:relative;padding:0 0 11px 18px;border-left:1.5px solid var(--line);font-size:9px}
+.tl li:last-child{border-left-color:transparent;padding-bottom:0}
+.tl li::before{content:'';position:absolute;left:-5px;top:1px;width:8px;height:8px;border-radius:50%;
+  background:var(--line-2);border:1.5px solid #fff}
+.tl li.hit::before{background:var(--blue)}
+.tl b{display:block;color:var(--blue-900);font-size:9px}
+.tl s{display:block;text-decoration:none;font-family:var(--mono);font-size:7.5px;color:var(--muted)}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.panel{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:#fff}
+.panel h4{margin:0 0 3px;font-size:11px;color:var(--blue-900)}
+.panel p.s{margin:0 0 9px;font-size:8.5px;color:var(--muted)}
+
+/* ---------- cover ---------- */
+.cover{background:
+    radial-gradient(700px 400px at 5% -15%, var(--blue-500) 0%, transparent 60%),
+    radial-gradient(520px 400px at 105% 118%, var(--orange) 0%, transparent 55%),
+    var(--blue-900);
+  color:#fff; display:flex; flex-direction:column; justify-content:center; padding:24mm}
+.cover h1{font-size:34px;margin:0 0 8px;line-height:1.1;letter-spacing:-.02em}
+.cover .sub{font-size:14px;color:#c3d0f0;margin:0 0 26px;max-width:130mm}
+.cover .meta{border-top:1px solid rgba(255,255,255,.25);padding-top:14px;font-size:10px;color:#a9bbe8;
+  display:flex;gap:26px;flex-wrap:wrap}
+.cover .meta b{display:block;color:#fff;font-size:11px;margin-bottom:2px}
+.cover-logo{width:78px;height:78px;background:#fff;border-radius:50%;padding:4px;margin-bottom:20px}
+.idx{margin-top:26px;display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.idx div{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.19);border-radius:8px;padding:9px 12px;font-size:10px}
+.idx b{color:var(--orange-soft);font-family:var(--mono);font-size:9px;margin-right:7px}
+
+/* ---------- swatches ---------- */
+.sw{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px}
+.sw div{border-radius:7px;padding:9px 10px;height:62px;display:flex;flex-direction:column;justify-content:flex-end;
+  font-size:8px;font-family:var(--mono);border:1px solid rgba(0,0,0,.07)}
+.sw b{font-size:9px;font-family:"Segoe UI",sans-serif;display:block}
+
+/* ==========================================================================
+   CONCEPT SKINS
+   ========================================================================== */
+
+/* 01 Harbour Deep — institutional, blue-dominant */
+.c1 .top{background:var(--blue-900);padding:9px 13px;display:flex;align-items:center;gap:10px}
+.c1 .brandtxt strong{color:#fff} .c1 .brandtxt span{color:var(--orange)}
+.c1 .nav a{color:#c3d0f0} .c1 .nav a.on{background:var(--orange);color:#fff}
+.c1 .hero{background:var(--blue-800);color:#fff;padding:20px 22px;
+  border-bottom:4px solid var(--orange)}
+.c1 .hero h2{margin:0 0 6px;font-size:19px;letter-spacing:-.01em}
+.c1 .hero p{margin:0 0 13px;font-size:9.5px;color:#c3d0f0;max-width:105mm}
+.c1 .body{padding:13px;background:var(--wash)}
+
+/* 02 Beacon — orange-forward, marketing energy */
+.c2 .top{background:#fff;padding:9px 13px;display:flex;align-items:center;gap:10px;border-bottom:3px solid var(--orange)}
+.c2 .brandtxt strong{color:var(--blue)} .c2 .brandtxt span{color:var(--orange)}
+.c2 .nav a{color:var(--blue)} .c2 .nav a.on{background:var(--orange);color:#fff}
+.c2 .hero{background:var(--orange);color:#fff;padding:24px 22px;text-align:center}
+.c2 .hero h2{margin:0 0 7px;font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.06}
+.c2 .hero p{margin:0 auto 15px;font-size:10px;color:#ffe0d4;max-width:115mm}
+.c2 .hero .btn-b{background:#fff;color:var(--orange)}
+.c2 .hero .btn-g{background:transparent;border-color:rgba(255,255,255,.6);color:#fff}
+.c2 .body{padding:13px;background:#fff}
+.c2 .cc{border-top-color:var(--orange)}
+
+/* 03 Sail Split — diagonal two-tone, asymmetric */
+.c3 .top{background:#fff;padding:9px 13px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+.c3 .brandtxt strong{color:var(--blue)} .c3 .brandtxt span{color:var(--orange)}
+.c3 .nav a{color:var(--blue)} .c3 .nav a.on{background:var(--blue);color:#fff}
+.c3 .hero{position:relative;background:#fff;padding:22px;overflow:hidden}
+.c3 .hero::before{content:'';position:absolute;inset:0;
+  background:linear-gradient(112deg,var(--blue-900) 0%,var(--blue-800) 46%,#fff 46.3%);}
+.c3 .hero::after{content:'';position:absolute;top:0;bottom:0;left:44.5%;width:5px;
+  background:var(--orange);transform:skewX(-22deg)}
+.c3 .hero .in{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:center}
+.c3 .hero h2{margin:0 0 6px;font-size:19px;color:#fff;letter-spacing:-.01em}
+.c3 .hero p{margin:0 0 12px;font-size:9.5px;color:#c3d0f0}
+.c3 .hero .r{text-align:right}
+.c3 .hero .r b{display:block;font-size:30px;font-weight:800;color:var(--blue);line-height:1}
+.c3 .hero .r s{display:block;text-decoration:none;font-size:8.5px;color:var(--muted);margin-bottom:9px}
+.c3 .body{padding:13px;background:var(--wash)}
+
+/* 04 Manifest — form-first, document-like, dense */
+.c4{font-size:10px}
+.c4 .top{background:#fff;padding:8px 13px;display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--blue-900)}
+.c4 .brandtxt strong{color:var(--blue-900)} .c4 .brandtxt span{color:var(--ink-2)}
+.c4 .nav a{color:var(--blue-900);border-radius:0;border-bottom:2.5px solid transparent;padding:6px 13px}
+.c4 .nav a.on{border-bottom-color:var(--orange);color:var(--orange-600)}
+.c4 .hero{background:var(--wash);padding:13px 16px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:16px}
+.c4 .hero h2{margin:0;font-size:14px;color:var(--blue-900);letter-spacing:-.01em}
+.c4 .hero p{margin:2px 0 0;font-size:9px;color:var(--muted)}
+.c4 .hero .ref{margin-left:auto;font-family:var(--mono);font-size:8.5px;color:var(--ink-2);
+  border:1px solid var(--line-2);border-radius:5px;padding:5px 10px;background:#fff}
+.c4 .body{padding:13px 16px;background:#fff}
+.c4 .fld i{border-radius:0;border-width:0 0 1.5px 0;background:var(--wash);height:16px}
+.c4 .grp{color:var(--blue-900);border-bottom-color:var(--line-2);letter-spacing:.16em}
+.c4 .seg span.on{background:var(--blue-900)}
+.c4 .cc{border-radius:0;border-top-width:0;border-left:2.5px solid var(--blue)}
+
+/* 05 Coastal — soft, rounded, mobile-first */
+.c5 .top{background:#fff;padding:10px 15px;display:flex;align-items:center;gap:10px}
+.c5 .brandtxt strong{color:var(--blue)} .c5 .brandtxt span{color:var(--orange)}
+.c5 .nav a{color:var(--blue);border-radius:20px} .c5 .nav a.on{background:var(--blue);color:#fff}
+.c5 .hero{background:linear-gradient(165deg,var(--blue-soft),#fff 70%);padding:22px;text-align:center;position:relative}
+.c5 .hero h2{margin:0 0 6px;font-size:20px;color:var(--blue-900);letter-spacing:-.02em}
+.c5 .hero p{margin:0 auto 14px;font-size:9.5px;color:var(--ink-2);max-width:105mm}
+.c5 .wave{display:block;width:100%;height:22px}
+.c5 .body{padding:13px;background:#fff}
+.c5 .cc{border-radius:14px;border-top:1px solid var(--line);box-shadow:0 2px 7px rgba(13,33,102,.07)}
+.c5 .sched{border-radius:14px}
+.c5 .btn{border-radius:22px}
+.c5 .seg{border-radius:22px} .c5 .seg span{border-radius:20px}
+.c5 .fld i{border-radius:9px;height:19px}
+.c5 .panel{border-radius:14px}
+
+/* phone frames for concept 05 */
+.phones{display:flex;gap:9px;justify-content:center}
+.phone{width:52mm;border:2.5px solid var(--blue-900);border-radius:14px;overflow:hidden;background:#fff}
+.phone .pt{background:var(--blue-900);height:11px;position:relative}
+.phone .pt::after{content:'';position:absolute;left:50%;top:3px;transform:translateX(-50%);
+  width:16px;height:4px;border-radius:5px;background:rgba(255,255,255,.4)}
+.phone .pb{padding:8px}
+
+/* recommendation table */
+table.mx{width:100%;border-collapse:collapse;font-size:9px}
+table.mx th,table.mx td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+table.mx th{background:var(--blue-900);color:#fff;font-size:8.5px;letter-spacing:.05em;text-transform:uppercase}
+table.mx tr:nth-child(even) td{background:var(--wash)}
+table.mx td b{color:var(--blue)}
+.rec{background:var(--ok-bg);border-left:3px solid var(--ok);padding:10px 13px;border-radius:0 7px 7px 0;font-size:10px;margin-top:12px}
+.rec b{color:var(--ok)}
+
+@page{size:A4 portrait;margin:0}
+@media print{ body{background:#fff} .sheet{margin:0;box-shadow:none} }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<section class="sheet cover">
+  <img src="../assets/logo.svg" alt="" class="cover-logo">
+  <h1>Public Registration<br>Front-End Concepts</h1>
+  <p class="sub">Five design directions for the Tara Barko Maritime Services online
+     enrollment portal — one brand palette, one information architecture, five ways of
+     wearing it.</p>
+  <div class="idx">
+    <div><b>01</b>Harbour Deep</div>
+    <div><b>02</b>Beacon</div>
+    <div><b>03</b>Sail Split</div>
+    <div><b>04</b>Manifest</div>
+    <div><b>05</b>Coastal</div>
+    <div><b>—</b>Brand foundation &amp; recommendation</div>
+  </div>
+  <div class="meta">
+    <div><b>Project</b>Public Registration + Internal Integrated System</div>
+    <div><b>Scope</b>Courses · Enroll Now · Track Enrollment</div>
+    <div><b>Date</b>15 August 2026</div>
+    <div><b>Status</b>For selection</div>
+  </div>
+</section>
+
+<!-- ========================= BRAND FOUNDATION ========================= -->
+<section class="sheet">
+  <div class="sh-head">
+    <span class="sh-num">00</span>
+    <h2 class="sh-title">Brand foundation</h2>
+    <span class="sh-sub">Shared by all five concepts</span>
+  </div>
+  <p class="lede">Every concept draws from the same palette, the same mark and the same
+     two-tab structure. What changes between them is proportion, density and tone of
+     voice — not the brand.</p>
+
+  <div class="two" style="margin-bottom:14px">
+    <div class="panel" style="text-align:center;padding:16px">
+      <img src="../assets/logo.svg" alt="" style="width:44mm;height:44mm">
+      <p class="s" style="margin-top:6px">Primary mark — full lockup</p>
+    </div>
+    <div class="panel">
+      <h4>Typography</h4>
+      <p class="s">System sans throughout. No web-font download, so the portal stays fast
+        on a mobile connection at the pier.</p>
+      <div style="font-size:20px;font-weight:800;color:var(--blue-900);letter-spacing:-.02em">Train with Tara Barko.</div>
+      <div style="font-size:12px;font-weight:700;color:var(--blue);margin-top:6px">Section heading — 19px / 800</div>
+      <div style="font-size:10px;color:var(--ink-2);margin-top:4px">Body copy runs 13–14.5px on screen with a 1.45 line height.
+        Field labels are 12px semibold; document numbers use a monospace face so
+        <span style="font-family:var(--mono)">APP-2026-0006</span> stays legible.</div>
+    </div>
+  </div>
+
+  <h4 style="font-size:11px;color:var(--blue-900);margin:0 0 7px">Palette</h4>
+  <div class="sw">
+    <div style="background:var(--blue-900);color:#fff"><b>Deep</b>#0D2166</div>
+    <div style="background:var(--blue);color:#fff"><b>Brand blue</b>#1B3EA9</div>
+    <div style="background:var(--blue-500);color:#fff"><b>Blue 500</b>#2A52C9</div>
+    <div style="background:var(--blue-soft);color:var(--blue)"><b>Blue soft</b>#E7ECFB</div>
+    <div style="background:var(--orange);color:#fff"><b>Brand orange</b>#F1531F</div>
+    <div style="background:var(--orange-600);color:#fff"><b>Orange 600</b>#D43F0E</div>
+    <div style="background:var(--orange-soft);color:var(--orange-600)"><b>Orange soft</b>#FFE4D8</div>
+    <div style="background:var(--wash);color:var(--ink-2)"><b>Wash</b>#F6F8FD</div>
+  </div>
+
+  <div class="panel">
+    <h4>Colour discipline</h4>
+    <p class="s" style="margin-bottom:7px">The two brand colours do different jobs. Mixing
+      those jobs is what makes a two-colour brand look cheap.</p>
+    <table class="mx">
+      <tr><th style="width:30%">Role</th><th style="width:22%">Colour</th><th>Applies to</th></tr>
+      <tr><td><b>Structure</b></td><td>Blue</td><td>Headers, headings, navigation, data, fee figures, timelines</td></tr>
+      <tr><td><b>Action</b></td><td>Orange</td><td>The primary button on any screen, the active Enroll tab, required-field markers, the reference code</td></tr>
+      <tr><td><b>Warning only</b></td><td>Orange</td><td>Low seat counts — never as decoration, so it keeps its urgency</td></tr>
+      <tr><td><b>Never</b></td><td>—</td><td>Orange body text, orange backgrounds behind long copy, two orange buttons on one screen</td></tr>
+    </table>
+  </div>
+
+  <div class="panel" style="margin-top:10px">
+    <h4>Information architecture — identical in all five</h4>
+    <table class="mx">
+      <tr><th style="width:26%">Tab</th><th>Contains</th></tr>
+      <tr><td><b>Courses</b></td><td>Hero, open schedules with live seat counts, searchable course catalogue</td></tr>
+      <tr><td><b>Enroll Now</b></td><td><b>New Enrollment</b> — 3-step wizard (schedule → details → review)<br>
+          <b>Track Enrollment</b> — reference code + last name, status timeline</td></tr>
+    </table>
+    <p class="s" style="margin:7px 0 0">Track Enrollment sits inside Enroll Now rather than
+      in the top bar: an applicant looking for it has already enrolled, and looks where they
+      enrolled. Staff sign-in lives in the footer — it is not a public destination.</p>
+  </div>
+
+  <div class="sh-foot"><span>Tara Barko Maritime Services — Public Registration Concepts</span><span>Brand foundation</span></div>
+</section>
+
+<!-- ============================ CONCEPT 01 ============================ -->
+<section class="sheet c1">
+  <div class="sh-head">
+    <span class="sh-num">01</span>
+    <h2 class="sh-title">Harbour Deep</h2>
+    <span class="sh-sub">Institutional · blue-dominant</span>
+  </div>
+  <p class="lede">A dark blue command bar over a deep blue hero. Reads as a regulated
+     institution rather than a shop — closest in feel to MARINA and agency portals a seafarer
+     already uses, so it inherits their credibility.</p>
+  <div class="tag-row"><span class="tg">Authoritative</span><span class="tg">Familiar to seafarers</span>
+    <span class="tg o">Orange reserved for action</span><span class="tg">Strong on desktop</span></div>
+
+  <div class="frame">
+    <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+      <span class="frame-url">tarabarko.ph/register</span></div>
+    <div class="top">
+      <img src="../assets/logo.svg" class="logo" alt="">
+      <div class="brandtxt"><strong>TARA BARKO</strong><span>MARITIME SERVICES</span></div>
+      <nav class="nav"><a>Courses</a><a class="on">Enroll Now</a></nav>
+    </div>
+    <div class="hero">
+      <h2>Train with a MARINA-accredited center.</h2>
+      <p>Basic safety, advanced safety, medical, security and simulator courses for Filipino
+         seafarers. Reserve your seat online and settle at our office.</p>
+      <a class="btn btn-o">Enroll now</a>
+      <a class="btn btn-g" style="background:transparent;border-color:rgba(255,255,255,.45);color:#fff">Track my enrollment</a>
+    </div>
+    <div class="body">
+      <div class="sched"><div><b>AFF</b> — Advanced Fire Fighting<span class="sm">Aug 19–22, 2026 · Nautical Options · Fire Ground</span></div>
+        <span class="sp">Seats left <b>20</b> of 24</span><span class="pill">Enroll</span></div>
+      <div class="sched"><div><b>DECK WATCHKEEPING</b><span class="sm">Aug 30 – Sep 3, 2026 · PNTC · Simulator A</span></div>
+        <span class="sp">Seats left <b style="color:var(--orange)">3</b> of 12</span><span class="pill">Enroll</span></div>
+      <div style="font-size:8px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--orange);margin:11px 0 6px">Course catalogue — 239 courses</div>
+      <div class="cat">
+        <div><span class="t">AFF<span class="mode">Distance learning</span></span><span class="d">5 days</span></div>
+        <div><span class="t">BASIC TRAINING</span><span class="d">10–11 days</span></div>
+        <div><span class="t">BTR - BASIC TRAINING REFRESHER</span><span class="d">2–3 days</span></div>
+        <div><span class="t">DECK WATCHKEEPING</span><span class="d">5.5–6 days</span></div>
+        <div><span class="t">MECA - MEDICAL CARE</span><span class="d">6 days</span></div>
+        <div><span class="t">SCRB - F2F<span class="mode">Face to face</span></span><span class="d">5 days</span></div>
+        <div><span class="t">SSO - SHIP SECURITY OFFICER</span><span class="d">3–4 days</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Courses tab — accreditation above, then the catalogue: course title and duration, nothing commercial.</p>
+
+  <div class="two">
+    <div class="panel"><h4>Where it wins</h4>
+      <p class="s" style="margin:0">Trust. A seafarer handing over an SRN, passport number and
+        next-of-kin details wants the page to look like an institution. The dark bar also
+        holds the brand mark at maximum contrast.</p></div>
+    <div class="panel"><h4>What it costs</h4>
+      <p class="s" style="margin:0">Heavy on a small screen — the dark hero eats the fold on a
+        phone. Needs the hero to collapse to two lines under 640px.</p></div>
+  </div>
+
+  <div class="sh-foot"><span>Concept 01 — Harbour Deep</span><span>Page 1 of 2</span></div>
+</section>
+
+<section class="sheet c1">
+  <div class="sh-head">
+    <span class="sh-num">01</span><h2 class="sh-title">Harbour Deep — Enroll Now</h2>
+    <span class="sh-sub">Registration &amp; tracking</span>
+  </div>
+
+  <div class="frame">
+    <div class="top">
+      <img src="../assets/logo.svg" class="logo" alt="">
+      <div class="brandtxt"><strong>TARA BARKO</strong><span>MARITIME SERVICES</span></div>
+      <nav class="nav"><a>Courses</a><a class="on">Enroll Now</a></nav>
+    </div>
+    <div class="body">
+      <div class="seg"><span class="on">New Enrollment</span><span>Track Enrollment</span></div>
+      <div class="steps"><div class="dn"><i>✓</i>Choose a schedule</div><div class="on"><i>2</i>Your details</div><div><i>3</i>Review and submit</div></div>
+
+      <div class="grp">Seafarer identity</div>
+      <div class="fields f1"><div class="fld"><label>SRN <b>*</b></label><i class="fill">SRN-556677</i></div></div>
+      <div class="fields f2" style="margin-top:6px">
+        <div class="fld"><label>Last name <b>*</b></label><i class="fill">Dela Cruz</i></div>
+        <div class="fld"><label>First name <b>*</b></label><i class="fill">Juan Miguel</i></div>
+      </div>
+      <div class="fields f2" style="margin-top:6px">
+        <div class="fld"><label>Middle name</label><i class="fill">Santos</i></div>
+        <div class="fld"><label>Suffix</label><i class="fill">Jr.</i></div>
+      </div>
+
+      <div class="grp">Personal information</div>
+      <div class="fields f3">
+        <div class="fld"><label>Sex</label><i class="fill">Male</i></div>
+        <div class="fld"><label>Date of birth <b>*</b></label><i class="fill">22 Mar 1994</i></div>
+        <div class="fld"><label>Place of birth <b>*</b></label><i class="fill">Iloilo City</i></div>
+      </div>
+
+      <div class="grp">Contact details</div>
+      <div class="fields f2">
+        <div class="fld"><label>Mobile number <b>*</b></label><i class="fill">0917 123 4567</i></div>
+        <div class="fld"><label>Email address <b>*</b></label><i class="fill">juan.delacruz@mail.com</i></div>
+      </div>
+      <div class="fields f1" style="margin-top:6px"><div class="fld"><label>Home address <b>*</b></label><i class="fill">Brgy. Molo, Iloilo City</i></div></div>
+
+      <div class="grp">Employment</div>
+      <div class="fields f2">
+        <div class="fld"><label>Rank / position <b>*</b></label><i class="fill">Able Seaman</i></div>
+        <div class="fld"><label>Company <b>*</b></label><i class="fill">Magsaysay Maritime Corp.</i></div>
+      </div>
+
+      <div class="grp">In case of emergency</div>
+      <div class="fields f3">
+        <div class="fld"><label>Contact person <b>*</b></label><i class="fill">Rosario Dela Cruz</i></div>
+        <div class="fld"><label>Relationship</label><i class="fill">Mother</i></div>
+        <div class="fld"><label>Contact number <b>*</b></label><i class="fill">0918 999 8888</i></div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;margin-top:13px;padding-top:9px;border-top:1px solid var(--line)">
+        <a class="btn btn-g">← Back</a><a class="btn btn-o">Review →</a>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Five labelled groups. A seafarer fills the form once; the registrar reads it back in the same order.</p>
+
+  <div class="frame">
+    <div class="body" style="padding:13px">
+      <div class="seg"><span>New Enrollment</span><span class="on" style="background:var(--orange)">Track Enrollment</span></div>
+      <div class="two">
+        <div>
+          <div class="fields f1">
+            <div class="fld"><label>Reference code</label><i class="fill" style="font-family:var(--mono);letter-spacing:.18em">ZFZ2S9</i></div>
+          </div>
+          <div class="fields f1" style="margin-top:6px">
+            <div class="fld"><label>Last name</label><i class="fill">Dela Cruz</i></div>
+          </div>
+          <a class="btn btn-o" style="margin-top:9px">Check status</a>
+        </div>
+        <div>
+          <ul class="tl">
+            <li class="hit"><b>Submitted</b><s>15 Aug 2026</s></li>
+            <li class="hit"><b>Under Review</b><s>15 Aug 2026</s></li>
+            <li><b>Approved</b><s>Pending</s></li>
+            <li><b>Enrolled</b><s>Pending</s></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Track Enrollment — the second sub-tab, not a third top-level destination.</p>
+
+  <div class="sh-foot"><span>Concept 01 — Harbour Deep</span><span>Page 2 of 2</span></div>
+</section>
+
+<!-- ============================ CONCEPT 02 ============================ -->
+<section class="sheet c2">
+  <div class="sh-head">
+    <span class="sh-num">02</span><h2 class="sh-title">Beacon</h2>
+    <span class="sh-sub">Marketing-forward · orange-dominant</span>
+  </div>
+  <p class="lede">White chrome, an orange hero band and oversized type. Built to convert a
+     first-time visitor who arrived from a Facebook post — the enroll action is impossible to
+     miss at any scroll position.</p>
+  <div class="tag-row"><span class="tg o">Highest conversion</span><span class="tg">Strong on mobile</span>
+    <span class="tg">Fewest words</span><span class="tg o">Loudest</span></div>
+
+  <div class="frame">
+    <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+      <span class="frame-url">tarabarko.ph/register</span></div>
+    <div class="top">
+      <img src="../assets/logo.svg" class="logo" alt="">
+      <div class="brandtxt"><strong>TARA BARKO</strong><span>MARITIME SERVICES</span></div>
+      <nav class="nav"><a>Courses</a><a class="on">Enroll Now</a></nav>
+    </div>
+    <div class="hero">
+      <h2>Sumakay na sa career mo.<br>Enroll online in 4 minutes.</h2>
+      <p>MARINA and STCW accredited. 12 courses, 5 open schedules, 97 seats available right now.</p>
+      <a class="btn btn-b">Enroll now →</a>
+      <a class="btn btn-g">Track my enrollment</a>
+    </div>
+    <div class="body">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px;text-align:center">
+        <div style="border:1px solid var(--line);border-radius:8px;padding:9px">
+          <div style="font-size:19px;font-weight:800;color:var(--orange)">12</div>
+          <div style="font-size:8px;color:var(--muted)">ACCREDITED COURSES</div></div>
+        <div style="border:1px solid var(--line);border-radius:8px;padding:9px">
+          <div style="font-size:19px;font-weight:800;color:var(--orange)">5</div>
+          <div style="font-size:8px;color:var(--muted)">OPEN SCHEDULES</div></div>
+        <div style="border:1px solid var(--line);border-radius:8px;padding:9px">
+          <div style="font-size:19px;font-weight:800;color:var(--orange)">97</div>
+          <div style="font-size:8px;color:var(--muted)">SEATS AVAILABLE</div></div>
+      </div>
+      <div style="font-size:8px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--orange);margin:0 0 6px">Course catalogue — 239 courses</div>
+      <div class="cat">
+        <div><span class="t">AFF<span class="mode">Distance learning</span></span><span class="d">5 days</span></div>
+        <div><span class="t">BASIC TRAINING</span><span class="d">10–11 days</span></div>
+        <div><span class="t">BTR - BASIC TRAINING REFRESHER</span><span class="d">2–3 days</span></div>
+        <div><span class="t">DECK WATCHKEEPING</span><span class="d">5.5–6 days</span></div>
+        <div><span class="t">MECA - MEDICAL CARE</span><span class="d">6 days</span></div>
+        <div><span class="t">SCRB - F2F<span class="mode">Face to face</span></span><span class="d">5 days</span></div>
+        <div><span class="t">SSO - SHIP SECURITY OFFICER</span><span class="d">3–4 days</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Courses tab — the three-number strip answers "is there a seat for me?" before the catalogue loads.</p>
+
+  <div class="frame">
+    <div class="body" style="padding:13px">
+      <div class="seg"><span class="on" style="background:var(--orange)">New Enrollment</span><span>Track Enrollment</span></div>
+      <div class="steps"><div class="on"><i>1</i>Choose a schedule</div><div><i>2</i>Your details</div><div><i>3</i>Review</div></div>
+      <div class="sched" style="border-color:var(--orange);box-shadow:0 0 0 2px var(--orange-soft)">
+        <div><b>AFF</b> — Advanced Fire Fighting<span class="sm">Aug 19–22, 2026 · Nautical Options</span></div>
+        <span class="sp">Seats left <b>20</b> of 24</span><span style="font-weight:800;color:var(--blue)">₱6,900.00</span></div>
+      <div class="sched"><div><b>SCRB</b> — Survival Craft &amp; Rescue Boats<span class="sm">Aug 24–28, 2026 · Altitude Maritime</span></div>
+        <span class="sp">Seats left <b>16</b> of 20</span><span style="font-weight:800;color:var(--blue)">₱7,800.00</span></div>
+      <div style="display:flex;justify-content:space-between;margin-top:11px;padding-top:9px;border-top:1px solid var(--line)">
+        <a class="btn btn-g">← Back to courses</a><a class="btn btn-o">Continue →</a></div>
+    </div>
+  </div>
+  <p class="cap">Step 1 — the selected schedule takes an orange ring, the only orange on the screen besides the button.</p>
+
+  <div class="two">
+    <div class="panel"><h4>Where it wins</h4>
+      <p class="s" style="margin:0">Conversion and comprehension. Big type and one obvious
+        action per screen suit a user filling this in on a phone, one-handed, between
+        errands.</p></div>
+    <div class="panel"><h4>What it costs</h4>
+      <p class="s" style="margin:0">A full-bleed orange band is a lot of orange. It risks
+        reading as a promo page rather than an accredited center, which matters when you then
+        ask for a passport number.</p></div>
+  </div>
+
+  <div class="sh-foot"><span>Concept 02 — Beacon</span><span>Page 1 of 1</span></div>
+</section>
+
+<!-- ============================ CONCEPT 03 ============================ -->
+<section class="sheet c3">
+  <div class="sh-head">
+    <span class="sh-num">03</span><h2 class="sh-title">Sail Split</h2>
+    <span class="sh-sub">Contemporary · asymmetric</span>
+  </div>
+  <p class="lede">A diagonal split echoing the sail in the mark, with an orange keyline on the
+     seam. The most designed of the five — it looks current, and it makes the brand shape do
+     work rather than sitting in the corner as a badge.</p>
+  <div class="tag-row"><span class="tg">Most distinctive</span><span class="tg">Uses the mark structurally</span>
+    <span class="tg o">Balanced blue/orange</span><span class="tg">Most build effort</span></div>
+
+  <div class="frame">
+    <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+      <span class="frame-url">tarabarko.ph/register</span></div>
+    <div class="top">
+      <img src="../assets/logo.svg" class="logo" alt="">
+      <div class="brandtxt"><strong>TARA BARKO</strong><span>MARITIME SERVICES</span></div>
+      <nav class="nav"><a class="on">Courses</a><a>Enroll Now</a></nav>
+    </div>
+    <div class="hero">
+      <div class="in">
+        <div>
+          <h2>Set your course.</h2>
+          <p>MARINA and STCW accredited training for Filipino seafarers. Reserve a seat online,
+             settle at the office.</p>
+          <a class="btn btn-o">Enroll now</a>
+        </div>
+        <div class="r">
+          <b>97</b><s>seats open across 5 schedules</s>
+          <div style="font-size:8.5px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:7px">
+            Next batch opens<br><b style="font-size:13px;color:var(--orange)">19 Aug</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="body">
+      <div style="font-size:8px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--orange);margin:0 0 6px">Course catalogue — 239 courses</div>
+      <div class="cat">
+        <div><span class="t">AFF<span class="mode">Distance learning</span></span><span class="d">5 days</span></div>
+        <div><span class="t">BASIC TRAINING</span><span class="d">10–11 days</span></div>
+        <div><span class="t">BTR - BASIC TRAINING REFRESHER</span><span class="d">2–3 days</span></div>
+        <div><span class="t">DECK WATCHKEEPING</span><span class="d">5.5–6 days</span></div>
+        <div><span class="t">MECA - MEDICAL CARE</span><span class="d">6 days</span></div>
+        <div><span class="t">SCRB - F2F<span class="mode">Face to face</span></span><span class="d">5 days</span></div>
+        <div><span class="t">SSO - SHIP SECURITY OFFICER</span><span class="d">3–4 days</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Courses tab — the diagonal carries the eye from the headline into the seat count, then the catalogue.</p>
+
+  <div class="frame">
+    <div class="body" style="padding:13px">
+      <div class="seg"><span class="on">New Enrollment</span><span>Track Enrollment</span></div>
+      <div class="steps"><div class="dn"><i>✓</i>Schedule</div><div class="dn"><i>✓</i>Your details</div><div class="on"><i>3</i>Review and submit</div></div>
+      <div class="two">
+        <div>
+          <div class="grp">Seafarer identity</div>
+          <div style="font-size:9px;line-height:1.7">
+            <div><span style="color:var(--muted)">SRN</span> &nbsp; <b style="font-family:var(--mono)">SRN-556677</b></div>
+            <div><span style="color:var(--muted)">Name</span> &nbsp; <b>Dela Cruz Jr., Juan Miguel S.</b></div>
+            <div><span style="color:var(--muted)">Born</span> &nbsp; 22 Mar 1994, Iloilo City</div>
+            <div><span style="color:var(--muted)">Rank</span> &nbsp; Able Seaman</div>
+            <div><span style="color:var(--muted)">Company</span> &nbsp; Magsaysay Maritime Corp.</div>
+            <div><span style="color:var(--muted)">In emergency</span> &nbsp; Rosario Dela Cruz (Mother) · 0918 999 8888</div>
+          </div>
+        </div>
+        <div>
+          <div class="grp">Estimated fee</div>
+          <table style="width:100%;font-size:9px;border-collapse:collapse">
+            <tr><td style="padding:3px 0">Published course fee</td><td style="text-align:right;font-family:var(--mono)">6,900.00</td></tr>
+            <tr><td style="padding:3px 0">VAT-able amount</td><td style="text-align:right;font-family:var(--mono)">6,160.71</td></tr>
+            <tr><td style="padding:3px 0">VAT (12%)</td><td style="text-align:right;font-family:var(--mono)">739.29</td></tr>
+            <tr><td style="padding:6px 0 0;font-weight:800;border-top:1.5px solid var(--line-2);color:var(--blue)">Estimated amount due</td>
+                <td style="text-align:right;padding:6px 0 0;font-weight:800;border-top:1.5px solid var(--line-2);color:var(--blue);font-family:var(--mono)">₱6,900.00</td></tr>
+          </table>
+          <div style="background:#fdf0dc;border-left:2.5px solid #b26a00;padding:7px 9px;border-radius:0 5px 5px 0;font-size:8px;margin-top:8px">
+            Course fee only. Kits, assessment and ID processing are added by the registrar.
+            <b>No payment is collected on this website.</b></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:11px;padding-top:9px;border-top:1px solid var(--line)">
+        <a class="btn btn-g">← Back</a><a class="btn btn-o">Submit enrollment</a></div>
+    </div>
+  </div>
+  <p class="cap">Step 3 — review left, money right. The fee disclaimer sits under the number it qualifies.</p>
+
+  <div class="two">
+    <div class="panel"><h4>Where it wins</h4>
+      <p class="s" style="margin:0">Memorability. Of the five this is the one a seafarer would
+        recognise again, and the only one whose layout references the mark.</p></div>
+    <div class="panel"><h4>What it costs</h4>
+      <p class="s" style="margin:0">The diagonal has to be rebuilt as a horizontal band under
+        820px or it shreds the text. Roughly a day more front-end work than 01 or 02.</p></div>
+  </div>
+
+  <div class="sh-foot"><span>Concept 03 — Sail Split</span><span>Page 1 of 1</span></div>
+</section>
+
+<!-- ============================ CONCEPT 04 ============================ -->
+<section class="sheet c4">
+  <div class="sh-head">
+    <span class="sh-num">04</span><h2 class="sh-title">Manifest</h2>
+    <span class="sh-sub">Form-first · document-like · dense</span>
+  </div>
+  <p class="lede">Minimal chrome, ruled underline fields, monospace document numbers. Designed
+     around the truth that this is paperwork — so it behaves like a well-set official form
+     rather than a landing page wearing a form.</p>
+  <div class="tag-row"><span class="tg">Fastest to complete</span><span class="tg">Best for repeat users</span>
+    <span class="tg">Prints beautifully</span><span class="tg o">Least persuasive</span></div>
+
+  <div class="frame">
+    <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+      <span class="frame-url">tarabarko.ph/register</span></div>
+    <div class="top">
+      <img src="../assets/logo.svg" class="logo" alt="">
+      <div class="brandtxt"><strong>TARA BARKO MARITIME SERVICES</strong><span>TRAINING &amp; ASSESSMENT CENTER</span></div>
+      <nav class="nav"><a>Courses</a><a class="on">Enroll Now</a></nav>
+    </div>
+    <div class="hero">
+      <div><h2>Enrollment Application</h2><p>All fields marked * are required. Approx. 4 minutes.</p></div>
+      <span class="ref">FORM TBM-REG-01 · REV 2026</span>
+    </div>
+    <div class="body">
+      <div class="seg"><span class="on">New Enrollment</span><span>Track Enrollment</span></div>
+      <div class="steps"><div class="dn"><i>✓</i>Schedule</div><div class="on"><i>2</i>Details</div><div><i>3</i>Review</div></div>
+
+      <div class="grp">1 · Seafarer identity</div>
+      <div class="fields f3">
+        <div class="fld"><label>SRN *</label><i class="fill">SRN-556677</i></div>
+        <div class="fld"><label>SIRB no.</label><i class="fill">B7771230</i></div>
+        <div class="fld"><label>Passport no.</label><i class="fill">P8812345A</i></div>
+      </div>
+      <div class="fields f2" style="margin-top:6px">
+        <div class="fld"><label>Last name *</label><i class="fill">Dela Cruz</i></div>
+        <div class="fld"><label>First name *</label><i class="fill">Juan Miguel</i></div>
+      </div>
+      <div class="fields f2" style="margin-top:6px">
+        <div class="fld"><label>Middle name</label><i class="fill">Santos</i></div>
+        <div class="fld"><label>Suffix</label><i class="fill">Jr.</i></div>
+      </div>
+
+      <div class="grp">2 · Personal information</div>
+      <div class="fields f3">
+        <div class="fld"><label>Sex</label><i class="fill">Male</i></div>
+        <div class="fld"><label>Date of birth *</label><i class="fill">1994-03-22</i></div>
+        <div class="fld"><label>Place of birth *</label><i class="fill">Iloilo City, Iloilo</i></div>
+      </div>
+
+      <div class="grp">3 · Contact details</div>
+      <div class="fields f2">
+        <div class="fld"><label>Mobile number *</label><i class="fill">0917 123 4567</i></div>
+        <div class="fld"><label>Email address *</label><i class="fill">juan.delacruz@mail.com</i></div>
+      </div>
+      <div class="fields f1" style="margin-top:6px"><div class="fld"><label>Home address *</label><i class="fill">Brgy. Molo, Iloilo City, Iloilo</i></div></div>
+
+      <div class="grp">4 · Employment</div>
+      <div class="fields f3">
+        <div class="fld"><label>Rank / position *</label><i class="fill">Able Seaman</i></div>
+        <div class="fld"><label>Company *</label><i class="fill">Magsaysay Maritime Corp.</i></div>
+        <div class="fld"><label>Fee billed to</label><i class="fill">Company</i></div>
+      </div>
+
+      <div class="grp">5 · In case of emergency</div>
+      <div class="fields f3">
+        <div class="fld"><label>Contact person *</label><i class="fill">Rosario Dela Cruz</i></div>
+        <div class="fld"><label>Relationship</label><i class="fill">Mother</i></div>
+        <div class="fld"><label>Contact number *</label><i class="fill">0918 999 8888</i></div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;margin-top:12px;padding-top:9px;border-top:1.5px solid var(--line-2)">
+        <a class="btn btn-g">← Back</a><a class="btn btn-o">Review →</a></div>
+    </div>
+  </div>
+  <p class="cap">Numbered sections, underline fields, no decoration. The whole form fits one desktop screen.</p>
+
+  <div class="two">
+    <div class="panel"><h4>Where it wins</h4>
+      <p class="s" style="margin:0">Speed and legibility. Numbered sections match how the
+        registrar reads a file, and the underline treatment survives printing — useful when an
+        agency wants a paper copy for twelve seafarers.</p></div>
+    <div class="panel"><h4>What it costs</h4>
+      <p class="s" style="margin:0">No warmth and no persuasion. A first-time visitor who has
+        not decided to enroll yet gets nothing here to help them decide.</p></div>
+  </div>
+
+  <div class="sh-foot"><span>Concept 04 — Manifest</span><span>Page 1 of 1</span></div>
+</section>
+
+<!-- ============================ CONCEPT 05 ============================ -->
+<section class="sheet c5">
+  <div class="sh-head">
+    <span class="sh-num">05</span><h2 class="sh-title">Coastal</h2>
+    <span class="sh-sub">Soft · rounded · mobile-first</span>
+  </div>
+  <p class="lede">Generous spacing, 14px radii, a pale blue gradient and a wave seam. Designed
+     phone-first on the assumption that most applicants arrive on mobile data — the desktop
+     view is the phone view given room to breathe.</p>
+  <div class="tag-row"><span class="tg">Most approachable</span><span class="tg o">Best on mobile</span>
+    <span class="tg">Lowest anxiety</span><span class="tg">Softest brand read</span></div>
+
+  <div class="frame">
+    <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+      <span class="frame-url">tarabarko.ph/register</span></div>
+    <div class="top">
+      <img src="../assets/logo.svg" class="logo" alt="">
+      <div class="brandtxt"><strong>TARA BARKO</strong><span>MARITIME SERVICES</span></div>
+      <nav class="nav"><a class="on">Courses</a><a>Enroll Now</a></nav>
+    </div>
+    <div class="hero">
+      <h2>Your next certificate starts here.</h2>
+      <p>MARINA and STCW accredited courses. Enroll online, keep your reference code, and we
+         will call you within one working day.</p>
+      <a class="btn btn-o">Enroll now</a> <a class="btn btn-g">Track my enrollment</a>
+    </div>
+    <svg class="wave" viewBox="0 0 1200 40" preserveAspectRatio="none">
+      <path d="M0,22 C180,4 340,38 520,24 C700,10 880,34 1060,20 L1200,14 L1200,40 L0,40 Z" fill="#e7ecfb"/>
+      <path d="M0,30 C200,16 360,42 540,30 C740,17 900,38 1080,28 L1200,24 L1200,40 L0,40 Z" fill="#fff"/>
+    </svg>
+    <div class="body">
+      <div style="font-size:8px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--orange);margin:0 0 6px">Course catalogue — 239 courses</div>
+      <div class="cat">
+        <div><span class="t">AFF<span class="mode">Distance learning</span></span><span class="d">5 days</span></div>
+        <div><span class="t">BASIC TRAINING</span><span class="d">10–11 days</span></div>
+        <div><span class="t">BTR - BASIC TRAINING REFRESHER</span><span class="d">2–3 days</span></div>
+        <div><span class="t">DECK WATCHKEEPING</span><span class="d">5.5–6 days</span></div>
+        <div><span class="t">MECA - MEDICAL CARE</span><span class="d">6 days</span></div>
+        <div><span class="t">SCRB - F2F<span class="mode">Face to face</span></span><span class="d">5 days</span></div>
+        <div><span class="t">SSO - SHIP SECURITY OFFICER</span><span class="d">3–4 days</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="cap">Courses tab — the wave seam separates hero from catalogue without a hard rule.</p>
+
+  <div class="phones">
+    <div class="phone">
+      <div class="pt"></div>
+      <div class="pb">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:7px">
+          <img src="../assets/logo.svg" style="width:19px;height:19px">
+          <div style="font-size:7.5px;font-weight:800;color:var(--blue);letter-spacing:.05em">TARA BARKO</div>
+        </div>
+        <div style="display:flex;gap:3px;margin-bottom:8px">
+          <span style="flex:1;text-align:center;font-size:7.5px;font-weight:700;padding:5px;border-radius:20px;background:var(--blue-soft);color:var(--blue)">Courses</span>
+          <span style="flex:1;text-align:center;font-size:7.5px;font-weight:700;padding:5px;border-radius:20px;background:var(--orange);color:#fff">Enroll Now</span>
+        </div>
+        <div class="seg" style="margin-bottom:7px"><span class="on" style="font-size:7px;padding:5px">New</span><span style="font-size:7px;padding:5px">Track</span></div>
+        <div class="grp" style="font-size:6.5px;margin:7px 0 5px">Seafarer identity</div>
+        <div class="fld" style="margin-bottom:5px"><label style="font-size:6.5px">SRN *</label><i class="fill" style="height:15px;font-size:7px">SRN-556677</i></div>
+        <div class="fld" style="margin-bottom:5px"><label style="font-size:6.5px">Last name *</label><i class="fill" style="height:15px;font-size:7px">Dela Cruz</i></div>
+        <div class="fld" style="margin-bottom:5px"><label style="font-size:6.5px">First name *</label><i class="fill" style="height:15px;font-size:7px">Juan Miguel</i></div>
+        <div class="btn btn-o" style="display:block;text-align:center;font-size:7.5px;padding:7px;margin-top:8px">Continue →</div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="pt"></div>
+      <div class="pb">
+        <div style="text-align:center;padding:5px 0">
+          <div style="width:26px;height:26px;border-radius:50%;background:var(--ok-bg);color:var(--ok);
+                      display:grid;place-items:center;font-size:15px;margin:0 auto 5px">✓</div>
+          <div style="font-size:9px;font-weight:800;color:var(--blue-900)">Enrollment submitted</div>
+          <div style="font-size:6.5px;color:var(--muted);margin:3px 6px 7px">Keep this code. You will need it with your last name.</div>
+          <div style="font-family:var(--mono);font-size:14px;font-weight:800;letter-spacing:.16em;color:var(--blue-900);
+                      background:var(--orange-soft);border:1.5px dashed var(--orange);border-radius:8px;padding:7px 4px">ZFZ2S9</div>
+          <div style="font-size:6.5px;color:var(--muted);margin-top:4px;font-family:var(--mono)">APP-2026-0006</div>
+        </div>
+        <div style="border-top:1px solid var(--line);margin-top:7px;padding-top:7px">
+          <ul class="tl" style="font-size:7px">
+            <li class="hit" style="padding-bottom:8px"><b style="font-size:7.5px">Submitted</b><s style="font-size:6px">15 Aug 2026</s></li>
+            <li style="padding-bottom:8px"><b style="font-size:7.5px">Under Review</b><s style="font-size:6px">Pending</s></li>
+            <li style="padding-bottom:8px"><b style="font-size:7.5px">Approved</b><s style="font-size:6px">Pending</s></li>
+            <li><b style="font-size:7.5px">Enrolled</b><s style="font-size:6px">Pending</s></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap" style="text-align:center">Phone views — the wizard and the acknowledgement with its reference code.</p>
+
+  <div class="two">
+    <div class="panel"><h4>Where it wins</h4>
+      <p class="s" style="margin:0">Completion rate on mobile. Large touch targets, one group
+        per scroll, and a form that never feels like an interrogation despite asking for
+        thirteen fields.</p></div>
+    <div class="panel"><h4>What it costs</h4>
+      <p class="s" style="margin:0">The softest brand read of the five. Rounded pastel UI is
+        the visual language of consumer apps, not accredited training centers.</p></div>
+  </div>
+
+  <div class="sh-foot"><span>Concept 05 — Coastal</span><span>Page 1 of 1</span></div>
+</section>
+
+<!-- ========================== RECOMMENDATION ========================== -->
+<section class="sheet">
+  <div class="sh-head">
+    <span class="sh-num">06</span><h2 class="sh-title">Comparison &amp; recommendation</h2>
+    <span class="sh-sub">Choose one, or one plus a borrow</span>
+  </div>
+
+  <table class="mx">
+    <tr>
+      <th style="width:17%">Concept</th><th style="width:15%">Feels like</th>
+      <th>Strongest at</th><th>Weakest at</th><th style="width:11%">Build</th>
+    </tr>
+    <tr><td><b>01 Harbour Deep</b></td><td>An institution</td>
+        <td>Trust at the moment you ask for SRN, passport and next of kin</td>
+        <td>Mobile — the dark hero eats the first screen</td><td>Low</td></tr>
+    <tr><td><b>02 Beacon</b></td><td>A campaign</td>
+        <td>Turning a Facebook click into a submitted application</td>
+        <td>Credibility; a lot of orange for a regulated service</td><td>Low</td></tr>
+    <tr><td><b>03 Sail Split</b></td><td>A modern brand</td>
+        <td>Being remembered, and using the mark structurally</td>
+        <td>Responsive cost — the diagonal must be rebuilt under 820px</td><td>High</td></tr>
+    <tr><td><b>04 Manifest</b></td><td>An official form</td>
+        <td>Speed for repeat users and agencies; printing</td>
+        <td>Persuading anyone who has not already decided</td><td>Low</td></tr>
+    <tr><td><b>05 Coastal</b></td><td>A consumer app</td>
+        <td>Mobile completion rate across thirteen fields</td>
+        <td>Reading as an accredited training center</td><td>Medium</td></tr>
+  </table>
+
+  <div class="rec">
+    <b>Recommendation — 01 Harbour Deep for the shell, 04 Manifest for the form.</b>
+    The two screens are doing different jobs and deserve different treatments. The Courses tab
+    has to earn trust and sell a seat, which is 01's strength. The Enroll Now form has to be
+    filled in accurately by someone on a phone who has already decided — which is 04's. They
+    share the palette and the mark, so combining them is a change of density, not of brand.
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <h4>What to borrow regardless of the choice</h4>
+    <table class="mx" style="margin-top:6px">
+      <tr><th style="width:24%">From</th><th>Borrow</th></tr>
+      <tr><td><b>02 Beacon</b></td><td>The three-number stat strip. It answers "is there a seat for me?" before the visitor has to search for one.</td></tr>
+      <tr><td><b>03 Sail Split</b></td><td>The review layout — details left, money right, with the fee disclaimer directly under the figure it qualifies.</td></tr>
+      <tr><td><b>04 Manifest</b></td><td>Numbered form sections. A seafarer on the phone to the registrar can say "I'm stuck on section 4".</td></tr>
+      <tr><td><b>05 Coastal</b></td><td>The phone layout of the acknowledgement screen. The reference code is the single most important thing the portal ever shows.</td></tr>
+    </table>
+  </div>
+
+  <div class="panel" style="margin-top:10px">
+    <h4>Constant across all five — do not trade these away</h4>
+    <p class="s" style="margin:0 0 6px">These come from how the system actually works, not from taste.</p>
+    <table class="mx">
+      <tr><td style="width:34%"><b>Two tabs only</b></td><td>Courses and Enroll Now. Track Enrollment is a sub-tab inside Enroll Now.</td></tr>
+      <tr><td><b>Live seat counts</b></td><td>Shown net of applications awaiting approval, so the portal never oversells a batch.</td></tr>
+      <tr><td><b>Orange means act</b></td><td>One orange button per screen. Orange elsewhere only for required markers and low seat warnings.</td></tr>
+      <tr><td><b>The fee is an estimate</b></td><td>Stated next to the figure, every time. No payment is collected on the website.</td></tr>
+      <tr><td><b>The reference code is the hero</b></td><td>Largest element on the acknowledgement screen, and printable.</td></tr>
+      <tr><td><b>Emergency contact is required</b></td><td>Before any practical or sea-survival exercise. The form says why.</td></tr>
+    </table>
+  </div>
+
+  <div class="sh-foot"><span>Tara Barko Maritime Services — Public Registration Concepts</span><span>Comparison &amp; recommendation</span></div>
+</section>
+
+</body>
+</html>

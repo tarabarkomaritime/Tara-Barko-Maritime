@@ -68,8 +68,31 @@ const APPS = (() => {
   const course = id => D().courses.find(c => c.id === id);
   const batch  = id => D().batches.find(b => b.id === id);
 
-  /* ---------- submission ---------- */
-  const REQUIRED = ['last','first','sex','birth','mobile','rank','batchId'];
+  /* ---------- submission ----------
+     Field order here mirrors the order the applicant fills them in, which is the
+     order the registrar reads them back. Grouped: identity, personal, contact,
+     employment, emergency. */
+  const REQUIRED = [
+    'srn',                                   // identity
+    'last','first',
+    'birth','birthPlace',                    // personal
+    'mobile','email','address',              // contact
+    'rank','agency',                         // employment ("Company" on the form)
+    'emergencyName','emergencyMobile',       // emergency
+    'batchId',
+  ];
+
+  /* Shown next to a highlighted field, and reused by the registrar's screen. */
+  const LABELS = {
+    srn:'SRN', last:'Last name', first:'First name', middle:'Middle name', suffix:'Suffix',
+    sex:'Sex', birth:'Date of birth', birthPlace:'Place of birth',
+    mobile:'Mobile number', email:'Email address', address:'Address',
+    rank:'Rank / position', agency:'Company',
+    emergencyName:'Emergency contact person', emergencyRelation:'Relationship',
+    emergencyMobile:'Emergency contact number',
+    sirb:'SIRB number', passport:'Passport number',
+    batchId:'Schedule', batchFull:'Schedule', batchStarted:'Schedule', duplicate:'Application',
+  };
 
   function validate(p){
     const errors = [];
@@ -82,6 +105,18 @@ const APPS = (() => {
 
     if(p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) errors.push('email');
     if(p.birth && p.birth >= DB.today()) errors.push('birth');
+
+    /* Philippine mobile numbers: 11 digits starting 09, or +63 9xxxxxxxxx.
+       Checked loosely — the registrar calls this number, so a wrong format is a
+       real cost, but rejecting an overseas number would be worse. */
+    const digits = s => String(s || '').replace(/\D/g,'');
+    if(p.mobile && digits(p.mobile).length < 10) errors.push('mobile');
+    if(p.emergencyMobile && digits(p.emergencyMobile).length < 10) errors.push('emergencyMobile');
+
+    /* An emergency contact who is the applicant is not an emergency contact. */
+    if(p.mobile && p.emergencyMobile && digits(p.mobile) === digits(p.emergencyMobile)){
+      errors.push('emergencyMobile');
+    }
 
     /* Same person, same batch, still pending — a double submit, not a second course. */
     if(b && D().applications.some(a =>
@@ -108,11 +143,19 @@ const APPS = (() => {
       channel:'Public Portal',
       status:'Submitted',
       courseId:b.courseId, batchId:b.id,
-      last:t(p.last), first:t(p.first), middle:t(p.middle),
-      sex:p.sex || 'M', birth:p.birth || '',
-      srn:t(p.srn), sirb:t(p.sirb), passport:t(p.passport),
-      rank:t(p.rank), agency:t(p.agency),
+      // identity
+      srn:t(p.srn).toUpperCase(),
+      last:t(p.last), first:t(p.first), middle:t(p.middle), suffix:t(p.suffix),
+      // personal
+      sex:p.sex || 'M', birth:p.birth || '', birthPlace:t(p.birthPlace),
+      sirb:t(p.sirb), passport:t(p.passport),
+      // contact
       mobile:t(p.mobile), email:t(p.email).toLowerCase(), address:t(p.address),
+      // employment
+      rank:t(p.rank), agency:t(p.agency),
+      // emergency
+      emergencyName:t(p.emergencyName), emergencyRelation:t(p.emergencyRelation),
+      emergencyMobile:t(p.emergencyMobile),
       payer:p.payer || 'Self-paid',
       remarks:t(p.remarks),
       traineeId:'', enrollmentId:'', decidedBy:'', decidedOn:'', reason:'',
@@ -199,17 +242,24 @@ const APPS = (() => {
     const hit = matchTrainee(app);
     let trainee = hit && hit.trainee;
     if(trainee){
-      // The application is the fresher contact information; keep the older file's identity.
-      ['mobile','email','address','rank','agency'].forEach(f => { if(app[f]) trainee[f] = app[f]; });
-      ['srn','sirb','passport'].forEach(f => { if(app[f] && !trainee[f]) trainee[f] = app[f]; });
+      /* The application carries the fresher contact and next-of-kin details;
+         the existing file keeps its identity and its number. */
+      ['mobile','email','address','rank','agency',
+       'emergencyName','emergencyRelation','emergencyMobile']
+        .forEach(f => { if(app[f]) trainee[f] = app[f]; });
+      ['srn','sirb','passport','suffix','birthPlace']
+        .forEach(f => { if(app[f] && !trainee[f]) trainee[f] = app[f]; });
     }else{
       trainee = {
         id:DB.uid('trn'), no:DB.nextNo('trainee','TRN'),
-        last:app.last, first:app.first, middle:app.middle,
-        sex:app.sex, birth:app.birth,
-        srn:app.srn, sirb:app.sirb, passport:app.passport,
+        srn:app.srn,
+        last:app.last, first:app.first, middle:app.middle, suffix:app.suffix,
+        sex:app.sex, birth:app.birth, birthPlace:app.birthPlace,
+        sirb:app.sirb, passport:app.passport,
         rank:app.rank, agency:app.agency,
         mobile:app.mobile, email:app.email, address:app.address,
+        emergencyName:app.emergencyName, emergencyRelation:app.emergencyRelation,
+        emergencyMobile:app.emergencyMobile,
         registered:DB.today(),
         remarks:`Registered through the public portal — ${app.no}`,
       };
@@ -223,7 +273,9 @@ const APPS = (() => {
       id:DB.uid('enr'), no:DB.nextNo('enrollment','ENR'),
       traineeId:trainee.id, batchId:b.id, courseId:c.id,
       date:DB.today(), status:mode, result:'',
-      fee:c.fee, discount, discountNote:opts.discountNote || '',
+      /* The fee belongs to the batch — the same course costs a different amount
+         at each partner training center. */
+      fee:b.fee, discount, discountNote:opts.discountNote || '',
       certificateNo:'', remarks:`From application ${app.no}`,
       applicationId:app.id,
     };
@@ -233,7 +285,7 @@ const APPS = (() => {
     let inv = null;
     if(mode === 'Enrolled'){
       const items = [
-        { desc:`${c.code} — ${c.title}`, account:'4000', qty:1, price:c.fee },
+        { desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee },
         ...(opts.addons || []).map(a => ({ desc:a.desc, account:a.account, qty:1, price:a.price })),
       ];
       inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:trainee.id, date:enr.date, items, discount });
@@ -263,11 +315,17 @@ const APPS = (() => {
   }
 
   const find    = id  => D().applications.find(a => a.id === id);
-  const forName = a   => `${a.last}, ${a.first}${a.middle ? ' ' + a.middle[0] + '.' : ''}`;
   const ageDays = a   => Math.floor((new Date(DB.today()) - new Date(a.submitted)) / 86400000);
 
+  /* "Dela Cruz Jr., Juan M." — surname first, suffix attached to it, middle
+     initialled. Works for applications and trainees alike; both carry the same
+     name fields. */
+  const forName = a => a
+    ? `${a.last}${a.suffix ? ' ' + a.suffix : ''}, ${a.first}${a.middle ? ' ' + a.middle[0] + '.' : ''}`
+    : '—';
+
   return {
-    OPEN_STATES, FINAL_STATES, ALL_STATES, NEXT,
+    OPEN_STATES, FINAL_STATES, ALL_STATES, NEXT, REQUIRED, LABELS,
     isOpen, isFinal, refCode, seatsTaken, openBatches,
     validate, submit, track, advance, reject, withdraw,
     matchTrainee, convert, pending, counts, find, forName, ageDays,

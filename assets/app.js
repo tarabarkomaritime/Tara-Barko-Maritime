@@ -52,7 +52,8 @@ const BAT  = id => D().batches.find(x => x.id === id);
 const ENR  = id => D().enrollments.find(x => x.id === id);
 const INV  = id => D().invoices.find(x => x.id === id);
 const PAY  = id => D().payments.find(x => x.id === id);
-const name = t => t ? `${t.last}, ${t.first}${t.middle ? ' ' + t.middle[0] + '.' : ''}` : '—';
+/* Trainees and applications carry the same name fields, so one formatter serves both. */
+const name = t => APPS.forName(t);
 const addons = () => D().company.addons || DEFAULT_ADDONS;
 const can = v => SESSION && DB.PERMS[SESSION.role].includes(v);
 const seats = b => D().enrollments.filter(e => e.batchId === b.id && ['Enrolled','Reserved','Completed'].includes(e.status)).length;
@@ -326,7 +327,7 @@ VIEWS.trainees = () => {
       { h:'Trainee No.', k:t => `<span class="mono">${UI.esc(t.no)}</span>`, w:'130px' },
       { h:'Name', k:t => `<b>${UI.esc(name(t))}</b>` },
       { h:'Rank / Position', k:'rank' },
-      { h:'Manning Agency', k:'agency' },
+      { h:'Company', k:'agency' },
       { h:'SRN', k:t => `<span class="mono">${UI.esc(t.srn)}</span>` },
       { h:'Mobile', k:'mobile' },
       { h:'Courses', k:t => UI.int(D().enrollments.filter(e => e.traineeId === t.id).length), cls:'num' },
@@ -339,25 +340,28 @@ VIEWS.trainees = () => {
 
 /* ---------- Courses ---------- */
 VIEWS.courses = () => {
-  const rows = D().courses;
+  /* 239 courses — the list is only usable with a filter in front of it. */
+  const q = (state.q.crs || '').toLowerCase();
+  const all = D().courses;
+  const rows = all.filter(c => !q || [c.code, c.title, c.mode, c.duration].join(' ').toLowerCase().includes(q));
   return `
     <div class="toolbar">
-      <span class="muted">${rows.filter(c=>c.active).length} active course(s) in the catalogue</span>
+      <input type="search" data-q="crs" value="${UI.esc(state.q.crs||'')}"
+             placeholder="Search course title, code or duration…" style="min-width:300px">
+      <span class="muted">${rows.length} of ${all.filter(c=>c.active).length} active course(s)</span>
       <span class="spacer"></span>
       ${can('settings') ? `<button class="btn btn-primary btn-sm" data-act="new-course">+ Add course</button>` : ''}
     </div>
     ${UI.card('', UI.table([
       { h:'Code', k:c => `<b class="mono">${UI.esc(c.code)}</b>`, w:'90px' },
       { h:'Course Title', k:'title' },
-      { h:'Regulation', k:c => `<span class="mono">${UI.esc(c.regulation)}</span>` },
-      { h:'Category', k:'category' },
-      { h:'Days', k:'days', cls:'num' },
-      { h:'Capacity', k:'capacity', cls:'num' },
-      { h:'Published Fee', k:c => `<b>${UI.peso(c.fee)}</b>`, cls:'num' },
+      { h:'Duration', k:c => UI.esc(c.duration || '—') },
+      { h:'Mode', k:c => c.mode ? UI.esc(c.mode) : '<span class="muted">—</span>' },
+      { h:'Scheduled', k:c => UI.int(D().batches.filter(b => b.courseId === c.id).length), cls:'num' },
       { h:'Enrolled', k:c => UI.int(D().enrollments.filter(e => e.courseId === c.id).length), cls:'num' },
       { h:'Status', k:c => UI.statusTag(c.active ? 'Open' : 'Closed') },
       { h:'', k:c => can('settings') ? `<button class="btn btn-ghost btn-xs" data-act="edit-course" data-id="${c.id}">Edit</button>` : '' },
-    ], rows, { empty:'No courses yet.' }), { flush:true })}
+    ], rows, { empty:'No course matches that search.' }), { flush:true })}
   `;
 };
 
@@ -380,6 +384,7 @@ VIEWS.batches = () => {
       { h:'Batch No.', k:b => `<b class="mono">${UI.esc(b.no)}</b>`, w:'120px' },
       { h:'Course', k:b => { const c = CRS(b.courseId); return `<b>${UI.esc(c?.code||'')}</b> — ${UI.esc(c?.title||'')}`; } },
       { h:'Schedule', k:b => UI.dateRange(b.start,b.end) },
+      { h:'Center', k:'center' },
       { h:'Venue', k:'room' },
       { h:'Instructor', k:'instructor' },
       { h:'Seats', k:b => { const s = seats(b), pct = Math.min(100, s/b.capacity*100);
@@ -787,7 +792,7 @@ VIEWS.reports = () => {
       ${UI.kpi('Passing Rate', assessed ? Math.round(passed/assessed*100) + '%' : '—', 'Of assessed trainees', assessed && passed/assessed < .8 ? 'warn' : 'ok')}
     </div>
     <div class="grid g2">
-      ${UI.card('By manning agency', UI.barChart(Object.entries(byAgency).map(([l,v]) => ({ label:l, value:v })).sort((a,b) => b.value - a.value)))}
+      ${UI.card('By company', UI.barChart(Object.entries(byAgency).map(([l,v]) => ({ label:l, value:v })).sort((a,b) => b.value - a.value)))}
       ${UI.card('By month', UI.barChart(Object.entries(byMonth).sort().map(([l,v]) => ({ label:l, value:v }))))}
     </div>` +
     UI.table([
@@ -892,23 +897,26 @@ function applicationModal(a){
         ${b ? `${UI.dateRange(b.start,b.end)} · ${UI.esc(b.room)} · ${UI.esc(b.instructor)} ·
                ${seatInfo.enrolled}/${b.capacity} seats taken, ${seatInfo.pending} pending application(s)`
             : 'The selected batch no longer exists.'}<br>
-        Published fee ${UI.peso(c?.fee || 0)}
+        ${UI.esc(c?.duration || '')} · fee ${UI.peso(b?.fee || 0)} at ${UI.esc(b?.center || '—')}
       </div>
 
       <div class="grid g2">
         <dl class="def">
-          <dt>Sex / Birthdate</dt><dd>${a.sex === 'F' ? 'Female' : 'Male'} · ${UI.date(a.birth)}</dd>
-          <dt>Rank / position</dt><dd>${UI.esc(a.rank || '—')}</dd>
-          <dt>Manning agency</dt><dd>${UI.esc(a.agency || 'Direct hire / walk-in')}</dd>
-          <dt>SRN</dt><dd class="mono">${UI.esc(a.srn || '—')}</dd>
+          <dt>SRN</dt><dd class="mono"><b>${UI.esc(a.srn || '—')}</b></dd>
           <dt>SIRB</dt><dd class="mono">${UI.esc(a.sirb || '—')}</dd>
           <dt>Passport</dt><dd class="mono">${UI.esc(a.passport || '—')}</dd>
+          <dt>Sex / Birthdate</dt><dd>${a.sex === 'F' ? 'Female' : 'Male'} · ${UI.date(a.birth)}</dd>
+          <dt>Place of birth</dt><dd>${UI.esc(a.birthPlace || '—')}</dd>
+          <dt>Rank / position</dt><dd>${UI.esc(a.rank || '—')}</dd>
+          <dt>Company</dt><dd>${UI.esc(a.agency || 'Direct hire / walk-in')}</dd>
         </dl>
         <dl class="def">
           <dt>Mobile</dt><dd>${UI.esc(a.mobile || '—')}</dd>
           <dt>Email</dt><dd>${UI.esc(a.email || '—')}</dd>
           <dt>Address</dt><dd>${UI.esc(a.address || '—')}</dd>
-          <dt>Remarks</dt><dd>${UI.esc(a.remarks || '—')}</dd>
+          <dt>Emergency contact</dt><dd>${UI.esc(a.emergencyName || '—')}${a.emergencyRelation ? ` <span class="muted">(${UI.esc(a.emergencyRelation)})</span>` : ''}</dd>
+          <dt>Emergency number</dt><dd>${UI.esc(a.emergencyMobile || '—')}</dd>
+          <dt>Notes</dt><dd>${UI.esc(a.remarks || '—')}</dd>
           ${a.reason ? `<dt>Reason</dt><dd>${UI.esc(a.reason)}</dd>` : ''}
           ${a.enrollmentId ? `<dt>Enrollment</dt><dd class="mono">${UI.esc(ENR(a.enrollmentId)?.no || '—')}</dd>` : ''}
         </dl>
@@ -972,7 +980,7 @@ function convertForm(a){
       <div class="hr"></div>
       <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
       <div class="note" style="margin-bottom:12px">
-        <b>${UI.esc(c.code)} — ${UI.esc(c.title)}</b> · published fee ${UI.peso(c.fee)}
+        <b>${UI.esc(c.title)}</b> · ${UI.esc(b.center)} · fee ${UI.peso(b.fee)}
       </div>
       <div class="chips" id="addonBox" style="margin-bottom:12px">
         ${addons().map((ad,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
@@ -1026,17 +1034,37 @@ function convertForm(a){
 
 function traineeForm(t){
   const isNew = !t;
-  t = t || { last:'', first:'', middle:'', sex:'M', birth:'', srn:'', sirb:'', passport:'', rank:'', agency:'', mobile:'', email:'', address:'', remarks:'' };
+  t = t || { srn:'', last:'', first:'', middle:'', suffix:'', sex:'M', birth:'', birthPlace:'',
+             sirb:'', passport:'', rank:'', agency:'', mobile:'', email:'', address:'',
+             emergencyName:'', emergencyRelation:'', emergencyMobile:'', remarks:'' };
+  const H = s => `<h4 style="margin:18px 0 8px;font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--tb-orange);border-bottom:2px solid var(--tb-orange-soft);padding-bottom:5px">${s}</h4>`;
   UI.modal({
     title: isNew ? 'Register trainee' : 'Edit trainee — ' + t.no,
     sub: 'Seafarer master record',
     wide:true,
     body: `
-      ${UI.row(UI.f.text('last','Surname', t.last, { req:true }), UI.f.text('first','First name', t.first, { req:true }), UI.f.text('middle','Middle name', t.middle))}
-      ${UI.row(UI.f.select('sex','Sex', t.sex, [{v:'M',l:'Male'},{v:'F',l:'Female'}]), UI.f.date('birth','Date of birth', t.birth), UI.f.text('rank','Rank / position', t.rank, { ph:'e.g. Able Seaman' }))}
-      ${UI.row(UI.f.text('srn','SRN', t.srn, { hint:'Seafarer Registration No.' }), UI.f.text('sirb','SIRB No.', t.sirb), UI.f.text('passport','Passport No.', t.passport))}
-      ${UI.row(UI.f.text('agency','Manning agency', t.agency), UI.f.text('mobile','Mobile no.', t.mobile), UI.f.text('email','Email', t.email))}
-      ${UI.f.text('address','Address', t.address)}
+      ${H('Seafarer identity')}
+      ${UI.row(UI.f.text('srn','SRN', t.srn, { req:true, hint:'Seafarer Registration No.' }),
+               UI.f.text('sirb','SIRB No.', t.sirb), UI.f.text('passport','Passport No.', t.passport))}
+      ${UI.row(UI.f.text('last','Last name', t.last, { req:true }),
+               UI.f.text('first','First name', t.first, { req:true }),
+               UI.f.text('middle','Middle name', t.middle))}
+      ${H('Personal information')}
+      ${UI.row(UI.f.select('suffix','Suffix', t.suffix, ['','Jr.','Sr.','II','III','IV','V']),
+               UI.f.select('sex','Sex', t.sex, [{v:'M',l:'Male'},{v:'F',l:'Female'}]),
+               UI.f.date('birth','Date of birth', t.birth, { req:true }))}
+      ${UI.f.text('birthPlace','Place of birth', t.birthPlace, { ph:'City / municipality, province' })}
+      ${H('Contact details')}
+      ${UI.row(UI.f.text('mobile','Mobile no.', t.mobile, { req:true }),
+               UI.f.text('email','Email', t.email))}
+      ${UI.f.text('address','Home address', t.address)}
+      ${H('Employment')}
+      ${UI.row(UI.f.text('rank','Rank / position', t.rank, { ph:'e.g. Able Seaman' }),
+               UI.f.text('agency','Company', t.agency, { hint:'manning agency or employer' }))}
+      ${H('In case of emergency')}
+      ${UI.row(UI.f.text('emergencyName','Contact person', t.emergencyName),
+               UI.f.text('emergencyRelation','Relationship', t.emergencyRelation, { ph:'e.g. Spouse' }),
+               UI.f.text('emergencyMobile','Contact number', t.emergencyMobile))}
       ${UI.f.area('remarks','Remarks', t.remarks)}`,
     submitLabel: isNew ? 'Register trainee' : 'Save changes',
     onSubmit: fd => {
@@ -1069,15 +1097,18 @@ function traineeProfile(t){
     body: `
       <div class="grid g2">
         <dl class="def">
-          <dt>Sex / Birthdate</dt><dd>${t.sex === 'F' ? 'Female' : 'Male'} · ${UI.date(t.birth)}</dd>
-          <dt>SRN</dt><dd class="mono">${UI.esc(t.srn||'—')}</dd>
+          <dt>SRN</dt><dd class="mono"><b>${UI.esc(t.srn||'—')}</b></dd>
           <dt>SIRB</dt><dd class="mono">${UI.esc(t.sirb||'—')}</dd>
           <dt>Passport</dt><dd class="mono">${UI.esc(t.passport||'—')}</dd>
+          <dt>Sex / Birthdate</dt><dd>${t.sex === 'F' ? 'Female' : 'Male'} · ${UI.date(t.birth)}</dd>
+          <dt>Place of birth</dt><dd>${UI.esc(t.birthPlace||'—')}</dd>
         </dl>
         <dl class="def">
           <dt>Mobile</dt><dd>${UI.esc(t.mobile||'—')}</dd>
           <dt>Email</dt><dd>${UI.esc(t.email||'—')}</dd>
           <dt>Address</dt><dd>${UI.esc(t.address||'—')}</dd>
+          <dt>Emergency contact</dt><dd>${UI.esc(t.emergencyName||'—')}${t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}</dd>
+          <dt>Emergency number</dt><dd>${UI.esc(t.emergencyMobile||'—')}</dd>
           <dt>Registered</dt><dd>${UI.date(t.registered)}</dd>
         </dl>
       </div>
@@ -1117,17 +1148,15 @@ function courseForm(c){
   UI.modal({
     title: isNew ? 'Add course' : 'Edit course — ' + c.code,
     body: `
-      ${UI.row(UI.f.text('code','Course code', c.code, { req:true, ph:'e.g. PSCRB' }),
-               UI.f.text('regulation','STCW / MARINA reference', c.regulation, { ph:'e.g. STCW VI/2-1' }))}
+      ${UI.row(UI.f.text('code','Course code', c.code, { req:true, ph:'e.g. SCRB' }),
+               UI.f.text('mode','Delivery mode', c.mode, { ph:'e.g. Blended — optional' }))}
       ${UI.f.text('title','Course title', c.title, { req:true })}
-      ${UI.row(UI.f.select('category','Category', c.category, ['Basic Safety','Advanced Safety','Refresher','Medical','Security','Deck','Engine','Others']),
-               UI.f.num('days','Duration (days)', c.days, { step:'1', min:1, req:true }),
-               UI.f.num('capacity','Seats per batch', c.capacity, { step:'1', min:1, req:true }))}
-      ${UI.row(UI.f.num('fee','Published fee (₱)', c.fee, { req:true, min:0 }),
+      ${UI.row(UI.f.num('days','Duration (days)', c.days, { step:'0.5', min:0 }),
+               UI.f.text('duration','Duration shown to applicants', c.duration, { ph:'e.g. 5 days' }),
                UI.f.select('active','Status', c.active ? '1' : '0', [{v:'1',l:'Open for enrollment'},{v:'0',l:'Not offered'}]))}`,
     submitLabel: isNew ? 'Add course' : 'Save changes',
     onSubmit: fd => {
-      const rec = { ...fd, days:+fd.days, capacity:+fd.capacity, fee:ACC.r2(fd.fee), active:fd.active === '1' };
+      const rec = { ...fd, days:fd.days ? +fd.days : null, active:fd.active === '1' };
       if(isNew){ D().courses.push({ id:DB.uid('crs'), ...rec }); DB.activity('Added course', rec.code); UI.toast('Course added.'); }
       else { Object.assign(c, rec); DB.activity('Updated course', c.code); UI.toast('Course updated.'); }
       refresh();
@@ -1138,23 +1167,31 @@ function courseForm(c){
 function batchForm(b){
   const isNew = !b;
   const active = D().courses.filter(c => c.active);
-  b = b || { courseId:active[0]?.id, start:DB.today(), end:'', room:'', instructor:'', capacity:active[0]?.capacity||25, status:'Open' };
+  b = b || { courseId:active[0]?.id, start:DB.today(), end:'', center:'', room:'', instructor:'',
+             fee:0, capacity:25, status:'Open' };
+  const centers = [...new Set(D().batches.map(x => x.center).filter(Boolean))].sort();
   UI.modal({
     title: isNew ? 'Schedule a batch' : 'Edit batch — ' + b.no,
+    wide:true,
     body: `
-      ${UI.f.select('courseId','Course', b.courseId, active.map(c => ({ v:c.id, l:`${c.code} — ${c.title} (${c.days} days)` })), { req:true })}
+      ${UI.f.select('courseId','Course', b.courseId, active.map(c => ({ v:c.id, l:`${c.title}${c.duration ? ' (' + c.duration + ')' : ''}` })), { req:true, attr:'list="centerList"' })}
+      ${UI.row(UI.f.text('center','Training center', b.center, { req:true, hint:'partner running this batch', attr:'list="centerList"' }),
+               UI.f.num('fee','Training fee (₱)', b.fee, { req:true, min:0, hint:'this center, this batch' }))}
+      <datalist id="centerList">${centers.map(x => `<option value="${UI.esc(x)}">`).join('')}</datalist>
       ${UI.row(UI.f.date('start','Start date', b.start, { req:true }), UI.f.date('end','End date', b.end, { req:true }))}
       ${UI.row(UI.f.text('room','Venue / room', b.room, { ph:'e.g. Simulator A' }), UI.f.text('instructor','Instructor', b.instructor))}
       ${UI.row(UI.f.num('capacity','Seat capacity', b.capacity, { step:'1', min:1, req:true }),
                UI.f.select('status','Status', b.status, ['Open','Ongoing','Completed','Cancelled']))}
-      <div class="note">Leave the end date blank and it will be computed from the course duration.</div>`,
+      <div class="note">The fee belongs to the batch, not the course — the same course costs
+        a different amount at each partner center. Leave the end date blank and it will be
+        computed from the course duration.</div>`,
     submitLabel: isNew ? 'Schedule batch' : 'Save changes',
     onSubmit: fd => {
       const c = CRS(fd.courseId);
       let end = fd.end;
-      if(!end){ const e = new Date(fd.start); e.setDate(e.getDate() + c.days - 1); end = e.toISOString().slice(0,10); }
+      if(!end){ const e = new Date(fd.start); e.setDate(e.getDate() + Math.ceil(c.days || 1) - 1); end = e.toISOString().slice(0,10); }
       if(end < fd.start){ UI.toast('End date cannot precede the start date.', 'bad'); return false; }
-      const rec = { ...fd, end, capacity:+fd.capacity };
+      const rec = { ...fd, end, capacity:+fd.capacity, fee:ACC.r2(fd.fee) };
       if(isNew){
         D().seq.batch++;
         const no = `${c.code}-${String(D().seq.batch).padStart(3,'0')}`;
@@ -1170,11 +1207,10 @@ function batchForm(b){
   const sel = document.querySelector('#mForm [name=courseId]');
   sel.onchange = () => {
     const c = CRS(sel.value), form = sel.form;
-    form.capacity.value = c.capacity;
-    if(form.start.value){ const e = new Date(form.start.value); e.setDate(e.getDate() + c.days - 1); form.end.value = e.toISOString().slice(0,10); }
+    if(form.start.value){ const e = new Date(form.start.value); e.setDate(e.getDate() + Math.ceil(c.days || 1) - 1); form.end.value = e.toISOString().slice(0,10); }
   };
   const st = document.querySelector('#mForm [name=start]');
-  st.onchange = () => { const c = CRS(sel.value); const e = new Date(st.value); e.setDate(e.getDate() + c.days - 1); st.form.end.value = e.toISOString().slice(0,10); };
+  st.onchange = () => { const c = CRS(sel.value); if(!c || !st.value) return; const e = new Date(st.value); e.setDate(e.getDate() + Math.ceil(c.days || 1) - 1); st.form.end.value = e.toISOString().slice(0,10); };
 }
 
 function rosterModal(b){
@@ -1255,13 +1291,13 @@ function enrollmentForm(existing, presetTrainee, presetBatch){
         id:DB.uid('enr'), no:DB.nextNo('enrollment','ENR'),
         traineeId:fd.traineeId, batchId:b.id, courseId:c.id,
         date:fd.date, status:fd.status, result:'',
-        fee:c.fee, discount, discountNote:fd.discountNote || '',
+        fee:b.fee, discount, discountNote:fd.discountNote || '',
         certificateNo:'', remarks:fd.remarks || '',
       };
       D().enrollments.push(enr);
 
       if(fd.status === 'Enrolled'){
-        const items = [{ desc:`${c.code} — ${c.title}`, account:'4000', qty:1, price:c.fee },
+        const items = [{ desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee },
                        ...chosen.map(a => ({ desc:a.desc, account:a.account, qty:1, price:a.price }))];
         const inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:enr.traineeId, date:enr.date, items, discount });
         D().invoices.push(inv); ACC.postInvoice(inv); enr.invoiceId = inv.id;
@@ -1282,9 +1318,9 @@ function enrollmentForm(existing, presetTrainee, presetBatch){
     if(!b){ document.getElementById('feeBase').textContent = 'Select a batch to load the published rate.'; document.getElementById('summary').innerHTML = ''; return; }
     const c = CRS(b.courseId);
     document.getElementById('feeBase').innerHTML =
-      `<b>${UI.esc(c.code)} — ${UI.esc(c.title)}</b><br>Published fee ${UI.peso(c.fee)} · ${c.days} day(s) · ${UI.dateRange(b.start,b.end)} · ${seats(b)}/${b.capacity} seats taken`;
+      `<b>${UI.esc(c.title)}</b><br>${UI.esc(b.center)} · ${UI.peso(b.fee)} · ${UI.esc(c.duration || '')} · ${UI.dateRange(b.start,b.end)} · ${seats(b)}/${b.capacity} seats taken`;
 
-    const items = [{ qty:1, price:c.fee }];
+    const items = [{ qty:1, price:b.fee }];
     addons().forEach((a,i) => { if(form['addon'+i] && form['addon'+i].checked) items.push({ qty:1, price:a.price }); });
     const t = ACC.computeInvoice(items, form.discount.value);
     const reserved = form.status.value === 'Reserved';
@@ -1380,7 +1416,7 @@ function billEnrollment(e){
   UI.modal({
     title:'Generate invoice', sub:`${e.no} · ${name(T(e.traineeId))}`,
     body: `
-      <div class="note"><b>${UI.esc(c.code)} — ${UI.esc(c.title)}</b><br>Published fee ${UI.peso(c.fee)}</div>
+      <div class="note"><b>${UI.esc(c.title)}</b><br>${UI.esc(b.center)} · ${UI.esc(c.duration || '')} · fee ${UI.peso(b.fee)}</div>
       <div class="chips" style="margin-bottom:12px">
         ${addons().map((a,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
             <input type="checkbox" name="addon${i}" style="width:auto;margin:0"> ${UI.esc(a.desc)} — ${UI.peso(a.price)}</label>`).join('')}
@@ -1390,7 +1426,7 @@ function billEnrollment(e){
       ${UI.f.text('terms','Terms','Due on or before first day of training')}`,
     submitLabel:'Issue invoice',
     onSubmit: fd => {
-      const items = [{ desc:`${c.code} — ${c.title}`, account:'4000', qty:1, price:c.fee }];
+      const items = [{ desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee }];
       addons().forEach((a,i) => { if(fd['addon'+i]) items.push({ desc:a.desc, account:a.account, qty:1, price:a.price }); });
       const inv = ACC.buildInvoice({ enrollmentId:e.id, traineeId:e.traineeId, date:fd.date, items, discount:ACC.r2(fd.discount), terms:fd.terms });
       D().invoices.push(inv); ACC.postInvoice(inv);

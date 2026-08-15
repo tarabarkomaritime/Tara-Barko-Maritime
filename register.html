@@ -3,29 +3,26 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Register Online — Tara Barko Maritime Training &amp; Assessment Center</title>
-<meta name="description" content="Apply online for STCW and MARINA-accredited maritime training courses at Tara Barko Maritime Training &amp; Assessment Center." />
+<title>Enroll Online — Tara Barko Maritime Services</title>
+<meta name="description" content="Enroll online in MARINA and STCW accredited maritime training courses at Tara Barko Maritime Services." />
 <link rel="stylesheet" href="assets/styles.css" />
 <link rel="stylesheet" href="assets/public.css" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9875;</text></svg>" />
+<link rel="icon" href="assets/logo.svg" />
 </head>
 <body class="portal">
 
 <header class="p-top">
   <div class="p-top-in">
-    <a class="p-brand" href="#/home">
-      <div class="anchor">&#9875;</div>
-      <div>
-        <strong>TARA BARKO MARITIME</strong>
-        <span>Training &amp; Assessment Center</span>
-      </div>
+    <a class="p-brand" href="#/courses">
+      <img src="assets/logo.svg" alt="Tara Barko Maritime Services" class="p-logo">
+      <span class="p-brand-txt">
+        <strong>TARA BARKO</strong>
+        <span>MARITIME SERVICES</span>
+      </span>
     </a>
-    <nav class="p-nav" id="pNav">
-      <a href="#/home"    data-p="home">Home</a>
-      <a href="#/courses" data-p="courses">Courses &amp; Schedules</a>
-      <a href="#/apply"   data-p="apply">Register</a>
-      <a href="#/track"   data-p="track">Track Application</a>
-      <a href="index.html" class="staff" title="For registrar, cashier and accounting staff">Staff Sign-in</a>
+    <nav class="p-nav">
+      <a href="#/courses" data-p="courses">Courses</a>
+      <a href="#/enroll"  data-p="enroll">Enroll Now</a>
     </nav>
   </div>
 </header>
@@ -34,20 +31,21 @@
 
 <footer class="p-foot">
   <div class="p-foot-in">
-    <div style="flex:1;min-width:230px">
-      <b id="fName">Tara Barko Maritime Training &amp; Assessment Center, Inc.</b>
+    <div class="p-foot-col">
+      <b id="fName">Tara Barko Maritime Services</b>
       <div id="fAddr"></div>
       <div id="fContact"></div>
     </div>
-    <div style="flex:1;min-width:200px">
+    <div class="p-foot-col">
       <b>Accreditation</b>
       <div id="fAcc"></div>
       <div id="fTin"></div>
     </div>
-    <div style="flex:1;min-width:200px">
+    <div class="p-foot-col">
       <b>Office hours</b>
-      <div>Monday to Friday, 8:00 AM – 5:00 PM</div>
-      <div>Saturday, 8:00 AM – 12:00 NN</div>
+      <div>Monday to Friday, 8:00 AM &ndash; 5:00 PM</div>
+      <div>Saturday, 8:00 AM &ndash; 12:00 NN</div>
+      <div class="p-staff"><a href="index.html">Staff sign-in</a></div>
     </div>
   </div>
 </footer>
@@ -55,6 +53,7 @@
 <div id="modalRoot"></div>
 <div id="toastRoot" class="toast-root"></div>
 
+<script src="assets/courses.js"></script>
 <script src="assets/db.js"></script>
 <script src="assets/ui.js"></script>
 <script src="assets/accounting.js"></script>

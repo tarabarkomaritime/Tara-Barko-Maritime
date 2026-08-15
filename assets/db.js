@@ -133,26 +133,25 @@ const DB = (() => {
 
   /* ---------- seed ---------- */
   function seed(){
-    const C = (code,title,reg,days,fee,cap,cat) =>
-      ({ id:uid('crs'), code, title, regulation:reg, days, fee, capacity:cap, category:cat, active:true });
-
-    data.courses = [
-      C('BT',      'Basic Training',                                  'STCW VI/1',       10, 6500,  30, 'Basic Safety'),
-      C('BT-REF',  'Basic Training (Refresher)',                      'STCW VI/1 (Ref)',  3, 3500,  30, 'Refresher'),
-      C('PSCRB',   'Proficiency in Survival Craft & Rescue Boats',    'STCW VI/2-1',      5, 7800,  20, 'Advanced Safety'),
-      C('AFF',     'Advanced Fire Fighting',                          'STCW VI/3',        4, 6900,  24, 'Advanced Safety'),
-      C('MEFA',    'Medical Emergency First Aid',                     'STCW VI/4-1',      3, 4200,  25, 'Medical'),
-      C('MC',      'Medical Care on Board Ship',                      'STCW VI/4-2',      5, 7500,  20, 'Medical'),
-      C('SSO',     'Ship Security Officer',                           'STCW VI/5',        3, 5500,  30, 'Security'),
-      C('SDSD',    'Security Awareness w/ Designated Duties',         'STCW VI/6-2',      2, 2800,  40, 'Security'),
-      C('ROC',     'Restricted Operator Certificate (GMDSS)',         'STCW IV/2',        7, 9500,  16, 'Deck'),
-      C('ECDIS',   'Electronic Chart Display & Information System',   'STCW II/1',        5, 12500, 12, 'Deck'),
-      C('BRM',     'Bridge Resource Management',                      'STCW II/1',        5, 11000, 16, 'Deck'),
-      C('ERM',     'Engine Room Resource Management',                 'STCW III/1',       5, 11000, 16, 'Engine'),
-    ];
+    /* The catalogue is generated from the internal price matrix by
+       tools/import-courses.js — 239 courses, duplicates already collapsed, and
+       carrying no fees or partner names. Tara Barko brokers seats at partner
+       training centers, so a fee belongs to a booking at a named center, not to
+       the course itself: `fee` therefore lives on the batch. */
+    if(typeof COURSE_CATALOGUE === 'undefined'){
+      throw new Error('assets/courses.js must be loaded before db.js — the seed builds the ' +
+                      'catalogue from it. Regenerate with tools/import-courses.js if it is missing.');
+    }
+    data.courses = COURSE_CATALOGUE.map(c => ({
+      id:uid('crs'),
+      code:c.code, title:c.title,
+      days:c.days ?? null, daysTo:c.daysTo, duration:c.duration,
+      mode:c.mode || '', note:c.note || '',
+      active:true,
+    }));
     data.seq.course = data.courses.length;
 
-    const crs = code => data.courses.find(c => c.code === code);
+    const crs = t => data.courses.find(c => c.title.toUpperCase() === t.toUpperCase());
     const dOff = n => { const d = new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
     const end  = (s,days) => { const d = new Date(s); d.setDate(d.getDate()+days-1); return d.toISOString().slice(0,10); };
     /* Trainees register shortly before a batch opens — and never in the future, so the
@@ -160,23 +159,32 @@ const DB = (() => {
     const before = (date,n) => { const d = new Date(date); d.setDate(d.getDate()-n); const s = d.toISOString().slice(0,10); return s > today() ? today() : s; };
     const after  = (date,n) => { const d = new Date(date); d.setDate(d.getDate()+n); const s = d.toISOString().slice(0,10); return s > today() ? today() : s; };
 
-    const B = (code, startOffset, room, instr, status) => {
-      const c = crs(code), s = dOff(startOffset);
-      data.seq.batch++;
-      return { id:uid('bat'), no:`${code}-${String(data.seq.batch).padStart(3,'0')}`, courseId:c.id,
-               start:s, end:end(s,c.days), room, instructor:instr, capacity:c.capacity, status };
+    /* A batch is a booking of seats on a dated run at a named partner center, so
+       it carries the fee and the capacity. Two centers running the same course in
+       the same week are two batches at two prices — which is the business. */
+    let bseq = 0;
+    const B = (title, startOffset, center, room, instr, fee, cap, status) => {
+      const c = crs(title);
+      /* The seed names real catalogue entries. If one stops matching, the import
+         renamed it — fail loudly rather than seeding a half-empty demo. */
+      if(!c) throw new Error(`seed: no catalogue entry titled "${title}" — check tools/import-courses.js output`);
+      const s = dOff(startOffset), days = c.days || 1;
+      data.seq.batch++; bseq++;
+      return { id:uid('bat'), no:`${c.code}-${String(data.seq.batch).padStart(3,'0')}`,
+               courseId:c.id, start:s, end:end(s, Math.ceil(days)),
+               center, room, instructor:instr, fee, capacity:cap, status };
     };
     data.batches = [
-      B('BT',    -30, 'Pool / Rm 201', 'Capt. R. Villanueva', 'Completed'),
-      B('SSO',   -18, 'Rm 305',        'Capt. M. Delos Reyes','Completed'),
-      B('MEFA',   -6, 'Rm 202',        'Dr. L. Sarmiento',    'Ongoing'),
-      B('BT',     -2, 'Pool / Rm 201', 'Capt. R. Villanueva', 'Ongoing'),
-      B('AFF',     4, 'Fire Ground',   'CE J. Bautista',      'Open'),
-      B('PSCRB',   9, 'Pool / Rm 204', 'Capt. R. Villanueva', 'Open'),
-      B('ECDIS',  15, 'Simulator A',   'Capt. A. Ocampo',     'Open'),
-      B('SDSD',   21, 'Rm 305',        'Capt. M. Delos Reyes','Open'),
-      B('ROC',    28, 'Rm 306',        'Mr. F. Guevarra',     'Open'),
-    ];
+      B('BASIC TRAINING',              -30, 'Nautical Options',  'Pool / Rm 201', 'Capt. R. Villanueva',  5500, 30, 'Completed'),
+      B('SSO - SHIP SECURITY OFFICER', -18, 'PNTC',              'Rm 305',        'Capt. M. Delos Reyes', 2700, 30, 'Completed'),
+      B('MEFA - MEDICAL FIRST AID',     -6, 'Altitude Maritime', 'Rm 202',        'Dr. L. Sarmiento',     1600, 25, 'Ongoing'),
+      B('BASIC TRAINING',               -2, 'Fareast',           'Pool / Rm 201', 'Capt. R. Villanueva',  6500, 30, 'Ongoing'),
+      B('AFF',                           4, 'Nautical Options',  'Fire Ground',   'CE J. Bautista',       4200, 24, 'Open'),
+      B('SCRB',                          9, 'Altitude Maritime', 'Pool / Rm 204', 'Capt. R. Villanueva',  3600, 20, 'Open'),
+      B('DECK WATCHKEEPING',            15, 'PNTC',              'Simulator A',   'Capt. A. Ocampo',      3700, 16, 'Open'),
+      B('SATSDSD',                      21, 'Great Seas',        'Rm 305',        'Capt. M. Delos Reyes',  700, 40, 'Open'),
+      B('MECA - MEDICAL CARE',          28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400, 16, 'Open'),
+    ].filter(Boolean);
 
     const names = [
       ['Juan Miguel','Dela Cruz','M','Able Seaman'], ['Ramon','Bautista','M','Oiler'],
@@ -191,19 +199,29 @@ const DB = (() => {
     ];
     const agencies = ['Magsaysay Maritime Corp.','Philippine Transmarine Carriers','Anglo-Eastern Crew Mgmt','Wallem Maritime Services','Direct Hire / Walk-in','Scanmar Maritime Services'];
 
+    const TOWNS = ['Tondo, Manila','Cavite City, Cavite','Iloilo City, Iloilo',
+                   'Cebu City, Cebu','Bacolod City, Negros Occidental','Zamboanga City, Zamboanga del Sur'];
+    const NEXTOFKIN = ['Spouse','Mother','Father','Sister','Brother','Spouse'];
+
     data.trainees = names.map(([fn,ln,sex,rank],i) => {
       data.seq.trainee++;
       const y = 1978 + (i*3) % 25;
+      const town = TOWNS[i%6];
       return {
         id:uid('trn'),
         no:`TRN-${new Date().getFullYear()}-${String(data.seq.trainee).padStart(4,'0')}`,
+        srn:`SRN-${100000+i*137}`,
         last:ln, first:fn, middle:['Santos','Cruz','Reyes','Garcia','Lopez','Torres'][i%6],
-        sex, birth:`${y}-0${(i%9)+1}-1${i%9}`,
-        srn:`SRN-${100000+i*137}`, sirb:`B${2000000+i*911}`, passport:`P${3000000+i*733}A`,
+        suffix:(i % 7 === 3) ? 'Jr.' : '',
+        sex, birth:`${y}-0${(i%9)+1}-1${i%9}`, birthPlace:town,
+        sirb:`B${2000000+i*911}`, passport:`P${3000000+i*733}A`,
         rank, agency:agencies[i%agencies.length],
         mobile:`09${17+(i%3)}${String(1000000+i*54321).slice(0,7)}`,
         email:`${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase()}@mail.com`,
-        address:['Tondo, Manila','Cavite City','Iloilo City','Cebu City','Bacolod City','Zamboanga City'][i%6],
+        address:town,
+        emergencyName:`${['Maria','Ana','Josefa','Elena','Teresita','Luzviminda'][i%6]} ${ln}`,
+        emergencyRelation:NEXTOFKIN[i%6],
+        emergencyMobile:`0919${String(4000000+i*31415).slice(0,7)}`,
         registered:dOff(-90 + i*4),
         remarks:'',
       };
@@ -224,7 +242,7 @@ const DB = (() => {
 
     enrollPlan.forEach(([bi,ti,status,result],i) => {
       const b = data.batches[bi], t = data.trainees[ti], c = data.courses.find(x=>x.id===b.courseId);
-      const discount = (i % 7 === 0) ? r2(c.fee * 0.10) : 0;   // occasional agency discount
+      const discount = (i % 7 === 0) ? r2(b.fee * 0.10) : 0;   // occasional company discount
       const regDate = before(b.start, 4 + (i % 9));
       data.seq.enrollment++;
       const enr = {
@@ -232,7 +250,7 @@ const DB = (() => {
         no:`ENR-${new Date().getFullYear()}-${String(data.seq.enrollment).padStart(4,'0')}`,
         traineeId:t.id, batchId:b.id, courseId:c.id,
         date: regDate, status, result,
-        fee:c.fee, discount, discountNote: discount ? 'Agency package rate' : '',
+        fee:b.fee, discount, discountNote: discount ? 'Company package rate' : '',
         certificateNo: result === 'Passed' ? `TBM-${c.code}-${String(9000+i)}` : '',
         remarks:'',
       };
@@ -241,8 +259,8 @@ const DB = (() => {
       // Reservations are not yet billed — matches how a registrar actually works.
       if(status === 'Reserved') return;
 
-      const items = [{ desc:`${c.code} — ${c.title}`, account:'4000', qty:1, price:c.fee }];
-      if(['BT','PSCRB','AFF','MC'].includes(c.code)) items.push({ desc:'Training kit & assessment fee', account:'4100', qty:1, price:450 });
+      const items = [{ desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee }];
+      if(i % 3 === 0) items.push({ desc:'Training kit & assessment fee', account:'4100', qty:1, price:450 });
 
       const inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:t.id, date:enr.date, items, discount });
       data.invoices.push(inv);
@@ -278,21 +296,33 @@ const DB = (() => {
 
     /* Applications waiting at the registrar's desk — these arrive from the public
        portal, so the seed puts a few in the queue at different stages. */
-    const AP = (bi, [fn,ln,mn,sex,rank,agency], daysAgo, status, extra) => {
+    const PLACES = ['Navotas, Metro Manila','Lucena City, Quezon','Dumaguete City, Negros Oriental',
+                    'Tacloban City, Leyte','Iloilo City, Iloilo'];
+    const KIN = [['Marilou','Spouse'],['Rosario','Mother'],['Editha','Spouse'],
+                 ['Ligaya','Sister'],['Corazon','Mother']];
+
+    const AP = (bi, [fn,ln,mn,sfx,sex,rank,agency], daysAgo, status, extra) => {
       const b = data.batches[bi];
       data.seq.application++;
+      const i = data.seq.application - 1;
+      const [kin, rel] = KIN[i % KIN.length];
       const app = {
         id:uid('app'),
         no:`APP-${new Date().getFullYear()}-${String(data.seq.application).padStart(4,'0')}`,
-        ref:['K7QX2M','R4HB9T','P2LN6V','W8DC3Y','M5TG7J'][data.seq.application-1] || uid('R').slice(2,8).toUpperCase(),
+        ref:['K7QX2M','R4HB9T','P2LN6V','W8DC3Y','M5TG7J'][i] || uid('R').slice(2,8).toUpperCase(),
         submitted:dOff(-daysAgo), channel:'Public Portal', status,
         courseId:b.courseId, batchId:b.id,
-        last:ln, first:fn, middle:mn, sex, birth:`199${daysAgo%10}-0${(daysAgo%9)+1}-1${daysAgo%9}`,
-        srn:`SRN-${400000 + daysAgo*311}`, sirb:`B${5000000 + daysAgo*677}`, passport:`P${6000000 + daysAgo*419}A`,
-        rank, agency,
+        srn:`SRN-${400000 + daysAgo*311}`,
+        last:ln, first:fn, middle:mn, suffix:sfx,
+        sex, birth:`199${daysAgo%10}-0${(daysAgo%9)+1}-1${daysAgo%9}`,
+        birthPlace:PLACES[i % PLACES.length],
+        sirb:`B${5000000 + daysAgo*677}`, passport:`P${6000000 + daysAgo*419}A`,
         mobile:`0917${String(2000000 + daysAgo*13579).slice(0,7)}`,
-        email:`${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase()}@mail.com`,
-        address:['Navotas, Metro Manila','Lucena City','Dumaguete City','Tacloban City'][data.seq.application % 4],
+        email:`${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase().replace(/\s+/g,'')}@mail.com`,
+        address:PLACES[i % PLACES.length],
+        rank, agency,
+        emergencyName:`${kin} ${ln}`, emergencyRelation:rel,
+        emergencyMobile:`0918${String(3000000 + daysAgo*24680).slice(0,7)}`,
         payer:agency === 'Direct Hire / Walk-in' ? 'Self-paid' : 'Agency-billed',
         remarks:'', traineeId:'', enrollmentId:'', decidedBy:'', decidedOn:'', reason:'',
         history:[{ ts:dOff(-daysAgo)+'T09:00:00.000Z', status:'Submitted', by:'Public Portal', note:'Application received online' }],
@@ -301,11 +331,11 @@ const DB = (() => {
       data.applications.push(app);
       return app;
     };
-    AP(4, ['Dante','Herrera','Cruz','M','Able Seaman','Magsaysay Maritime Corp.'],       2, 'Submitted');
-    AP(6, ['Melchor','Bagtas','Reyes','M','2nd Officer','Anglo-Eastern Crew Mgmt'],      3, 'Submitted');
-    AP(7, ['Ivy Rose','Del Rosario','Santos','F','Messman','Direct Hire / Walk-in'],     5, 'Under Review');
-    AP(5, ['Warren','Ocampo','Lim','M','Bosun','Wallem Maritime Services'],              6, 'Under Review');
-    AP(8, ['Elmer','Bacani','Torres','M','Radio Officer','Scanmar Maritime Services'],   8, 'Rejected',
+    AP(4, ['Dante','Herrera','Cruz','Jr.','M','Able Seaman','Magsaysay Maritime Corp.'],    2, 'Submitted');
+    AP(6, ['Melchor','Bagtas','Reyes','','M','2nd Officer','Anglo-Eastern Crew Mgmt'],      3, 'Submitted');
+    AP(7, ['Ivy Rose','Del Rosario','Santos','','F','Messman','Direct Hire / Walk-in'],     5, 'Under Review');
+    AP(5, ['Warren','Ocampo','Lim','III','M','Bosun','Wallem Maritime Services'],           6, 'Under Review');
+    AP(8, ['Elmer','Bacani','Torres','','M','Radio Officer','Scanmar Maritime Services'],   8, 'Rejected',
        { reason:'Incomplete SIRB details — applicant asked to re-submit.', decidedBy:'Registrar Desk', decidedOn:dOff(-7) });
 
     activity('Seeded demo data','');

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-label="Tara Barko Maritime Services">
+  <title>Tara Barko Maritime Services</title>
+  <!-- Vector recreation of the Tara Barko Maritime Services mark.
+       To use the original artwork instead, drop it in as assets/logo.png and
+       change the <img src> in index.html and register.html. Nothing else refers
+       to this file by name. -->
+
+  <defs>
+    <style>
+      .tb-blue   { fill:#1b3ea9 }
+      .tb-orange { fill:#f1531f }
+      .s-blue    { stroke:#1b3ea9; fill:none }
+      .s-orange  { stroke:#f1531f; fill:none }
+      .s-white   { stroke:#ffffff; fill:none; stroke-linecap:round }
+    </style>
+  </defs>
+
+  <circle cx="200" cy="200" r="194" class="s-orange" stroke-width="7"/>
+  <circle cx="200" cy="200" r="183" class="s-blue"   stroke-width="6"/>
+
+  <!-- orange crescent sweeping over the sails -->
+  <path d="M 106 214 A 104 104 0 1 1 288 232" class="s-orange"
+        stroke-width="13" stroke-linecap="round"/>
+
+  <!-- main sail -->
+  <path class="tb-blue"
+        d="M 205 92
+           C 178 148 156 205 148 262
+           L 214 262 Z"/>
+  <!-- second sail -->
+  <path class="tb-blue"
+        d="M 249 118
+           C 243 168 244 218 254 262
+           L 223 262
+           C 226 212 236 164 249 118 Z"/>
+  <!-- white gap between the sails -->
+  <path class="s-white" stroke-width="4" stroke-linecap="butt"
+        d="M 244 128 C 234 176 230 220 229 262"/>
+
+  <!-- anchor -->
+  <g class="s-white" stroke-width="6">
+    <circle cx="181" cy="152" r="9"/>
+    <path d="M 181 161 L 181 216"/>
+    <path d="M 159 175 L 203 175"/>
+    <path d="M 155 192 C 155 213 166 226 181 229 C 196 226 207 213 207 192"/>
+  </g>
+  <path class="tb-blue" d="M 148 186 l 16 3 -10 12 z"/>
+  <path class="tb-blue" d="M 214 186 l -16 3 10 12 z"/>
+
+  <!-- water -->
+  <g class="s-blue" stroke-linecap="round">
+    <path d="M 118 266 C 155 259 245 259 282 266" stroke-width="6"/>
+    <path d="M 137 277 C 168 272 232 272 263 277" stroke-width="4"/>
+    <path d="M 160 286 C 180 283 220 283 240 286" stroke-width="3"/>
+  </g>
+
+  <text x="200" y="337" text-anchor="middle" class="tb-blue"
+        font-family="Segoe UI, Arial, Helvetica, sans-serif"
+        font-size="49" font-weight="700" letter-spacing="1">TARA BARKO</text>
+  <text x="200" y="372" text-anchor="middle" class="tb-orange"
+        font-family="Segoe UI, Arial, Helvetica, sans-serif"
+        font-size="29" font-weight="700" letter-spacing="0.5">MARITIME SERVICES</text>
+</svg>

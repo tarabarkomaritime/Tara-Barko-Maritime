@@ -30,3 +30,6 @@ npm-debug.log*
 # Scratch
 tmp/
 *.tmp
+
+# Design PDFs are build output of design/concepts.html — regenerate, don't commit
+# (delete this rule if you want the rendered deck versioned)
