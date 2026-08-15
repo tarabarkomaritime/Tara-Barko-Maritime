@@ -44,10 +44,22 @@ const pageName = () => {
 };
 
 /* A course may be delivered several ways — face to face, blended, distance
-   learning. They are one course, so they share one row and wear their modes.
-   `note` ("Module", "Blended") describes the course too, so it rides along. */
-const modeTags = c => [...(c.modes || []), ...(c.note ? [c.note] : [])]
-  .map(m => `<span class="p-mode">${esc(m)}</span>`).join('');
+   learning. They are one course, so they share one row and wear their modes in
+   the Mode of Training column.
+
+   The price matrix records a mode for only a handful of courses. Rather than
+   assert "Face to face" for the two hundred it says nothing about, the rest read
+   "To be confirmed" — the same answer the portal already gives for the schedule,
+   the center and the fee, all of which the Registrar settles with the applicant. */
+const modeCell = c => {
+  const modes = c.modes || [];
+  if(!modes.length) return `<span class="p-tbc">To be confirmed</span>`;
+  return modes.map(m => `<span class="p-mode">${esc(m)}</span>`).join('');
+};
+
+/* "Module" and "Blended" describe the course itself, not how it is delivered,
+   so the note stays beside the title. */
+const noteTag = c => c.note ? `<span class="p-mode">${esc(c.note)}</span>` : '';
 
 /* The days column carries the number alone — the column heading says "Days", so
    repeating the word in every cell is noise. A range keeps both ends. Courses
@@ -56,6 +68,27 @@ const daysCell = c => {
   if(c.days == null) return `<span class="p-tbc">To be confirmed</span>`;
   return c.daysTo && c.daysTo !== c.days ? `${c.days}&ndash;${c.daysTo}` : String(c.days);
 };
+
+const catTable = rows => `
+  <div class="p-cat">
+    <table class="p-cat-tbl">
+      <thead>
+        <tr>
+          <th scope="col">Course</th>
+          <th scope="col" class="p-cat-dur">Days</th>
+          <th scope="col" class="p-cat-mode">Mode of Training</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(c => `
+          <tr>
+            <td class="p-cat-title">${esc(c.title)} ${noteTag(c)}</td>
+            <td class="p-cat-dur">${daysCell(c)}</td>
+            <td class="p-cat-mode">${modeCell(c)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
 
 /* The generated catalogue is already alphabetical, but a course added by hand in
    the internal system would land at the end — so sort here rather than trust it. */
@@ -141,20 +174,7 @@ function viewCourses(){
         : 'No matches'}</span>
     </div>
     ${shown.length ? `
-      <div class="p-cat">
-        <table class="p-cat-tbl">
-          <thead>
-            <tr><th scope="col">Course</th><th scope="col" class="p-cat-dur">Days</th></tr>
-          </thead>
-          <tbody>
-            ${shown.map(c => `
-              <tr>
-                <td class="p-cat-title">${esc(c.title)} ${modeTags(c)}</td>
-                <td class="p-cat-dur">${daysCell(c)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
+      ${catTable(shown)}
       ${pager(page, pages)}`
     : `<div class="empty">No course matches &ldquo;${esc(P.q)}&rdquo;.</div>`}
 

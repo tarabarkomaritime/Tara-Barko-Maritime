@@ -108,36 +108,41 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
 .p-nosched{ font-size:12px; color:var(--muted); padding:8px 0 2px; }
 
 /* ---------- course catalogue ----------
-   Title and duration only. Fees vary by partner training center and are
-   commercial terms, so they are never published here. */
+   Course, days and mode of training only. Fees vary by partner training center
+   and are commercial terms, so they are never published here. */
 .p-cat{
-  border:1px solid var(--border); border-radius:12px; overflow:hidden;
+  border:1px solid var(--border); border-radius:12px;
+  overflow-x:auto; overflow-y:hidden;
   background:var(--surface); box-shadow:var(--shadow);
 }
 .p-cat-tbl{ width:100%; border-collapse:collapse; }
 .p-cat-tbl thead th{
   text-align:left; font-size:10.5px; font-weight:800; letter-spacing:.11em;
   text-transform:uppercase; color:var(--tb-blue-900);
-  background:var(--tb-blue-soft); padding:9px 17px;
+  background:var(--tb-blue-soft); padding:9px 14px;
   border-bottom:1px solid var(--border); white-space:nowrap;
 }
 .p-cat-tbl td{
-  padding:11px 17px; border-bottom:1px solid var(--border); vertical-align:baseline;
+  padding:11px 14px; border-bottom:1px solid var(--border); vertical-align:baseline;
 }
 .p-cat-tbl tbody tr:last-child td{ border-bottom:0; }
 .p-cat-tbl tbody tr:nth-child(even){ background:var(--surface-2); }
 .p-cat-title{ font-size:13.5px; font-weight:600; color:var(--tb-blue-900); line-height:1.35; }
 .p-cat-dur{
   font-size:12.5px; font-weight:700; color:var(--tb-blue);
-  font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; width:120px;
+  font-variant-numeric:tabular-nums; text-align:center; white-space:nowrap; width:76px;
 }
-.p-cat-tbl thead th.p-cat-dur{ text-align:right; }
+.p-cat-tbl thead th.p-cat-dur{ text-align:center; }
+.p-cat-mode{ width:210px; }
 .p-tbc{ font-size:11px; font-weight:500; color:var(--muted); white-space:normal; }
+.p-cat-mode .p-tbc{ font-style:italic; }
 .p-mode{
   display:inline-block; font-size:10px; font-weight:700; letter-spacing:.04em;
   background:var(--tb-orange-soft); color:var(--tb-orange-600);
   padding:1px 7px; border-radius:20px; vertical-align:1px; margin-left:5px;
 }
+/* In its own column a tag starts the line, so the leading gap has to go. */
+.p-cat-mode .p-mode{ margin:2px 4px 2px 0; }
 
 /* ---------- "other courses may be available" ---------- */
 .p-more{
@@ -193,12 +198,15 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
 }
 .p-chosen b{ font-size:14.5px; color:var(--tb-blue-900); }
 .p-chosen small{ display:block; font-size:12px; color:var(--text-2); margin-top:2px; }
-/* The two columns still fit a phone: the title wraps, the days column does not.
-   Only the padding has to give. */
+/* All three columns still fit a phone: the title and the mode tags wrap, the
+   day count does not. Padding and the fixed columns give up what they can, and
+   .p-cat scrolls sideways as a last resort rather than pushing the page wide. */
 @media (max-width:560px){
-  .p-cat-tbl thead th, .p-cat-tbl td{ padding:9px 12px; }
+  .p-cat-tbl thead th, .p-cat-tbl td{ padding:9px 10px; }
   .p-cat-title{ font-size:13px; }
-  .p-cat-dur{ font-size:12px; width:64px; }
+  .p-cat-dur{ font-size:12px; width:44px; }
+  .p-cat-mode{ width:92px; }
+  .p-cat-tbl thead th{ font-size:9.5px; letter-spacing:.06em; }
 }
 
 /* ---------- schedule rows ---------- */
