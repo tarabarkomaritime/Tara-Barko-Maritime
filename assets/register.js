@@ -163,14 +163,14 @@ function viewEnroll(){
 
   const body = P.tab === 'track' ? paneTrack()
              : P.result ? paneDone()
-             : `${stepBar()}<div class="p-panel">${[stepCourse, stepDetails, stepReview][P.step-1]()}</div>`;
+             : `${stepBar()}<div class="p-panel">${[stepDetails, stepReview][P.step-1]()}</div>`;
 
   return `<div class="p-narrow">
     <div class="p-sec-head p-sec-center">
       <h2>${P.tab === 'track' ? 'Track your enrollment' : 'Enroll now'}</h2>
       <p>${P.tab === 'track'
             ? 'Enter your SRN and last name.'
-            : 'Three steps. It takes about four minutes.'}</p>
+            : 'Two steps. It takes about four minutes.'}</p>
     </div>
     ${seg}
     ${body}
@@ -178,7 +178,7 @@ function viewEnroll(){
 }
 
 /* ----- wizard chrome ----- */
-const STEPS = ['Choose a course','Your details','Review and submit'];
+const STEPS = ['Your Details','Review and Submit'];
 
 function stepBar(){
   return `<div class="p-steps">${STEPS.map((s,i) => {
@@ -191,60 +191,7 @@ function stepBar(){
 const bad = f => P.errors.includes(f) ? 'bad' : '';
 const req = `<span class="p-req">*</span>`;
 
-/* ----- step 1 · course ----- */
-/* 239 courses, so this is a search box rather than a list of radio buttons. The
-   applicant picks the course; the registrar picks the dated run at a partner
-   center, because which centers have seats free is not public information. */
-function stepCourse(){
-  const q = (P.cq || '').toLowerCase().trim();
-  const active = DB.get().courses.filter(c => c.active);
-  const chosen = P.draft.courseId ? courseOf(P.draft.courseId) : null;
-
-  const matches = !q ? [] : active
-    .filter(c => [c.code, c.title, ...(c.modes||[])].join(' ').toLowerCase().includes(q))
-    .slice(0, 40);
-
-  return `
-    <h2>Choose a course</h2>
-    <p class="p-lead">Search for the course you need. We will confirm the schedule, the
-       training center and the fee when we call you.</p>
-    ${P.errors.includes('courseId') ? `<div class="note warn">Please choose a course to continue.</div>` : ''}
-
-    ${chosen ? `
-      <div class="p-chosen">
-        <div>
-          <span class="p-chosen-lbl">Selected course</span>
-          <b>${esc(chosen.title)}</b> ${modeTags(chosen)}
-          <small>${esc(chosen.duration || 'Duration to be confirmed')}</small>
-        </div>
-        <button type="button" class="btn btn-ghost btn-sm" id="clearCourse">Change</button>
-      </div>` : ''}
-
-    <label class="fld"><span>Search the catalogue</span>
-      <input type="search" id="courseQ" value="${esc(P.cq||'')}"
-             placeholder="e.g. Basic Training, AFF, medical, watchkeeping…"></label>
-
-    ${q ? (matches.length ? `
-      <div class="p-cat p-cat-pick">
-        ${matches.map(c => `
-          <button type="button" class="p-cat-row p-cat-btn ${P.draft.courseId === c.id ? 'on' : ''}" data-course="${c.id}">
-            <span class="p-cat-title">${esc(c.title)} ${modeTags(c)}</span>
-            <span class="p-cat-dur">${esc(c.duration || '—')}</span>
-          </button>`).join('')}
-      </div>
-      ${matches.length === 40 ? `<p class="p-hint">Showing the first 40 matches — keep typing to narrow it down.</p>` : ''}`
-      : `<div class="empty">No course matches &ldquo;${esc(P.cq)}&rdquo;. Try a shorter word, or call
-           the Registrar at ${esc(CO().contact)}.</div>`)
-      : `<p class="p-hint">Start typing to search all
-           ${active.length} accredited courses.</p>`}
-
-    <div class="p-acts">
-      <a class="btn btn-ghost" href="#/courses">&larr; Back to courses</a>
-      <button class="btn btn-accent" id="next1">Continue &rarr;</button>
-    </div>`;
-}
-
-/* ----- step 2 · details ----- */
+/* ----- step 1 · details ----- */
 function stepDetails(){
   const d = P.draft, c = courseOf(d.courseId);
   const agencies = [...new Set(DB.get().trainees.map(t => t.agency).filter(Boolean))].sort();
@@ -262,16 +209,31 @@ function stepDetails(){
       <input type="${opts.type||'text'}" ${attrs}></label>`;
   };
 
+  const active = DB.get().courses.filter(x => x.active).sort(byTitle);
+
   return `
-    <h2>Your details</h2>
-    <p class="p-lead">Enrolling in <b>${esc(c.title)}</b>
-       (${esc(c.duration || 'duration to be confirmed')}). Fields marked ${req} are required.</p>
+    <h2>Your Details</h2>
+    <p class="p-lead">Fields marked ${req} are required. We will confirm the schedule, the
+       training center and the fee after we check your enrollment.</p>
     ${P.errors.length ? `<div class="note warn">
        <b>Please check the highlighted fields.</b>
        ${[...new Set(P.errors)].map(e => APPS.LABELS[e]).filter(Boolean).slice(0,6).join(' &middot; ')}
      </div>` : ''}
 
     <form id="detailForm" autocomplete="on">
+
+      <h4 class="p-group">Course</h4>
+      <label class="fld ${bad('courseId')}">
+        <span>Course You Are Enrolling In ${req}
+          <small>type to search all ${active.length} courses</small></span>
+        <input name="courseTitle" list="courseList" value="${esc(c ? c.title : (d.courseTitle || ''))}"
+               placeholder="e.g. Basic Training" autocomplete="off" required></label>
+      <datalist id="courseList">
+        ${active.map(x => `<option value="${esc(x.title)}">`).join('')}
+      </datalist>
+      <p class="p-note-inline" id="courseHint">${c
+        ? `${esc(c.title)} &mdash; ${esc(c.duration || 'duration to be confirmed')}`
+        : 'Start typing and pick your course from the list.'}</p>
 
       <h4 class="p-group">Seafarer Identity</h4>
       ${F('srn','SRN', { req:true, hint:'Seafarer Registration Number', ph:'e.g. SRN-123456' })}
@@ -333,7 +295,7 @@ function stepDetails(){
     </form>
 
     <div class="p-acts">
-      <button class="btn btn-ghost" id="back2">&larr; Back</button>
+      <a class="btn btn-ghost" href="#/courses">&larr; Back to Courses</a>
       <button class="btn btn-accent" id="next2">Review &rarr;</button>
     </div>`;
 }
@@ -345,7 +307,7 @@ function stepReview(){
   const full = `${d.last}${d.suffix ? ' ' + d.suffix : ''}, ${d.first} ${d.middle || ''}`.trim();
 
   return `
-    <h2>Review and submit</h2>
+    <h2>Review and Submit</h2>
     <p class="p-lead">Check your details carefully. After submitting, changes have to go
        through the Registrar.</p>
 
@@ -653,7 +615,8 @@ function render(){
   if(P.view === 'enroll'){
     P.tab = sub === 'track' ? 'track' : 'apply';
     if(P.tab === 'apply' && params.get('course')){
-      P.draft.courseId = params.get('course');
+      const c = courseOf(params.get('course'));
+      if(c){ P.draft.courseId = c.id; P.draft.courseTitle = c.title; }
       P.result = null;
     }
     if(P.tab === 'track' && params.get('srn')) P.trackSrn = params.get('srn');
@@ -669,34 +632,39 @@ function render(){
   window.scrollTo(0,0);
 }
 
-/* Capture step 2 without validating, so Back never loses typing. */
+/* Capture the details step without validating, so Back never loses typing.
+   The course is typed as a title against a datalist — resolve it to an id here,
+   and keep the raw text so a typo survives the round trip and can be corrected
+   rather than silently blanked. */
 function captureDetails(){
   const form = document.getElementById('detailForm');
-  if(form) Object.assign(P.draft, Object.fromEntries(new FormData(form).entries()));
+  if(!form) return;
+  Object.assign(P.draft, Object.fromEntries(new FormData(form).entries()));
+
+  const typed = String(P.draft.courseTitle || '').trim().toLowerCase();
+  const hit = DB.get().courses.find(c => c.active && c.title.toLowerCase() === typed);
+  P.draft.courseId = hit ? hit.id : '';
 }
 
 function wire(){
   const on = (id, ev, fn) => { const el = document.getElementById(id); if(el) el[ev] = fn; };
 
-  /* step 1 — course search and selection */
-  const cqi = document.getElementById('courseQ');
-  if(cqi) cqi.oninput = () => {
-    P.cq = cqi.value;
-    const pos = cqi.selectionStart;
-    render();
-    const again = document.getElementById('courseQ');
-    if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
+  /* Course field: confirm the match under the input as they type. Updated in
+     place rather than through render(), which would rebuild the form and throw
+     away everything else they have typed so far. */
+  const courseInput = document.querySelector('#detailForm [name=courseTitle]');
+  const courseHint  = document.getElementById('courseHint');
+  if(courseInput && courseHint) courseInput.oninput = () => {
+    const typed = courseInput.value.trim().toLowerCase();
+    const hit = DB.get().courses.find(c => c.active && c.title.toLowerCase() === typed);
+    courseHint.textContent = hit
+      ? `${hit.title} — ${hit.duration || 'duration to be confirmed'}`
+      : typed ? 'No exact match yet — keep typing and pick from the list.'
+              : 'Start typing and pick your course from the list.';
+    courseHint.classList.toggle('ok', !!hit);
+    if(hit) courseInput.closest('.fld')?.classList.remove('bad');
   };
-  document.querySelectorAll('[data-course]').forEach(btn => btn.onclick = () => {
-    P.draft.courseId = btn.dataset.course; P.errors = []; render();
-  });
-  on('clearCourse','onclick', () => { P.draft.courseId = ''; render(); });
-  on('next1','onclick', () => {
-    if(!P.draft.courseId){ P.errors = ['courseId']; return render(); }
-    P.errors = []; P.step = 2; render();
-  });
 
-  on('back2','onclick', () => { captureDetails(); P.step = 1; P.errors = []; render(); });
   on('next2','onclick', () => {
     captureDetails();
     P.errors = APPS.validate(P.draft).filter(e => e !== 'duplicate');
@@ -706,10 +674,10 @@ function wire(){
       if(first) first.focus();
       return;
     }
-    P.step = 3; render();
+    P.step = 2; render();
   });
 
-  on('back3','onclick', () => { P.step = 2; P.errors = []; render(); });
+  on('back3','onclick', () => { P.step = 1; P.errors = []; render(); });
   on('submitApp','onclick', () => {
     /* Every box is a separate statement the applicant is making, so each is
        checked separately and the message names the one that is missing. */
@@ -754,10 +722,11 @@ function wire(){
   on('another','onclick', () => {
     /* Keep who they are, drop what they enrolled in. */
     const keep = { ...P.result };
-    ['id','no','ref','submitted','channel','status','courseId','batchId',
-     'traineeId','enrollmentId','decidedBy','decidedOn','reason','history','remarks']
+    ['id','no','ref','submitted','channel','status','courseId','courseTitle','batchId',
+     'traineeId','enrollmentId','decidedBy','decidedOn','reason','history','remarks',
+     'termsVersion','termsAccepted','termsAcceptedAt']
       .forEach(k => delete keep[k]);
-    P.result = null; P.draft = keep; P.step = 1; P.errors = []; P.cq = '';
+    P.result = null; P.draft = keep; P.step = 1; P.errors = [];
     location.hash = '#/enroll';
     render();
   });

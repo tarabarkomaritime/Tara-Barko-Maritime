@@ -90,6 +90,7 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
   padding-bottom:6px; border-bottom:2px solid var(--tb-orange-soft);
 }
 .p-note-inline{ margin:-4px 0 12px; font-size:12px; color:var(--muted); }
+.p-note-inline.ok{ color:var(--ok); font-weight:600; }
 
 /* ---------- course cards ---------- */
 .p-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(275px,1fr)); gap:14px; }
