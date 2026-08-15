@@ -1,0 +1,259 @@
+/* accounting.js — double-entry engine.
+   Every billable event in the portal posts a balanced journal entry here, so the
+   trial balance, income statement and AR aging are all derived, never hand-keyed. */
+
+const ACC = (() => {
+  const r2 = n => Math.round((Number(n)||0) * 100) / 100;
+
+  const co  = () => DB.get().company;
+  const rate= () => (Number(co().vatRate)||0) / 100;
+
+  const acct = code => DB.get().accounts.find(a => a.code === code) || { code, name:code, type:'Other', nature:'debit' };
+
+  /* ---------- VAT ---------- */
+  /* Fees are quoted VAT-inclusive by default (the usual practice for published
+     training rates). Switch `vatInclusive` off in Settings to add VAT on top. */
+  function vatSplit(gross){
+    const r = rate();
+    if(!r) return { net:r2(gross), vat:0, total:r2(gross) };
+    if(co().vatInclusive){
+      const net = r2(gross / (1 + r));
+      return { net, vat:r2(gross - net), total:r2(gross) };
+    }
+    const vat = r2(gross * r);
+    return { net:r2(gross), vat, total:r2(gross + vat) };
+  }
+
+  /* ---------- journal ---------- */
+  /* Nudges sub-centavo rounding residue onto one line so entries always balance. */
+  function balanceLines(lines, plugIndex){
+    const dr = r2(lines.reduce((s,l)=>s+(l.debit||0),0));
+    const cr = r2(lines.reduce((s,l)=>s+(l.credit||0),0));
+    const diff = r2(dr - cr);
+    if(diff !== 0 && Math.abs(diff) < 0.05 && lines[plugIndex]){
+      const l = lines[plugIndex];
+      if(l.credit != null) l.credit = r2(l.credit + diff);
+      else l.debit = r2(l.debit - diff);
+    }
+    return lines;
+  }
+
+  function post({ date, memo, refType, refNo, refId, lines }){
+    const d = DB.get();
+    const clean = lines
+      .map(l => ({ account:l.account, debit:r2(l.debit||0), credit:r2(l.credit||0) }))
+      .filter(l => l.debit || l.credit);
+    const dr = r2(clean.reduce((s,l)=>s+l.debit,0));
+    const cr = r2(clean.reduce((s,l)=>s+l.credit,0));
+    if(dr !== cr) console.warn('Unbalanced entry rejected', memo, dr, cr);
+    d.seq.journal++;
+    const je = {
+      id:DB.uid('je'), no:`JE-${new Date(date).getFullYear()}-${String(d.seq.journal).padStart(4,'0')}`,
+      date, memo, refType:refType||'', refNo:refNo||'', refId:refId||'',
+      lines:clean, debit:dr, credit:cr, voided:false,
+    };
+    d.journal.push(je);
+    return je;
+  }
+
+  /* Mirror-image entry — used when a document is voided. Keeps the audit trail intact
+     instead of deleting history. */
+  function reverse(refId, reason){
+    const d = DB.get();
+    const originals = d.journal.filter(j => j.refId === refId && !j.voided && !j.reversalOf);
+    originals.forEach(j => {
+      j.voided = true;
+      const je = post({
+        date:DB.today(), memo:`REVERSAL — ${j.memo}${reason ? ' ('+reason+')' : ''}`,
+        refType:j.refType, refNo:j.refNo, refId:j.refId,
+        lines:j.lines.map(l => ({ account:l.account, debit:l.credit, credit:l.debit })),
+      });
+      je.reversalOf = j.no;
+    });
+    return originals.length;
+  }
+
+  /* ---------- documents ---------- */
+  function computeInvoice(items, discount){
+    const subtotal = r2(items.reduce((s,i) => s + (Number(i.qty)||0) * (Number(i.price)||0), 0));
+    const disc     = r2(Math.min(Number(discount)||0, subtotal));
+    const gross    = r2(subtotal - disc);
+    const { net, vat, total } = vatSplit(gross);
+    return { subtotal, discount:disc, gross, net, vat, total };
+  }
+
+  function buildInvoice({ enrollmentId, traineeId, date, items, discount, terms }){
+    const c = computeInvoice(items, discount);
+    return {
+      id:DB.uid('inv'), no:DB.nextNo('invoice','INV'),
+      enrollmentId, traineeId, date:date||DB.today(),
+      terms: terms || 'Due on or before first day of training',
+      items: items.map(i => ({ ...i, qty:Number(i.qty)||1, price:r2(i.price), amount:r2((Number(i.qty)||1)*i.price) })),
+      ...c, paid:0, status:'Unpaid', voided:false,
+    };
+  }
+
+  function postInvoice(inv){
+    const r = rate(), div = co().vatInclusive ? (1 + r) : 1;
+    const lines = [{ account:'1200', debit:inv.total, credit:0 }];
+
+    // Each line credits its own revenue account, net of VAT.
+    const byAcct = {};
+    inv.items.forEach(i => {
+      const a = i.account || '4000';
+      byAcct[a] = r2((byAcct[a]||0) + i.amount / div);
+    });
+    Object.entries(byAcct).forEach(([a,v]) => lines.push({ account:a, debit:0, credit:v }));
+
+    if(inv.discount) lines.push({ account:'4900', debit:r2(inv.discount / div), credit:0 });
+    if(inv.vat)      lines.push({ account:'2100', debit:0, credit:inv.vat });
+
+    balanceLines(lines, lines.length - 1);
+    return post({ date:inv.date, memo:`Billing — ${inv.no}`, refType:'Invoice', refNo:inv.no, refId:inv.id, lines });
+  }
+
+  const cashAccount = method => (method === 'Cash' ? '1000' : '1010');
+
+  function buildPayment({ invoiceId, traineeId, date, amount, method, ref, note }){
+    return {
+      id:DB.uid('pay'), no:DB.nextNo('receipt','OR'),
+      invoiceId, traineeId, date:date||DB.today(),
+      amount:r2(amount), method:method||'Cash', ref:ref||'', note:note||'', voided:false,
+    };
+  }
+
+  function postPayment(p, inv){
+    inv.paid = r2((inv.paid||0) + p.amount);
+    inv.status = inv.paid <= 0 ? 'Unpaid' : (inv.paid + 0.005 >= inv.total ? 'Paid' : 'Partial');
+    return post({
+      date:p.date, memo:`Collection — ${p.no} vs ${inv.no}`,
+      refType:'Receipt', refNo:p.no, refId:p.id,
+      lines:[
+        { account:cashAccount(p.method), debit:p.amount, credit:0 },
+        { account:'1200', debit:0, credit:p.amount },
+      ],
+    });
+  }
+
+  function postExpense(v){
+    return post({
+      date:v.date, memo:`${v.particulars} — ${v.payee}`,
+      refType:'Voucher', refNo:v.no, refId:v.id,
+      lines:[
+        { account:v.account, debit:r2(v.amount), credit:0 },
+        { account:cashAccount(v.method), debit:0, credit:r2(v.amount) },
+      ],
+    });
+  }
+
+  function recomputeInvoice(inv){
+    const paid = DB.get().payments
+      .filter(p => p.invoiceId === inv.id && !p.voided)
+      .reduce((s,p) => s + p.amount, 0);
+    inv.paid = r2(paid);
+    inv.status = inv.voided ? 'Void'
+      : inv.paid <= 0 ? 'Unpaid'
+      : inv.paid + 0.005 >= inv.total ? 'Paid' : 'Partial';
+    return inv;
+  }
+  const balanceOf = inv => r2(inv.total - (inv.paid||0));
+
+  /* ---------- reports ---------- */
+  const inRange = (d,from,to) => (!from || d >= from) && (!to || d <= to);
+
+  /* Cumulative balances as of `to` — a trial balance is an as-of statement. */
+  function trialBalance(to){
+    const map = {};
+    DB.get().journal.forEach(j => {
+      if(to && j.date > to) return;
+      j.lines.forEach(l => {
+        const m = map[l.account] || (map[l.account] = { debit:0, credit:0 });
+        m.debit += l.debit; m.credit += l.credit;
+      });
+    });
+    const rows = DB.get().accounts.map(a => {
+      const m = map[a.code] || { debit:0, credit:0 };
+      const bal = r2(a.nature === 'debit' ? m.debit - m.credit : m.credit - m.debit);
+      return { ...a, drTotal:r2(m.debit), crTotal:r2(m.credit), balance:bal,
+               dr: a.nature === 'debit' ? Math.max(bal,0) : Math.max(-bal,0),
+               cr: a.nature === 'credit' ? Math.max(bal,0) : Math.max(-bal,0) };
+    }).filter(r => r.drTotal || r.crTotal);
+    return {
+      rows,
+      totalDr:r2(rows.reduce((s,r)=>s+r.dr,0)),
+      totalCr:r2(rows.reduce((s,r)=>s+r.cr,0)),
+    };
+  }
+
+  function incomeStatement(from, to){
+    const map = {};
+    DB.get().journal.forEach(j => {
+      if(!inRange(j.date, from, to)) return;
+      j.lines.forEach(l => {
+        const m = map[l.account] || (map[l.account] = { debit:0, credit:0 });
+        m.debit += l.debit; m.credit += l.credit;
+      });
+    });
+    /* Signed by statement section rather than by the account's own nature, so a
+       contra account (Discounts Given sits inside Revenue) subtracts from its group
+       instead of inflating it. */
+    const pick = type => DB.get().accounts.filter(a => a.type === type).map(a => {
+      const m = map[a.code] || { debit:0, credit:0 };
+      const amt = r2(type === 'Revenue' ? m.credit - m.debit : m.debit - m.credit);
+      return { ...a, amount:amt };
+    }).filter(a => a.amount !== 0);
+
+    const revenue  = pick('Revenue');   // Discounts Given lands negative here, by design
+    const expenses = pick('Expense');
+    const gross = r2(revenue.reduce((s,a)=>s+a.amount,0));
+    const opex  = r2(expenses.reduce((s,a)=>s+a.amount,0));
+    return { revenue, expenses, grossRevenue:gross, totalExpense:opex, netIncome:r2(gross - opex) };
+  }
+
+  function arAging(asOf){
+    const d = DB.get(), ref = asOf || DB.today();
+    const buckets = [
+      { label:'Current',  min:-9999, max:0,   total:0, rows:[] },
+      { label:'1–30 days',min:1,     max:30,  total:0, rows:[] },
+      { label:'31–60',    min:31,    max:60,  total:0, rows:[] },
+      { label:'61–90',    min:61,    max:90,  total:0, rows:[] },
+      { label:'Over 90',  min:91,    max:1e6, total:0, rows:[] },
+    ];
+    let grand = 0;
+    d.invoices.filter(i => !i.voided && i.date <= ref).forEach(inv => {
+      const bal = balanceOf(recomputeInvoice(inv));
+      if(bal <= 0.004) return;
+      const age = Math.floor((new Date(ref) - new Date(inv.date)) / 86400000);
+      const b = buckets.find(b => age >= b.min && age <= b.max) || buckets[0];
+      b.rows.push({ inv, bal, age }); b.total = r2(b.total + bal); grand = r2(grand + bal);
+    });
+    return { buckets, grand, asOf:ref };
+  }
+
+  function collections(from, to){
+    const rows = DB.get().payments.filter(p => !p.voided && inRange(p.date, from, to));
+    const byMethod = {};
+    rows.forEach(p => byMethod[p.method] = r2((byMethod[p.method]||0) + p.amount));
+    return { rows, byMethod, total:r2(rows.reduce((s,p)=>s+p.amount,0)) };
+  }
+
+  function ledgerFor(code, from, to){
+    const out = []; let run = 0;
+    const nature = acct(code).nature;
+    DB.get().journal
+      .filter(j => inRange(j.date, from, to))
+      .sort((a,b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no))
+      .forEach(j => j.lines.filter(l => l.account === code).forEach(l => {
+        run = r2(run + (nature === 'debit' ? l.debit - l.credit : l.credit - l.debit));
+        out.push({ date:j.date, no:j.no, memo:j.memo, ref:j.refNo, debit:l.debit, credit:l.credit, running:run });
+      }));
+    return out;
+  }
+
+  return {
+    r2, vatSplit, computeInvoice, post, reverse, acct,
+    buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
+    recomputeInvoice, balanceOf, cashAccount,
+    trialBalance, incomeStatement, arAging, collections, ledgerFor,
+  };
+})();

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tara Barko Maritime — Integrated System</title>
+<link rel="stylesheet" href="assets/styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9875;</text></svg>" />
+</head>
+<body>
+
+<div id="login" class="login-screen">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="anchor">&#9875;</div>
+      <div>
+        <h1>TARA BARKO MARITIME</h1>
+        <p>Training &amp; Assessment Center — Integrated System</p>
+      </div>
+    </div>
+    <label>User</label>
+    <select id="loginUser"></select>
+    <label>Access code</label>
+    <input type="password" id="loginPass" placeholder="Enter access code" autocomplete="off" />
+    <button class="btn btn-primary btn-block" id="loginBtn">Sign in</button>
+    <p class="login-hint">Demo codes — <b>admin</b> / <b>registrar</b> / <b>cashier</b> / <b>accounting</b></p>
+    <p class="login-hint" style="border-top:1px solid var(--border);padding-top:12px;margin-top:14px">
+      Looking to enrol? <a href="register.html">Register online here &rarr;</a>
+    </p>
+  </div>
+</div>
+
+<div id="shell" class="shell hidden">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="anchor">&#9875;</div>
+      <div class="brand-text">
+        <strong>TARA BARKO</strong>
+        <span>Maritime IS</span>
+      </div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="user-chip">
+        <div class="avatar" id="userAvatar">A</div>
+        <div>
+          <strong id="userName">—</strong>
+          <span id="userRole">—</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm btn-block" id="logoutBtn">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h2 id="pageTitle">Dashboard</h2>
+        <p id="pageSub" class="muted"></p>
+      </div>
+      <div class="topbar-actions">
+        <input type="search" id="globalSearch" placeholder="Search trainees, invoices, ORs…" />
+        <button class="btn btn-ghost btn-sm" id="backupBtn" title="Download a JSON backup">Backup</button>
+        <button class="btn btn-ghost btn-sm" id="restoreBtn" title="Restore from a JSON backup">Restore</button>
+        <input type="file" id="restoreFile" accept="application/json" hidden />
+      </div>
+    </header>
+    <div id="view" class="view"></div>
+  </main>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot" class="toast-root"></div>
+
+<script src="assets/db.js"></script>
+<script src="assets/ui.js"></script>
+<script src="assets/accounting.js"></script>
+<script src="assets/applications.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

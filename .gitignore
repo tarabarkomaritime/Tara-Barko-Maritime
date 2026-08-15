@@ -1,0 +1,32 @@
+# This project has no build step and no dependencies. Almost nothing should be ignored —
+# if you find yourself adding a lot here, something has gone wrong with decision D1.
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Editors
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+*~
+
+# Per-machine tooling settings — .claude/launch.json is shared, this one is not
+.claude/settings.local.json
+
+# Data exports — backups contain seafarer PII and must never be committed
+TBM-backup-*.json
+*.backup.json
+
+# Node, only if a tool is ever added
+node_modules/
+npm-debug.log*
+.env
+.env.local
+
+# Scratch
+tmp/
+*.tmp
