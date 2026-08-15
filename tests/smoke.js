@@ -193,10 +193,22 @@ check('same person, different course allowed', () => {
 });
 
 console.log('\n- tracking -');
-check('ref + surname finds it',  () => run(`APPS.track(NEW.ref,'testino')?.id`) === run('NEW.id') || 'miss');
-check('lowercase ref works',     () => run(`APPS.track(NEW.ref.toLowerCase(),'Testino')?.id`) === run('NEW.id') || 'miss');
-check('wrong surname finds nothing', () => run(`APPS.track(NEW.ref,'Wrong')`) === null || 'leaked');
-check('ref alone finds nothing', () => run(`APPS.track(NEW.ref,'')`) === null || 'leaked');
+check('SRN + surname finds it',  () => run(`APPS.track(NEW.srn,'testino')?.id`) === run('NEW.id') || 'miss');
+check('lowercase SRN works',     () => run(`APPS.track(NEW.srn.toLowerCase(),'Testino')?.id`) === run('NEW.id') || 'miss');
+check('surrounding spaces ok',   () => run(`APPS.track('  '+NEW.srn+'  ','  Testino ')?.id`) === run('NEW.id') || 'miss');
+check('wrong surname finds nothing', () => run(`APPS.track(NEW.srn,'Wrong')`) === null || 'leaked');
+check('SRN alone finds nothing', () => run(`APPS.track(NEW.srn,'')`) === null || 'leaked');
+check('surname alone finds nothing', () => run(`APPS.track('','Testino')`) === null || 'leaked');
+check('trackAll returns every enrollment for that SRN, newest first', () => {
+  const r = run(`(() => {
+    const b = DB.get().batches.find(x => x.status === 'Open' && x.courseId !== NEW.courseId);
+    APPS.submit({ ...${FULL}, courseId:b.courseId });
+    const all = APPS.trackAll(NEW.srn, 'Testino');
+    return { n:all.length, dates:all.map(a => a.submitted) };
+  })()`);
+  const sorted = [...r.dates].sort().reverse().join() === r.dates.join();
+  return (r.n >= 2 && sorted) || JSON.stringify(r);
+});
 
 console.log('\n- lifecycle guards -');
 check('Submitted cannot jump to Enrolled', () => {

@@ -201,14 +201,22 @@ const APPS = (() => {
   const t = s => String(s ?? '').trim();
 
   /* ---------- tracking ----------
-     Reference code alone is not enough — it is short and printed on a slip that can
-     be lost. Pairing it with the surname keeps one applicant out of another's file. */
-  function track(ref, surname){
-    const r = t(ref).toUpperCase(), s = t(surname).toLowerCase();
-    if(!r || !s) return null;
-    return D().applications.find(a =>
-      a.ref === r && a.last.toLowerCase() === s) || null;
+     Looked up by SRN and last name. A seafarer knows their SRN by heart and can
+     lose a printed slip, so this is the pair they can always produce. Neither
+     half alone is enough: the SRN is not secret, and the surname keeps one
+     applicant out of another's file.
+
+     Unlike a reference code, an SRN is not unique across applications — a
+     returning seafarer has one per course — so this returns every match, newest
+     first, and the portal shows the most recent with the rest listed under it. */
+  function trackAll(srn, surname){
+    const r = t(srn).toUpperCase(), s = t(surname).toLowerCase();
+    if(!r || !s) return [];
+    return D().applications
+      .filter(a => t(a.srn).toUpperCase() === r && a.last.toLowerCase() === s)
+      .sort((x,y) => y.submitted.localeCompare(x.submitted) || y.no.localeCompare(x.no));
   }
+  const track = (srn, surname) => trackAll(srn, surname)[0] || null;
 
   /* ---------- state changes ---------- */
   function advance(app, status, by, note){
@@ -365,7 +373,7 @@ const APPS = (() => {
   return {
     OPEN_STATES, FINAL_STATES, ALL_STATES, NEXT, REQUIRED, LABELS,
     isOpen, isFinal, refCode, seatsTaken, openBatches, demand,
-    validate, submit, track, advance, reject, withdraw,
+    validate, submit, track, trackAll, advance, reject, withdraw,
     matchTrainee, convert, pending, counts, find, forName, ageDays,
     course, batch,
   };

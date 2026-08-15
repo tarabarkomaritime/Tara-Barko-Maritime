@@ -24,7 +24,8 @@ const CO   = () => DB.get().company;
 const P = {
   view:'courses', tab:'apply', step:1,
   draft:{}, errors:[], result:null,
-  tracked:null, trackRef:'', trackSurname:'', trackError:'', q:'', page:1, cq:'',
+  tracked:null, trackOthers:[], trackSrn:'', trackSurname:'', trackError:'',
+  q:'', page:1, cq:'',
 };
 
 /* Catalogue paging. The full catalogue is a couple of hundred courses — too many
@@ -168,7 +169,7 @@ function viewEnroll(){
     <div class="p-sec-head p-sec-center">
       <h2>${P.tab === 'track' ? 'Track your enrollment' : 'Enroll now'}</h2>
       <p>${P.tab === 'track'
-            ? 'Enter the reference code from your acknowledgement slip.'
+            ? 'Enter your SRN and last name.'
             : 'Three steps. It takes about four minutes.'}</p>
     </div>
     ${seg}
@@ -453,10 +454,11 @@ function paneDone(){
     <div class="p-panel p-center">
       <div class="p-ok-mark">&#10003;</div>
       <h2>Enrollment submitted</h2>
-      <p class="p-lead">Keep the reference code below. You will need it, with your last name,
-         to track your enrollment.</p>
-      <div class="p-ref">${esc(a.ref)}</div>
-      <p class="muted p-appno">Application no. <span class="mono">${esc(a.no)}</span></p>
+      <p class="p-lead">Track your enrollment any time with your <b>SRN</b> and your
+         <b>last name</b>.</p>
+      <div class="p-ref">${esc(a.srn)}</div>
+      <p class="muted p-appno">Reference <span class="mono">${esc(a.ref)}</span> &middot;
+         application no. <span class="mono">${esc(a.no)}</span></p>
     </div>
 
     <div class="p-slip" id="slip">
@@ -500,7 +502,7 @@ function paneDone(){
     </div>
 
     <div class="p-acts no-print">
-      <a class="btn btn-ghost" href="#/enroll/track">Track this enrollment</a>
+      <a class="btn btn-ghost" href="#/enroll/track?srn=${encodeURIComponent(a.srn)}">Track this enrollment</a>
       <div class="p-acts-right">
         <button class="btn btn-ghost" id="printSlip">Print slip</button>
         <button class="btn btn-accent" id="another">Enroll in another course</button>
@@ -513,26 +515,47 @@ const STAGE_ORDER = ['Submitted','Under Review','Approved','Enrolled'];
 
 function paneTrack(){
   const a = P.tracked;
+  const others = P.trackOthers || [];
   return `
     <div class="p-panel">
       <form id="trackForm">
         <div class="grid g2">
-          <label class="fld"><span>Reference code</span>
-            <input name="ref" value="${esc(P.trackRef||'')}" maxlength="6"
-                   placeholder="e.g. K7QX2M" class="p-refin" required></label>
+          <label class="fld"><span>SRN</span>
+            <input name="srn" value="${esc(P.trackSrn||'')}"
+                   placeholder="e.g. SRN-123456" class="p-caps" required></label>
           <label class="fld"><span>Last name</span>
             <input name="surname" value="${esc(P.trackSurname||'')}"
-                   placeholder="As written on your application" required></label>
+                   placeholder="As written on your enrollment" class="p-caps" required></label>
         </div>
         <button class="btn btn-accent" type="submit">Check status</button>
       </form>
       ${P.trackError ? `<div class="note bad p-track-err">${esc(P.trackError)}</div>` : ''}
     </div>
-    ${a ? trackResult(a) : `
+    ${a ? trackResult(a) + (others.length ? otherEnrollments(others) : '') : `
       <div class="p-hint">
-        Your reference code is the six-character code printed on the acknowledgement slip you
-        received when you enrolled. Lost it? Call the Registrar at ${esc(CO().contact)}.
+        Enter the SRN you used when you enrolled, together with your last name.
+        Need help? Call the Registrar at ${esc(CO().contact)}.
       </div>`}`;
+}
+
+/* A returning seafarer has one enrollment per course under the same SRN. The
+   newest is shown in full; the rest are listed so none of them silently vanish. */
+function otherEnrollments(list){
+  return `
+    <div class="p-panel p-others">
+      <h4 class="p-group">Your other enrollments</h4>
+      ${list.map(o => {
+        const c = courseOf(o.courseId);
+        return `<div class="p-other-row">
+          <div>
+            <b>${esc(c ? c.title : '—')}</b>
+            <small>${esc(o.no)} &middot; submitted ${UI.date(o.submitted)}</small>
+          </div>
+          <span class="p-flex"></span>
+          ${UI.statusTag(o.status)}
+        </div>`;
+      }).join('')}
+    </div>`;
 }
 
 function trackResult(a){
@@ -612,7 +635,7 @@ function render(){
       P.draft.courseId = params.get('course');
       P.result = null;
     }
-    if(P.tab === 'track' && params.get('ref')) P.trackRef = params.get('ref');
+    if(P.tab === 'track' && params.get('srn')) P.trackSrn = params.get('srn');
   }
 
   document.querySelectorAll('[data-p]').forEach(a =>
@@ -741,12 +764,13 @@ function wire(){
   if(tf) tf.onsubmit = e => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(tf).entries());
-    P.trackRef = fd.ref; P.trackSurname = fd.surname;
+    P.trackSrn = fd.srn; P.trackSurname = fd.surname;
     DB.reload();
-    const hit = APPS.track(fd.ref, fd.surname);
-    P.tracked = hit;
-    P.trackError = hit ? '' :
-      'We could not find an enrollment with that reference code and last name. Check the code on your slip, or call the Registrar for help.';
+    const all = APPS.trackAll(fd.srn, fd.surname);
+    P.tracked = all[0] || null;
+    P.trackOthers = all.slice(1);
+    P.trackError = all.length ? '' :
+      'We could not find an enrollment with that SRN and last name. Check your SRN, or call the Registrar for help.';
     render();
   };
 }
