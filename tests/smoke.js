@@ -70,7 +70,8 @@ check('unplaced applications hold no seat', () => {
     const c = DB.get().courses.find(x => x.id === b.courseId);
     APPS.submit({ courseId:c.id, srn:'SRN-SEAT01', last:'Seatcheck', first:'Ana',
       birth:'1990-01-01', birthPlace:'Manila', mobile:'09170000001',
-      email:'seat@mail.com', address:'Manila', rank:'Oiler', agency:'Direct Hire / Walk-in',
+      email:'seat@mail.com', address:'Manila', facebook:'facebook.com/ana.seatcheck',
+      rank:'Oiler', agency:'Direct Hire / Walk-in',
       emergencyName:'Kin Seatcheck', emergencyMobile:'09180000002' });
     const after = APPS.seatsTaken(b);
     return { beforeFree:before.free, afterFree:after.free };
@@ -108,6 +109,20 @@ check('rejects future birthdate', () => run(`APPS.validate({ birth:'2099-01-01' 
 check('rejects a short mobile', () => run(`APPS.validate({ mobile:'0917' }).includes('mobile')`) === true || 'not caught');
 check('rejects self as emergency contact', () =>
   run(`APPS.validate({ mobile:'09171234567', emergencyMobile:'0917 123 4567' }).includes('emergencyMobile')`) === true || 'not caught');
+check('facebook link is required', () =>
+  run(`APPS.validate({}).includes('facebook')`) === true || 'not required');
+check('rejects a name typed where a link belongs', () =>
+  run(`APPS.validate({ facebook:'Juan Dela Cruz' }).includes('facebook')`) === true || 'not caught');
+check('accepts a bare handle or a full URL', () => {
+  const a = run(`APPS.validate({ facebook:'facebook.com/juan.delacruz' }).includes('facebook')`);
+  const b = run(`APPS.validate({ facebook:'https://www.facebook.com/juan' }).includes('facebook')`);
+  return (a === false && b === false) || `bare:${a} url:${b}`;
+});
+check('messenger is optional but still checked', () => {
+  const blank = run(`APPS.validate({ messenger:'' }).includes('messenger')`);
+  const bad   = run(`APPS.validate({ messenger:'ask me on fb' }).includes('messenger')`);
+  return (blank === false && bad === true) || `blank:${blank} bad:${bad}`;
+});
 
 console.log('\n- submit -');
 const FULL = `{
@@ -116,6 +131,7 @@ const FULL = `{
     last:'Testino', first:'Pedro', middle:'Cruz', suffix:'Jr.',
     sex:'M', birth:'1990-05-04', birthPlace:'Lucena City, Quezon',
     mobile:'09171234567', email:'PEDRO.T@Mail.com', address:'Barangay 5, Lucena City',
+    facebook:'facebook.com/pedro.testino', messenger:'m.me/pedro.testino',
     rank:'Oiler', agency:'Direct Hire / Walk-in', payer:'Self-paid',
     emergencyName:'Marilou Testino', emergencyRelation:'Spouse', emergencyMobile:'09189876543',
     termsVersion: TERMS.version,
@@ -267,7 +283,8 @@ check('trainee gets the full record', () => {
   const want = { srn:'SRN-999001', suffix:'Jr.', birthPlace:'Lucena City, Quezon',
                  emergencyName:'Marilou Testino', emergencyRelation:'Spouse',
                  emergencyMobile:'09189876543', address:'Barangay 5, Lucena City',
-                 agency:'Direct Hire / Walk-in' };
+                 agency:'Direct Hire / Walk-in',
+                 facebook:'facebook.com/pedro.testino', messenger:'m.me/pedro.testino' };
   const gap = Object.entries(want).filter(([k,v]) => t[k] !== v).map(([k]) => k);
   return gap.length === 0 || 'wrong or missing: ' + gap.join(', ');
 });
@@ -280,6 +297,7 @@ run(`
     srn:EXIST.srn, last:EXIST.last, first:EXIST.first, sex:EXIST.sex,
     birth:EXIST.birth, birthPlace:'Cebu City, Cebu',
     rank:'Chief Mate', mobile:'09998887777', email:'refresher@mail.com',
+    facebook:'facebook.com/returning.seafarer',
     address:'Lapu-Lapu City, Cebu', payer:'Agency-billed',
     agency:'Wallem Maritime Services',
     emergencyName:'Ligaya Reyes', emergencyRelation:'Sister', emergencyMobile:'09171112222',

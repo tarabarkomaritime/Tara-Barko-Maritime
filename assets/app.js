@@ -54,6 +54,16 @@ const INV  = id => D().invoices.find(x => x.id === id);
 const PAY  = id => D().payments.find(x => x.id === id);
 /* Trainees and applications carry the same name fields, so one formatter serves both. */
 const name = t => APPS.forName(t);
+
+/* The Registrar replies on Facebook, so these are meant to be clicked. Applicants
+   paste bare handles as often as full URLs, so add the scheme when it is missing.
+   rel=noopener because the target is a stranger's link. */
+function fbLink(v){
+  const s = String(v || '').trim();
+  if(!s) return '<span class="muted">—</span>';
+  const href = /^https?:\/\//i.test(s) ? s : 'https://' + s.replace(/^\/+/, '');
+  return `<a href="${UI.esc(href)}" target="_blank" rel="noopener noreferrer">${UI.esc(s)}</a>`;
+}
 const addons = () => D().company.addons || DEFAULT_ADDONS;
 const can = v => SESSION && DB.PERMS[SESSION.role].includes(v);
 const seats = b => D().enrollments.filter(e => e.batchId === b.id && ['Enrolled','Reserved','Completed'].includes(e.status)).length;
@@ -921,6 +931,8 @@ function applicationModal(a){
         <dl class="def">
           <dt>Mobile</dt><dd>${UI.esc(a.mobile || '—')}</dd>
           <dt>Email</dt><dd>${UI.esc(a.email || '—')}</dd>
+          <dt>Facebook</dt><dd>${fbLink(a.facebook)}</dd>
+          <dt>Messenger</dt><dd>${fbLink(a.messenger)}</dd>
           <dt>Address</dt><dd>${UI.esc(a.address || '—')}</dd>
           <dt>Emergency contact</dt><dd>${UI.esc(a.emergencyName || '—')}${a.emergencyRelation ? ` <span class="muted">(${UI.esc(a.emergencyRelation)})</span>` : ''}</dd>
           <dt>Emergency number</dt><dd>${UI.esc(a.emergencyMobile || '—')}</dd>
@@ -1072,7 +1084,8 @@ function convertForm(a){
 function traineeForm(t){
   const isNew = !t;
   t = t || { srn:'', last:'', first:'', middle:'', suffix:'', sex:'M', birth:'', birthPlace:'',
-             sirb:'', passport:'', rank:'', agency:'', mobile:'', email:'', address:'',
+             sirb:'', passport:'', rank:'', agency:'', mobile:'', email:'',
+             facebook:'', messenger:'', address:'',
              emergencyName:'', emergencyRelation:'', emergencyMobile:'', remarks:'' };
   const H = s => `<h4 style="margin:18px 0 8px;font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--tb-orange);border-bottom:2px solid var(--tb-orange-soft);padding-bottom:5px">${s}</h4>`;
   UI.modal({
@@ -1094,6 +1107,8 @@ function traineeForm(t){
       ${H('Contact details')}
       ${UI.row(UI.f.text('mobile','Mobile no.', t.mobile, { req:true }),
                UI.f.text('email','Email', t.email))}
+      ${UI.row(UI.f.text('facebook','Facebook profile link', t.facebook, { ph:'facebook.com/…' }),
+               UI.f.text('messenger','Messenger / Meta chat link', t.messenger, { ph:'m.me/…' }))}
       ${UI.f.text('address','Home address', t.address)}
       ${H('Employment')}
       ${UI.row(UI.f.text('rank','Rank / position', t.rank, { ph:'e.g. Able Seaman' }),
@@ -1143,6 +1158,7 @@ function traineeProfile(t){
         <dl class="def">
           <dt>Mobile</dt><dd>${UI.esc(t.mobile||'—')}</dd>
           <dt>Email</dt><dd>${UI.esc(t.email||'—')}</dd>
+          <dt>Facebook</dt><dd>${fbLink(t.facebook)}</dd>
           <dt>Address</dt><dd>${UI.esc(t.address||'—')}</dd>
           <dt>Emergency contact</dt><dd>${UI.esc(t.emergencyName||'—')}${t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}</dd>
           <dt>Emergency number</dt><dd>${UI.esc(t.emergencyMobile||'—')}</dd>

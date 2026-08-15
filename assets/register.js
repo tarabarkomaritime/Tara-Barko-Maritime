@@ -304,6 +304,14 @@ function stepDetails(){
       </div>
       ${F('address','Home address', { req:true, ph:'House/unit, street, barangay, city, province',
                                       attr:'autocomplete="street-address"' })}
+      <p class="p-note-inline">The Registrar replies on Facebook, so give us a link we can
+         open &mdash; not just your display name.</p>
+      <div class="grid g2">
+        ${F('facebook','Facebook profile link', { req:true,
+             ph:'facebook.com/your.profile' })}
+        ${F('messenger','Messenger / Meta chat link', { hint:'optional',
+             ph:'m.me/your.profile' })}
+      </div>
 
       <h4 class="p-group">Employment</h4>
       <div class="grid g2">
@@ -362,6 +370,8 @@ function stepReview(){
         ${L('Mobile', esc(d.mobile))}
         ${L('Email', esc(d.email))}
         ${L('Address', esc(d.address))}
+        ${L('Facebook', esc(d.facebook))}
+        ${L('Messenger', esc(d.messenger))}
       </dl>
     </div>
 
@@ -470,6 +480,7 @@ function paneDone(){
           <dt>Rank / position</dt><dd>${esc(a.rank)}</dd>
           <dt>Company</dt><dd>${esc(a.agency)}</dd>
           <dt>Mobile</dt><dd>${esc(a.mobile)}</dd>
+          <dt>Facebook</dt><dd>${esc(a.facebook)}</dd>
         </dl>
         <dl class="def">
           <dt>Course</dt><dd><b>${esc(c.title)}</b></dd>

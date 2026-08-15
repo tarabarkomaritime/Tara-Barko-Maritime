@@ -89,7 +89,7 @@ const APPS = (() => {
     'srn',                                   // identity
     'last','first',
     'birth','birthPlace',                    // personal
-    'mobile','email','address',              // contact
+    'mobile','email','address','facebook',   // contact — Facebook is how the Registrar replies
     'rank','agency',                         // employment ("Company" on the form)
     'emergencyName','emergencyMobile',       // emergency
   ];
@@ -100,6 +100,7 @@ const APPS = (() => {
     srn:'SRN', last:'Last name', first:'First name', middle:'Middle name', suffix:'Suffix',
     sex:'Sex', birth:'Date of birth', birthPlace:'Place of birth',
     mobile:'Mobile number', email:'Email address', address:'Address',
+    facebook:'Facebook profile link', messenger:'Messenger / Meta chat link',
     rank:'Rank / position', agency:'Company',
     emergencyName:'Emergency contact person', emergencyRelation:'Relationship',
     emergencyMobile:'Emergency contact number',
@@ -126,6 +127,13 @@ const APPS = (() => {
     if(p.mobile && p.emergencyMobile && digits(p.mobile) === digits(p.emergencyMobile)){
       errors.push('emergencyMobile');
     }
+
+    /* The Registrar has to open these to reply, so a name typed where a link
+       belongs is a dead end. Checked loosely — a bare username is fine, a
+       sentence is not. */
+    const linkish = v => /^\S+$/.test(String(v||'').trim()) && String(v).trim().length >= 3;
+    if(p.facebook  && !linkish(p.facebook))  errors.push('facebook');
+    if(p.messenger && !linkish(p.messenger)) errors.push('messenger');
 
     /* Same person, same course, still pending — a double submit, not a second
        enrollment. Matched on SRN when we have one, otherwise on name. */
@@ -164,6 +172,7 @@ const APPS = (() => {
       sex:p.sex || 'M', birth:p.birth || '', birthPlace:t(p.birthPlace),
       // contact
       mobile:t(p.mobile), email:t(p.email).toLowerCase(), address:t(p.address),
+      facebook:t(p.facebook), messenger:t(p.messenger),
       // employment
       rank:t(p.rank), agency:t(p.agency),
       // emergency
@@ -271,7 +280,7 @@ const APPS = (() => {
     if(trainee){
       /* The application carries the fresher contact and next-of-kin details;
          the existing file keeps its identity and its number. */
-      ['mobile','email','address','rank','agency',
+      ['mobile','email','address','facebook','messenger','rank','agency',
        'emergencyName','emergencyRelation','emergencyMobile']
         .forEach(f => { if(app[f]) trainee[f] = app[f]; });
       ['srn','suffix','birthPlace']
@@ -285,6 +294,7 @@ const APPS = (() => {
         sirb:'', passport:'',        // recorded by the registrar from the originals
         rank:app.rank, agency:app.agency,
         mobile:app.mobile, email:app.email, address:app.address,
+        facebook:app.facebook, messenger:app.messenger,
         emergencyName:app.emergencyName, emergencyRelation:app.emergencyRelation,
         emergencyMobile:app.emergencyMobile,
         registered:DB.today(),
