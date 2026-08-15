@@ -105,8 +105,8 @@ function viewCourses(){
         <h1>Enroll with TB Maritime.</h1>
         <p>Basic safety, advanced safety, medical, security and simulator courses for
            Filipino seafarers, delivered at MARINA and STCW accredited partner training
-           centers. Tell us which course you need &mdash; we will find you a seat and call
-           you to confirm the schedule and the fee.</p>
+           centers. Tell us which course you need &mdash; we will find you a seat and confirm
+           the schedule and the fee with you.</p>
         <div class="p-hero-acts">
           <a class="btn btn-accent btn-lg" href="#/enroll">Enroll now</a>
           <a class="btn btn-onblue btn-lg" href="#/enroll/track">Track my enrollment</a>
@@ -121,7 +121,7 @@ function viewCourses(){
     <div class="p-sec-head">
       <h2>Course catalogue</h2>
       <p>${active.length} accredited courses. Fees and dates depend on the training center
-         &mdash; the registrar confirms both when your enrollment is approved.</p>
+         &mdash; the Registrar confirms both when your enrollment is approved.</p>
     </div>
     <div class="toolbar" style="margin-bottom:14px">
       <input type="search" id="cq" value="${esc(P.q||'')}"
@@ -233,7 +233,7 @@ function stepCourse(){
       </div>
       ${matches.length === 40 ? `<p class="p-hint">Showing the first 40 matches — keep typing to narrow it down.</p>` : ''}`
       : `<div class="empty">No course matches &ldquo;${esc(P.cq)}&rdquo;. Try a shorter word, or call
-           the registrar at ${esc(CO().contact)}.</div>`)
+           the Registrar at ${esc(CO().contact)}.</div>`)
       : `<p class="p-hint">Start typing to search all
            ${active.length} accredited courses.</p>`}
 
@@ -338,7 +338,7 @@ function stepReview(){
   return `
     <h2>Review and submit</h2>
     <p class="p-lead">Check your details carefully. After submitting, changes have to go
-       through the registrar.</p>
+       through the Registrar.</p>
 
     <div class="note">
       <b>${esc(c.title)}</b>${(c.modes||[]).length ? ` &middot; ${esc(c.modes.join(' / '))}` : ''}<br>
@@ -381,9 +381,9 @@ function stepReview(){
     <div class="hr"></div>
     <div class="note warn">
       <b>No fee is shown or collected here.</b> The training fee depends on which partner
-      center and which dates we can place you on. The registrar will call you within one
-      working day with the schedule and the exact amount, and your official invoice is
-      issued at that point.
+      center and which dates we can place you on. The Registrar will contact you on your
+      Facebook account within one working day with the schedule and the exact amount, and
+      your official invoice is issued at that point.
     </div>
 
     ${P.errors.includes('duplicate') ? `<div class="note bad">You already have an enrollment waiting for this course. Track it instead using your reference code.</div>` : ''}
@@ -449,28 +449,6 @@ function paneDone(){
       <p class="muted p-appno">Application no. <span class="mono">${esc(a.no)}</span></p>
     </div>
 
-    <div class="p-next">
-      <span class="p-next-n">1</span>
-      <div>
-        <b>Screenshot this page and send it to ${pageName()}.</b>
-        Your enrollment is not checked until we receive it &mdash; this is the step that
-        tells the TB Maritime team you are ready.
-      </div>
-    </div>
-    <div class="p-next">
-      <span class="p-next-n">2</span>
-      <div>
-        <b>We check your details and enroll you.</b>
-        The TB Maritime team reviews what you submitted and enrolls you in the course you
-        selected, then contacts you on <b>your Facebook account</b> with the schedule, the
-        training center and the fee.
-      </div>
-    </div>
-    <div class="note p-hours-note">
-      Enrollments submitted outside our office hours are processed on the following
-      business day.
-    </div>
-
     <div class="p-slip" id="slip">
       <div class="p-slip-head">
         <img src="assets/logo.svg" alt="" class="p-slip-logo">
@@ -496,14 +474,14 @@ function paneDone(){
         <dl class="def">
           <dt>Course</dt><dd><b>${esc(c.title)}</b></dd>
           <dt>Duration</dt><dd>${esc(c.duration || 'To be confirmed')}</dd>
-          <dt>Schedule</dt><dd><span class="muted">To be assigned by the registrar</span></dd>
+          <dt>Schedule</dt><dd><span class="muted">To be assigned by the Registrar</span></dd>
           <dt>Reference code</dt><dd class="mono"><b>${esc(a.ref)}</b></dd>
           <dt>Status</dt><dd>${UI.statusTag('Submitted')}</dd>
         </dl>
       </div>
       <div class="note p-slip-note">
         <b>What happens next.</b> Take a screenshot of this confirmation and send it to
-        ${pageName()}. The TB Maritime team will check your enrollment details and enroll you
+        ${pageName()}. The Registrar will check your enrollment details and enroll you
         in the course you selected, then contact you on your Facebook account. Enrollments
         submitted outside our office hours are processed on the following business day.
         <b>This does not serve as your official receipt.</b>
@@ -542,7 +520,7 @@ function paneTrack(){
     ${a ? trackResult(a) : `
       <div class="p-hint">
         Your reference code is the six-character code printed on the acknowledgement slip you
-        received when you enrolled. Lost it? Call the registrar at ${esc(CO().contact)}.
+        received when you enrolled. Lost it? Call the Registrar at ${esc(CO().contact)}.
       </div>`}`;
 }
 
@@ -583,22 +561,22 @@ function trackResult(a){
         <dt>Duration</dt><dd>${esc(c.duration || 'To be confirmed')}</dd>
         <dt>Schedule</dt><dd>${b
           ? `${UI.dateRange(b.start,b.end)} &middot; ${esc(b.center)} &middot; ${esc(b.room)}`
-          : '<span class="muted">Not yet assigned — the registrar will confirm your dates</span>'}</dd>
+          : '<span class="muted">Not yet assigned — the Registrar will confirm your dates</span>'}</dd>
         <dt>SRN</dt><dd class="mono">${esc(a.srn)}</dd>
       </dl>
       <div class="hr"></div>
       <h4 class="p-group">Progress</h4>
       <ul class="p-time">${closed ? closedRow : stages}</ul>
       ${a.status === 'Enrolled'
-        ? `<div class="note ok p-flush"><b>You are enrolled.</b> The TB Maritime team will
+        ? `<div class="note ok p-flush"><b>You are enrolled.</b> The Registrar will
              confirm your schedule, training center and fee on your Facebook account. Your
              training center will tell you what to bring on the first day.</div>`
         : a.status === 'Rejected'
-        ? `<div class="note bad p-flush">Please contact the registrar at ${esc(CO().contact)}
+        ? `<div class="note bad p-flush">Please contact the Registrar at ${esc(CO().contact)}
              if you would like to re-apply.</div>`
         : closed ? ''
         : `<div class="note p-flush">If you have not already, send a screenshot of your
-             submitted enrollment to ${pageName()} &mdash; the TB Maritime team checks your
+             submitted enrollment to ${pageName()} &mdash; the Registrar checks your
              details from there, then contacts you on your Facebook account with the
              schedule, the training center and the fee. Enrollments submitted outside our
              office hours are processed on the following business day.</div>`}
@@ -757,7 +735,7 @@ function wire(){
     const hit = APPS.track(fd.ref, fd.surname);
     P.tracked = hit;
     P.trackError = hit ? '' :
-      'We could not find an enrollment with that reference code and last name. Check the code on your slip, or call the registrar for help.';
+      'We could not find an enrollment with that reference code and last name. Check the code on your slip, or call the Registrar for help.';
     render();
   };
 }
