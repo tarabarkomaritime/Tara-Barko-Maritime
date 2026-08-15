@@ -41,7 +41,6 @@ const COURSE_CATALOGUE = [
     "daysTo": 5.5,
     "duration": "5–5.5 days",
     "modes": [
-      "Distance learning",
       "Face to face"
     ]
   },

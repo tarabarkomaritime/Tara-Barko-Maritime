@@ -178,11 +178,21 @@ rows.forEach((r, i) => {
    Accommodation is not a delivery mode, so it does not trigger the inference. */
 const DELIVERY = ['Face to face','Blended','Distance learning'];
 
+/* Modes the matrix lists but the office does not actually endorse. Matched
+   against the course key, so `^AFF$` hits AFF alone and leaves AFF - R be.
+   Each entry is a business decision, not a data fix — give it a reason. */
+const MODE_EXCLUDE = [
+  { course:/^AFF$/, mode:'Distance learning' },   // not offered
+];
+
 const catalogue = [...byKey.values()].map(e => {
   const lo = e.durations.length ? Math.min(...e.durations.map(d => d.days)) : null;
   const hi = e.durations.length ? Math.max(...e.durations.map(d => d.daysTo ?? d.days)) : null;
 
-  const modes = e.modes.slice();
+  let modes = e.modes.slice();
+  MODE_EXCLUDE.forEach(x => {
+    if(x.course.test(e.key)) modes = modes.filter(m => m !== x.mode);
+  });
   if(e.plain && modes.some(m => DELIVERY.includes(m)) && !modes.includes('Face to face')){
     modes.push('Face to face');
   }
