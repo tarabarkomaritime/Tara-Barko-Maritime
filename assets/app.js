@@ -927,7 +927,17 @@ function applicationModal(a){
           ${a.enrollmentId ? `<dt>Enrollment</dt><dd class="mono">${UI.esc(ENR(a.enrollmentId)?.no || '—')}</dd>` : ''}
         </dl>
       </div>
-      <div class="note" style="margin:14px 0 0">
+      <div class="note ${a.termsVersion ? '' : 'warn'}" style="margin:14px 0 0">
+        ${a.termsVersion
+          ? `<b>Terms accepted.</b> Version <span class="mono">${UI.esc(a.termsVersion)}</span>
+             on ${UI.date((a.termsAcceptedAt||'').slice(0,10))}${a.termsAcceptedAt ? ' at ' + UI.esc(a.termsAcceptedAt.slice(11,16)) : ''}.
+             ${(a.termsAccepted||[]).length
+               ? `<br><span class="muted">${(a.termsAccepted||[]).map(x => '&ldquo;' + UI.esc(x) + '&rdquo;').join(' &middot; ')}</span>`
+               : ''}`
+          : `<b>No terms recorded.</b> This application predates the terms and conditions,
+             or was created before acceptance was captured.`}
+      </div>
+      <div class="note" style="margin:10px 0 0">
         SIRB and passport numbers are not collected online. Record them from the
         originals on the trainee's file before the first training day.
       </div>

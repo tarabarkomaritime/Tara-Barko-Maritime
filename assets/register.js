@@ -380,6 +380,8 @@ function stepReview(){
 
     ${P.errors.includes('duplicate') ? `<div class="note bad">You already have an enrollment waiting for this course. Track it instead using your reference code.</div>` : ''}
 
+    ${termsPanel()}
+
     <label class="p-consent">
       <input type="checkbox" id="consent">
       <span>I certify that the information above is true and correct, and I allow
@@ -389,6 +391,40 @@ function stepReview(){
     <div class="p-acts">
       <button class="btn btn-ghost" id="back3">&larr; Back</button>
       <button class="btn btn-accent" id="submitApp">Submit enrollment</button>
+    </div>`;
+}
+
+/* ----- terms and conditions -----
+   Rendered from assets/terms.js so the wording lives somewhere a non-programmer
+   can find it. The panel scrolls rather than pushing the tick boxes off-screen:
+   an applicant who cannot see what they are agreeing to has not agreed to it. */
+function termsPanel(){
+  const sec = s => `
+    <div class="p-terms-sec">
+      <h5><span class="p-terms-n">${s.n}.</span>${esc(s.heading)}</h5>
+      ${(s.body || []).map(p => `<p>${esc(p.replace(/\s+/g,' ').trim())}</p>`).join('')}
+      ${(s.bullets || []).length
+        ? `<ul>${s.bullets.map(b => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+    </div>`;
+
+  return `
+    <div class="p-terms">
+      <div class="p-terms-head">
+        <h4>${esc(TERMS.title)}</h4>
+        <span class="p-terms-ver">Version ${esc(TERMS.version)}</span>
+      </div>
+      <div class="p-terms-body" id="termsBody" tabindex="0">
+        ${TERMS.sections.map(sec).join('')}
+      </div>
+    </div>
+
+    <div class="p-agree ${P.errors.includes('terms') ? 'bad' : ''}">
+      <p class="p-agree-lead">${esc(TERMS.agreementLead)} <span class="p-req">*</span></p>
+      ${TERMS.agreements.map(a => `
+        <label class="p-agree-box">
+          <input type="checkbox" id="${a.id}" data-agree>
+          <span>${esc(a.label)}</span>
+        </label>`).join('')}
     </div>`;
 }
 
@@ -609,10 +645,28 @@ function wire(){
 
   on('back3','onclick', () => { P.step = 2; P.errors = []; render(); });
   on('submitApp','onclick', () => {
+    /* Every box is a separate statement the applicant is making, so each is
+       checked separately and the message names the one that is missing. */
+    const unticked = TERMS.agreements.filter(a => !document.getElementById(a.id)?.checked);
+    if(unticked.length){
+      P.errors = ['terms'];
+      render();
+      const first = document.getElementById(unticked[0].id);
+      if(first){ first.focus(); first.closest('.p-agree')?.scrollIntoView({ block:'center' }); }
+      UI.toast(unticked.length === TERMS.agreements.length
+        ? 'Please accept the terms and conditions before submitting.'
+        : `Please also tick “${unticked[0].label}”.`, 'bad');
+      return;
+    }
     if(!document.getElementById('consent').checked)
       return UI.toast('Please tick the certification box before submitting.', 'bad');
+
     try{
-      P.result = APPS.submit(P.draft);
+      P.result = APPS.submit({
+        ...P.draft,
+        termsVersion:TERMS.version,
+        termsAccepted:TERMS.agreements.map(a => a.label),
+      });
       P.errors = [];
       UI.toast('Enrollment submitted — reference ' + P.result.ref);
       render();
@@ -621,6 +675,13 @@ function wire(){
       if(!P.errors.length) UI.toast(e.message, 'bad');
       render();
     }
+  });
+
+  /* Ticking clears the highlight straight away rather than waiting for a
+     re-render, so the form stops looking wrong the moment it stops being wrong. */
+  document.querySelectorAll('[data-agree]').forEach(b => b.onchange = () => {
+    if(TERMS.agreements.every(a => document.getElementById(a.id)?.checked))
+      document.querySelector('.p-agree')?.classList.remove('bad');
   });
 
   on('printSlip','onclick', () => window.print());

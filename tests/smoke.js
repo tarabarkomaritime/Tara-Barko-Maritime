@@ -32,7 +32,7 @@ vm.createContext(ctx);
 
 /* Same order as the two HTML entry points: the generated catalogue must exist
    before db.js seeds from it, and accounting.js before anything calls DB.load(). */
-for(const f of ['courses.js','db.js','accounting.js','applications.js']){
+for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js']){
   vm.runInContext(fs.readFileSync(path.join(ASSETS,f),'utf8'), ctx, { filename:f });
 }
 
@@ -118,6 +118,8 @@ const FULL = `{
     mobile:'09171234567', email:'PEDRO.T@Mail.com', address:'Barangay 5, Lucena City',
     rank:'Oiler', agency:'Direct Hire / Walk-in', payer:'Self-paid',
     emergencyName:'Marilou Testino', emergencyRelation:'Spouse', emergencyMobile:'09189876543',
+    termsVersion: TERMS.version,
+    termsAccepted: TERMS.agreements.map(a => a.label),
   }`;
 run(`globalThis.NEW = APPS.submit(${FULL});`);
 check('returns a record',      () => run('!!NEW.id') === true || 'no id');
@@ -135,6 +137,33 @@ check('suffix in formatted name', () =>
 check('history seeded',        () => run('NEW.history.length') === 1 || run('NEW.history.length'));
 /* 5 seeded + 1 from the seat-accounting check above + this one */
 check('persisted to store',    () => run('DB.get().applications.length') === 7 || run('DB.get().applications.length'));
+
+console.log('\n- terms and conditions -');
+check('terms file defines a version', () => /\S/.test(run('TERMS.version')) || 'blank version');
+check('five numbered sections',  () => run('TERMS.sections.length') === 5 || run('TERMS.sections.length'));
+check('sections are numbered 1..5', () => {
+  const ns = run('TERMS.sections.map(s => s.n)');
+  return ns.join(',') === '1,2,3,4,5' || ns.join(',');
+});
+check('every section has content', () => {
+  const gap = run('TERMS.sections.filter(s => !(s.body||[]).length && !(s.bullets||[]).length).map(s => s.heading)');
+  return gap.length === 0 || 'empty: ' + gap.join(', ');
+});
+check('two agreement tick boxes', () => run('TERMS.agreements.length') === 2 || run('TERMS.agreements.length'));
+check('agreement ids are unique', () => {
+  const ids = run('TERMS.agreements.map(a => a.id)');
+  return new Set(ids).size === ids.length || ids.join(',');
+});
+check('no-refund clause present', () =>
+  run(`JSON.stringify(TERMS).toLowerCase().includes('no refund')`) === true || 'missing');
+check('submit records the accepted version', () =>
+  run('NEW.termsVersion') === run('TERMS.version') || run('NEW.termsVersion'));
+check('submit records what was ticked', () =>
+  run('NEW.termsAccepted.length') === 2 || JSON.stringify(run('NEW.termsAccepted')));
+check('submit timestamps the acceptance', () =>
+  /^\d{4}-\d{2}-\d{2}T/.test(run('NEW.termsAcceptedAt')) || run('NEW.termsAcceptedAt'));
+check('audit trail names the terms version', () =>
+  run('NEW.history[0].note').includes(run('TERMS.version')) || run('NEW.history[0].note'));
 
 console.log('\n- duplicate guard -');
 check('same person + same course blocked', () => {

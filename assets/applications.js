@@ -172,8 +172,17 @@ const APPS = (() => {
       /* SIRB and passport are NOT collected online. The registrar records them
          from the originals, which the applicant brings on the first training
          day — a typed document number nobody has seen is worth nothing. */
+
+      /* What the applicant agreed to, and when. The terms carry a no-refund and
+         a limited-liability clause, both of which are only enforceable if the
+         exact wording accepted can be identified later — hence the version
+         stamp rather than a bare boolean. */
+      termsVersion:t(p.termsVersion),
+      termsAccepted:Array.isArray(p.termsAccepted) ? p.termsAccepted.slice() : [],
+      termsAcceptedAt:now,
       traineeId:'', enrollmentId:'', decidedBy:'', decidedOn:'', reason:'',
-      history:[{ ts:now, status:'Submitted', by:'Public Portal', note:'Application received online' }],
+      history:[{ ts:now, status:'Submitted', by:'Public Portal',
+                 note:`Application received online · terms ${t(p.termsVersion) || 'not recorded'} accepted` }],
     };
     D().applications.push(app);
     DB.activity('Public application received', app.no);
