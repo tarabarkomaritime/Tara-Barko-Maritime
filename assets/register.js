@@ -44,9 +44,18 @@ const pageName = () => {
 };
 
 /* A course may be delivered several ways — face to face, blended, distance
-   learning. They are one course, so they share one row and wear their modes. */
-const modeTags = c => (c.modes || [])
+   learning. They are one course, so they share one row and wear their modes.
+   `note` ("Module", "Blended") describes the course too, so it rides along. */
+const modeTags = c => [...(c.modes || []), ...(c.note ? [c.note] : [])]
   .map(m => `<span class="p-mode">${esc(m)}</span>`).join('');
+
+/* The days column carries the number alone — the column heading says "Days", so
+   repeating the word in every cell is noise. A range keeps both ends. Courses
+   whose length the partner center has not confirmed say so rather than show 0. */
+const daysCell = c => {
+  if(c.days == null) return `<span class="p-tbc">To be confirmed</span>`;
+  return c.daysTo && c.daysTo !== c.days ? `${c.days}&ndash;${c.daysTo}` : String(c.days);
+};
 
 /* The generated catalogue is already alphabetical, but a course added by hand in
    the internal system would land at the end — so sort here rather than trust it. */
@@ -133,11 +142,18 @@ function viewCourses(){
     </div>
     ${shown.length ? `
       <div class="p-cat">
-        ${shown.map(c => `
-          <div class="p-cat-row">
-            <div class="p-cat-title">${esc(c.title)} ${modeTags(c)}</div>
-            <div class="p-cat-dur">${esc(c.duration || 'Duration to be confirmed')}${c.note ? ` <span class="p-mode">${esc(c.note)}</span>` : ''}</div>
-          </div>`).join('')}
+        <table class="p-cat-tbl">
+          <thead>
+            <tr><th scope="col">Course</th><th scope="col" class="p-cat-dur">Days</th></tr>
+          </thead>
+          <tbody>
+            ${shown.map(c => `
+              <tr>
+                <td class="p-cat-title">${esc(c.title)} ${modeTags(c)}</td>
+                <td class="p-cat-dur">${daysCell(c)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
       </div>
       ${pager(page, pages)}`
     : `<div class="empty">No course matches &ldquo;${esc(P.q)}&rdquo;.</div>`}
