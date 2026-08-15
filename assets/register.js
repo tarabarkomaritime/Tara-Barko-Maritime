@@ -462,9 +462,13 @@ function paneDone(){
       <div>
         <b>We check your details and enroll you.</b>
         The TB Maritime team reviews what you submitted and enrolls you in the course you
-        selected, then contacts you on <b>${esc(a.mobile)}</b> with the schedule, the
+        selected, then contacts you on <b>your Facebook account</b> with the schedule, the
         training center and the fee.
       </div>
+    </div>
+    <div class="note p-hours-note">
+      Enrollments submitted outside our office hours are processed on the following
+      business day.
     </div>
 
     <div class="p-slip" id="slip">
@@ -500,8 +504,8 @@ function paneDone(){
       <div class="note p-slip-note">
         <b>What happens next.</b> Take a screenshot of this confirmation and send it to
         ${pageName()}. The TB Maritime team will check your enrollment details and enroll you
-        in the course you selected. Bring this slip and your original SIRB, passport and SRN
-        on your first training day.
+        in the course you selected, then contact you on your Facebook account. Enrollments
+        submitted outside our office hours are processed on the following business day.
         <b>This does not serve as your official receipt.</b>
       </div>
     </div>
@@ -586,17 +590,18 @@ function trackResult(a){
       <h4 class="p-group">Progress</h4>
       <ul class="p-time">${closed ? closedRow : stages}</ul>
       ${a.status === 'Enrolled'
-        ? `<div class="note ok p-flush"><b>You are enrolled.</b> Your official invoice and
-             receipt are handled at the cashier's window. Bring your original documents on the
-             first training day.</div>`
+        ? `<div class="note ok p-flush"><b>You are enrolled.</b> The TB Maritime team will
+             confirm your schedule, training center and fee on your Facebook account. Your
+             training center will tell you what to bring on the first day.</div>`
         : a.status === 'Rejected'
         ? `<div class="note bad p-flush">Please contact the registrar at ${esc(CO().contact)}
              if you would like to re-apply.</div>`
         : closed ? ''
         : `<div class="note p-flush">If you have not already, send a screenshot of your
              submitted enrollment to ${pageName()} &mdash; the TB Maritime team checks your
-             details from there. You will be contacted on <b>${esc(a.mobile)}</b> with the
-             schedule, the training center and the fee.</div>`}
+             details from there, then contacts you on your Facebook account with the
+             schedule, the training center and the fee. Enrollments submitted outside our
+             office hours are processed on the following business day.</div>`}
     </div>`;
 }
 

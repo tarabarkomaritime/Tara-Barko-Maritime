@@ -334,6 +334,8 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
   display:grid; place-items:center;
 }
 
+.p-hours-note{ margin-bottom:14px; font-size:12.5px; }
+
 .p-slip{ border:2px solid var(--tb-blue); border-radius:12px; padding:24px 26px; background:var(--surface); }
 .p-slip-head{
   display:flex; gap:16px; align-items:flex-start;
