@@ -523,7 +523,7 @@ function paneTrack(){
           <label class="fld"><span>SRN</span>
             <input name="srn" value="${esc(P.trackSrn||'')}"
                    placeholder="e.g. SRN-123456" class="p-caps" required></label>
-          <label class="fld"><span>Last name</span>
+          <label class="fld"><span>LAST NAME</span>
             <input name="surname" value="${esc(P.trackSurname||'')}"
                    placeholder="As written on your enrollment" class="p-caps" required></label>
         </div>
