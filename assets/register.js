@@ -115,7 +115,6 @@ function viewCourses(){
       </div>
       <div class="p-hero-stats">
         <div><b>${active.length}</b><span>accredited courses</span></div>
-        <div><b>1</b><span>working day to reply</span></div>
       </div>
     </section>
 
@@ -334,8 +333,8 @@ function stepReview(){
     <div class="hr"></div>
     <div class="note warn">
       <b>No course or fee is set here.</b> The Registrar will contact you on your Facebook
-      account within one working day to settle the course, the schedule, the training center
-      and the exact amount. Your official invoice is issued at that point.
+      Account to settle the course, the schedule, the training center and the exact amount.
+      Your official invoice is issued at that point.
     </div>
 
     ${P.errors.includes('duplicate') ? `<div class="note bad">You already have an enrollment being handled under that SRN. Track it instead, or message us to add another course to it.</div>` : ''}
@@ -437,7 +436,7 @@ function paneDone(){
       <div class="note p-slip-note">
         <b>What happens next.</b> Take a screenshot of this confirmation and send it to
         ${pageName()}. The Registrar will check your enrollment details and enroll you
-        in the course you selected, then contact you on your Facebook account. Enrollments
+        in the course you selected, then contact you on your Facebook Account. Enrollments
         submitted outside our office hours are processed on the following business day.
         <b>This does not serve as your official receipt.</b>
       </div>
@@ -564,7 +563,7 @@ function trackResult(a){
       <ul class="p-time">${closed ? closedRow : stages}</ul>
       ${a.status === 'Enrolled'
         ? `<div class="note ok p-flush"><b>You are enrolled.</b> The Registrar will
-             confirm your schedule, training center and fee on your Facebook account. Your
+             confirm your schedule, training center and fee on your Facebook Account. Your
              training center will tell you what to bring on the first day.</div>`
         : a.status === 'Rejected'
         ? `<div class="note bad p-flush">Please contact the Registrar at ${esc(CO().contact)}
@@ -572,7 +571,7 @@ function trackResult(a){
         : closed ? ''
         : `<div class="note">If you have not already, send a screenshot of your
              submitted enrollment to ${pageName()} &mdash; the Registrar checks your
-             details from there, then contacts you on your Facebook account with the
+             details from there, then contacts you on your Facebook Account with the
              schedule, the training center and the fee. Enrollments submitted outside our
              office hours are processed on the following business day.</div>
            ${requirementsList()}`}

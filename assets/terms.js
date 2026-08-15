@@ -72,7 +72,7 @@ const TERMS = {
 
   /* The lead-in above the tick boxes, and the boxes themselves. Every one of
      these must be ticked before the enrollment can be submitted. */
-  agreementLead: 'By proceeding with enrollment, you confirm your full agreement to these terms',
+  agreementLead: 'By Proceeding with Enrollment, You Confirm Your Full Agreement to These Terms',
   agreements: [
     { id: 'termsAccept',  label: 'I hereby accept the terms and conditions' },
     { id: 'termsProceed', label: 'I would like to proceed with my enrollment' },
