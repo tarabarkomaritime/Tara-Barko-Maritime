@@ -41,11 +41,13 @@ const DB = (() => {
   };
 
   const DEFAULT_COMPANY = {
-    name:'TARA BARKO MARITIME TRAINING & ASSESSMENT CENTER, INC.',
-    address:'2nd Flr. Seafarer Bldg., Kalaw Ave., Ermita, Manila 1000',
+    name:'TB - MARITIME TRAINING AND ASSESSMENT ENDORSEMENT',
+    address:'9th Flr. GLC Bldg., T.M. Kalaw, Ermita, Manila',
     contact:'0985 804 4310  •  tarabarkomaritime@gmail.com',
     tin:'009-482-771-000',
-    accreditation:'MARINA-STCW Accreditation No. TBM-2024-0117',
+    /* One line per row when displayed. Editable in Settings so the office can
+       change them without a code change. */
+    hours:'Monday to Friday, 8:00 AM – 5:00 PM\nSaturday, 8:00 AM – 5:00 PM',
     vatRate:12,
     vatInclusive:true,
     fiscalYear:new Date().getFullYear(),
@@ -81,12 +83,22 @@ const DB = (() => {
     d.company      = { ...DEFAULT_COMPANY, ...(d.company||{}) };
 
     /* A stored company profile normally wins over the default — it is what the
-       admin typed in Settings. The one exception is the placeholder contact that
+       admin typed in Settings. The exception is the placeholder identity that
        shipped with early builds: leaving it in place would print a phone number
-       that reaches nobody on every page an applicant reads. */
-    if(d.company.contact === '(02) 8523-4567  •  registrar@tarabarko.ph'){
-      d.company.contact = DEFAULT_COMPANY.contact;
-    }
+       that reaches nobody, a wrong address, and an accreditation the company
+       does not hold, on every page an applicant reads. Each is retired only when
+       it still matches the placeholder exactly, so edited values survive. */
+    const PLACEHOLDERS = {
+      contact:'(02) 8523-4567  •  registrar@tarabarko.ph',
+      name:'TARA BARKO MARITIME TRAINING & ASSESSMENT CENTER, INC.',
+      address:'2nd Flr. Seafarer Bldg., Kalaw Ave., Ermita, Manila 1000',
+    };
+    Object.entries(PLACEHOLDERS).forEach(([field, old]) => {
+      if(d.company[field] === old) d.company[field] = DEFAULT_COMPANY[field];
+    });
+    /* The company endorses seafarers to accredited partner centers; it does not
+       hold an accreditation of its own, so the field is retired outright. */
+    delete d.company.accreditation;
     return d;
   }
 
@@ -298,7 +310,7 @@ const DB = (() => {
     EX(dOff(-26),'Seatech Supplies Inc.','5100',5450,'Lifejackets, flares and training consumables','Cash');
     EX(dOff(-25),'Kalaw Realty Corp.','5200',22000,'Office and training room rent','Bank Transfer');
     EX(dOff(-20),'Payroll','5300',18000,'Administrative staff salaries','Bank Transfer');
-    EX(dOff(-15),'MARINA','5400',6500,'Course accreditation renewal fee','Cash');
+    EX(dOff(-15),'City of Manila','5400',6500,'Business permit and licence renewal','Cash');
     EX(dOff(-9), 'Dr. L. Sarmiento','5000',8000,'Instructor honorarium — MEFA batch','Bank Transfer');
     EX(dOff(-4), 'Meralco / Maynilad','5200',4800,'Electricity and water','Bank Transfer');
 

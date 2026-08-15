@@ -814,7 +814,7 @@ VIEWS.settings = () => {
           ${UI.f.text('name','Registered name', c.name, { req:true })}
           ${UI.f.area('address','Business address', c.address)}
           ${UI.row(UI.f.text('tin','TIN', c.tin), UI.f.text('contact','Contact details', c.contact))}
-          ${UI.f.text('accreditation','Accreditation reference', c.accreditation)}
+          ${UI.f.area('hours','Office hours', c.hours, { ph:'One line per row — shown in the public portal footer' })}
           ${UI.row(
             UI.f.num('vatRate','VAT rate (%)', c.vatRate, { step:'0.01', min:0 }),
             UI.f.select('vatInclusive','Published fees are', c.vatInclusive ? '1' : '0',
@@ -1504,7 +1504,7 @@ function invoiceModal(inv){
       <div class="doc-head">
         <div>
           <h2>${UI.esc(co.name)}</h2>
-          <div class="co">${UI.esc(co.address)}<br>${UI.esc(co.contact)}<br>TIN ${UI.esc(co.tin)} · ${UI.esc(co.accreditation)}</div>
+          <div class="co">${UI.esc(co.address)}<br>${UI.esc(co.contact)}<br>TIN ${UI.esc(co.tin)}</div>
         </div>
         <div class="doc-title">
           <div class="t">STATEMENT OF ACCOUNT</div>

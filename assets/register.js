@@ -93,11 +93,12 @@ function viewCourses(){
   return `
     <section class="p-hero">
       <div class="p-hero-text">
-        <span class="p-eyebrow">MARINA &amp; STCW accredited</span>
-        <h1>Train with Tara Barko Maritime.</h1>
+        <span class="p-eyebrow">Training &amp; assessment endorsement</span>
+        <h1>Enroll with TB Maritime.</h1>
         <p>Basic safety, advanced safety, medical, security and simulator courses for
-           Filipino seafarers. Tell us which course you need &mdash; we will find you a
-           seat and call you to confirm the schedule and the fee.</p>
+           Filipino seafarers, delivered at MARINA and STCW accredited partner training
+           centers. Tell us which course you need &mdash; we will find you a seat and call
+           you to confirm the schedule and the fee.</p>
         <div class="p-hero-acts">
           <a class="btn btn-accent btn-lg" href="#/enroll">Enroll now</a>
           <a class="btn btn-onblue btn-lg" href="#/enroll/track">Track my enrollment</a>
@@ -426,7 +427,7 @@ function paneDone(){
         <div class="p-slip-org">
           <div class="p-slip-name">${esc(CO().name)}</div>
           <div class="muted">${esc(CO().address)}</div>
-          <div class="muted">${esc(CO().accreditation)}</div>
+          <div class="muted">${esc(CO().contact)}</div>
         </div>
         <div class="p-slip-no">
           <div class="p-slip-kind">ACKNOWLEDGEMENT</div>
@@ -688,7 +689,10 @@ function fillFooter(){
   const c = CO();
   const set = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
   set('fName', c.name); set('fAddr', c.address); set('fContact', c.contact);
-  set('fAcc', c.accreditation); set('fTin', 'TIN ' + c.tin);
+  /* Office hours are one line per row, edited as free text in Settings. */
+  const hours = document.getElementById('fHours');
+  if(hours) hours.innerHTML = String(c.hours || '')
+    .split('\n').filter(Boolean).map(l => `<div>${esc(l)}</div>`).join('');
 }
 
 window.addEventListener('hashchange', render);
