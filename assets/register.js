@@ -5,10 +5,14 @@
    journey rather than a separate destination — an applicant looking for it has
    already registered, and looks where they registered.
 
+   The public site shows no schedules at all. An applicant chooses a course; the
+   registrar places them on a dated run at a partner center when approving, and
+   that choice sets the fee.
+
    Routes
-     #/courses            catalogue and open schedules (the landing view)
-     #/enroll             the three-step application wizard
-     #/enroll/track       track an existing application by reference code
+     #/courses            the paginated course catalogue (the landing view)
+     #/enroll             the three-step enrollment wizard
+     #/enroll/track       track an existing enrollment by reference code
 
    Shares db.js, ui.js, accounting.js and applications.js with the internal
    system, so an application submitted here is the same record the registrar
@@ -20,18 +24,71 @@ const CO   = () => DB.get().company;
 const P = {
   view:'courses', tab:'apply', step:1,
   draft:{}, errors:[], result:null,
-  tracked:null, trackRef:'', trackSurname:'', trackError:'', q:'',
+  tracked:null, trackRef:'', trackSurname:'', trackError:'', q:'', page:1, cq:'',
 };
 
+/* Catalogue paging. The full catalogue is a couple of hundred courses — too many
+   for one scroll, and too much to send down a mobile connection at the pier. */
+const PER_PAGE = 15;
+const MAX_PAGE_BUTTONS = 15;   // beyond this the pager windows around the current page
+
 const courseOf = id => DB.get().courses.find(c => c.id === id);
+
+/* A course may be delivered several ways — face to face, blended, distance
+   learning. They are one course, so they share one row and wear their modes. */
+const modeTags = c => (c.modes || [])
+  .map(m => `<span class="p-mode">${esc(m)}</span>`).join('');
+
+/* The generated catalogue is already alphabetical, but a course added by hand in
+   the internal system would land at the end — so sort here rather than trust it. */
+const byTitle = (a,b) => a.title.localeCompare(b.title, 'en', { sensitivity:'base', numeric:true });
+
+/* Page numbers to render: all of them while they fit, otherwise a window around
+   the current page with the first and last always reachable. */
+function pageNumbers(current, total){
+  /* Window only when it actually saves room. Collapsing one or two numbers behind
+     an ellipsis costs the reader a click and saves nothing. */
+  if(total <= MAX_PAGE_BUTTONS + 2) return Array.from({ length:total }, (_,i) => i + 1);
+  const span = MAX_PAGE_BUTTONS - 2;                     // leave room for first and last
+  let from = Math.max(2, current - Math.floor(span / 2));
+  let to   = Math.min(total - 1, from + span - 1);
+  from = Math.max(2, to - span + 1);
+  const out = [1];
+  if(from > 2) out.push('…');
+  for(let i = from; i <= to; i++) out.push(i);
+  if(to < total - 1) out.push('…');
+  out.push(total);
+  return out;
+}
+
+function pager(page, pages){
+  if(pages <= 1) return '';
+  const btn = (label, target, opts = {}) =>
+    opts.gap ? `<span class="p-pager-gap">…</span>`
+      : `<button type="button" class="p-page-btn ${opts.on?'on':''}"
+           ${opts.disabled?'disabled':''} data-page="${target}">${label}</button>`;
+
+  return `<div class="p-pager" role="navigation" aria-label="Catalogue pages">
+    ${btn('&larr; Prev', page - 1, { disabled:page === 1 })}
+    ${pageNumbers(page, pages).map(n =>
+      n === '…' ? btn('', 0, { gap:true }) : btn(n, n, { on:n === page })).join('')}
+    ${btn('Next &rarr;', page + 1, { disabled:page === pages })}
+  </div>`;
+}
 
 /* ================= COURSES ================= */
 function viewCourses(){
   const d = DB.get();
   const q = (P.q || '').toLowerCase();
   const active = d.courses.filter(c => c.active);
-  const courses = active.filter(c =>
-    !q || [c.code, c.title, c.mode].join(' ').toLowerCase().includes(q));
+  const courses = active
+    .filter(c => !q || [c.code, c.title, ...(c.modes||[])].join(' ').toLowerCase().includes(q))
+    .sort(byTitle);
+
+  const pages = Math.max(1, Math.ceil(courses.length / PER_PAGE));
+  const page  = Math.min(Math.max(1, P.page), pages);      // clamp after a search shrinks the list
+  const from  = (page - 1) * PER_PAGE;
+  const shown = courses.slice(from, from + PER_PAGE);
 
   return `
     <section class="p-hero">
@@ -60,15 +117,21 @@ function viewCourses(){
     <div class="toolbar" style="margin-bottom:14px">
       <input type="search" id="cq" value="${esc(P.q||'')}"
              placeholder="Search course title or code…" style="min-width:300px">
-      <span class="muted">${courses.length} course(s)</span>
+      <span class="muted">${courses.length
+        ? `Showing ${from + 1}–${Math.min(from + PER_PAGE, courses.length)} of ${courses.length}
+           course(s)${pages > 1 ? ` &middot; page ${page} of ${pages}` : ''}`
+        : 'No matches'}</span>
     </div>
-    <div class="p-cat">
-      ${courses.map(c => `
-        <div class="p-cat-row">
-          <div class="p-cat-title">${esc(c.title)}${c.mode ? ` <span class="p-mode">${esc(c.mode)}</span>` : ''}</div>
-          <div class="p-cat-dur">${esc(c.duration || 'Duration to be confirmed')}${c.note ? ` <span class="p-mode">${esc(c.note)}</span>` : ''}</div>
-        </div>`).join('') || `<div class="empty">No course matches that search.</div>`}
-    </div>`;
+    ${shown.length ? `
+      <div class="p-cat">
+        ${shown.map(c => `
+          <div class="p-cat-row">
+            <div class="p-cat-title">${esc(c.title)} ${modeTags(c)}</div>
+            <div class="p-cat-dur">${esc(c.duration || 'Duration to be confirmed')}${c.note ? ` <span class="p-mode">${esc(c.note)}</span>` : ''}</div>
+          </div>`).join('')}
+      </div>
+      ${pager(page, pages)}`
+    : `<div class="empty">No course matches &ldquo;${esc(P.q)}&rdquo;.</div>`}`;
 }
 
 /* ================= ENROLL NOW ================= */
@@ -120,7 +183,7 @@ function stepCourse(){
   const chosen = P.draft.courseId ? courseOf(P.draft.courseId) : null;
 
   const matches = !q ? [] : active
-    .filter(c => [c.code, c.title, c.mode].join(' ').toLowerCase().includes(q))
+    .filter(c => [c.code, c.title, ...(c.modes||[])].join(' ').toLowerCase().includes(q))
     .slice(0, 40);
 
   return `
@@ -133,7 +196,7 @@ function stepCourse(){
       <div class="p-chosen">
         <div>
           <span class="p-chosen-lbl">Selected course</span>
-          <b>${esc(chosen.title)}</b>${chosen.mode ? ` <span class="p-mode">${esc(chosen.mode)}</span>` : ''}
+          <b>${esc(chosen.title)}</b> ${modeTags(chosen)}
           <small>${esc(chosen.duration || 'Duration to be confirmed')}</small>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" id="clearCourse">Change</button>
@@ -147,7 +210,7 @@ function stepCourse(){
       <div class="p-cat p-cat-pick">
         ${matches.map(c => `
           <button type="button" class="p-cat-row p-cat-btn ${P.draft.courseId === c.id ? 'on' : ''}" data-course="${c.id}">
-            <span class="p-cat-title">${esc(c.title)}${c.mode ? ` <span class="p-mode">${esc(c.mode)}</span>` : ''}</span>
+            <span class="p-cat-title">${esc(c.title)} ${modeTags(c)}</span>
             <span class="p-cat-dur">${esc(c.duration || '—')}</span>
           </button>`).join('')}
       </div>
@@ -275,7 +338,7 @@ function stepReview(){
        through the registrar.</p>
 
     <div class="note">
-      <b>${esc(c.title)}</b>${c.mode ? ` &middot; ${esc(c.mode)}` : ''}<br>
+      <b>${esc(c.title)}</b>${(c.modes||[]).length ? ` &middot; ${esc(c.modes.join(' / '))}` : ''}<br>
       ${esc(c.duration || 'Duration to be confirmed')}
     </div>
 
@@ -582,11 +645,21 @@ function wire(){
   const cq = document.getElementById('cq');
   if(cq) cq.oninput = () => {
     P.q = cq.value;
+    P.page = 1;                       // a new search starts at the beginning
     const pos = cq.selectionStart;
     render();
     const again = document.getElementById('cq');
     if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
   };
+
+  /* Catalogue paging. Scroll back to the top of the list rather than the top of
+     the page — the reader's eye is already at the pager. */
+  document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => {
+    P.page = Number(b.dataset.page);
+    render();
+    const list = document.querySelector('.p-cat');
+    if(list) list.scrollIntoView({ block:'start' });
+  });
 
   const tf = document.getElementById('trackForm');
   if(tf) tf.onsubmit = e => {

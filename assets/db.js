@@ -146,7 +146,7 @@ const DB = (() => {
       id:uid('crs'),
       code:c.code, title:c.title,
       days:c.days ?? null, daysTo:c.daysTo, duration:c.duration,
-      mode:c.mode || '', note:c.note || '',
+      modes:c.modes || [], note:c.note || '',
       active:true,
     }));
     data.seq.course = data.courses.length;

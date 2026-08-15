@@ -9,7 +9,7 @@
    Those are commercial terms between Tara Barko and its partners; the public
    catalogue shows a course title and how long it takes, and nothing else.
 
-   239 unique courses, reduced from 344 matrix rows.
+   223 unique courses, reduced from 344 matrix rows.
    Generated from: PRICE & REBATES MATRIX - DO NOT DELETE - COURSES.csv
 */
 
@@ -23,19 +23,7 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "AB",
-    "title": "AB DECK COURSE",
-    "days": 7,
-    "duration": "7 days"
-  },
-  {
-    "code": "AB",
     "title": "AB ENGINE",
-    "days": 8,
-    "duration": "8 days"
-  },
-  {
-    "code": "AB",
-    "title": "AB ENGINE COURSE",
     "days": 8,
     "duration": "8 days"
   },
@@ -51,21 +39,11 @@ const COURSE_CATALOGUE = [
     "title": "AFF",
     "days": 5,
     "daysTo": 5.5,
-    "duration": "5–5.5 days"
-  },
-  {
-    "code": "AFF",
-    "title": "AFF - DISTANCE LEARNING",
-    "days": 5,
-    "duration": "5 days",
-    "mode": "Distance learning"
-  },
-  {
-    "code": "AFF",
-    "title": "AFF - F2F",
-    "days": 5,
-    "duration": "5 days",
-    "mode": "Face to face"
+    "duration": "5–5.5 days",
+    "modes": [
+      "Distance learning",
+      "Face to face"
+    ]
   },
   {
     "code": "AFF",
@@ -180,23 +158,11 @@ const COURSE_CATALOGUE = [
     "title": "BASIC TRAINING",
     "days": 10,
     "daysTo": 11,
-    "duration": "10–11 days"
-  },
-  {
-    "code": "BASIC",
-    "title": "BASIC TRAINING - BLENDED",
-    "days": 10,
-    "daysTo": 11,
     "duration": "10–11 days",
-    "mode": "Blended"
-  },
-  {
-    "code": "BASIC",
-    "title": "BASIC TRAINING - FACE TO FACE",
-    "days": 10,
-    "daysTo": 11,
-    "duration": "10–11 days",
-    "mode": "Face to face"
+    "modes": [
+      "Blended",
+      "Face to face"
+    ]
   },
   {
     "code": "BBSC",
@@ -277,14 +243,10 @@ const COURSE_CATALOGUE = [
     "code": "BT",
     "title": "BT - PSSR",
     "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "BT",
-    "title": "BT PSSR - DISTANCE LEARNING",
-    "days": 1,
     "duration": "1 day",
-    "mode": "Distance learning"
+    "modes": [
+      "Distance learning"
+    ]
   },
   {
     "code": "BTLGT",
@@ -449,12 +411,6 @@ const COURSE_CATALOGUE = [
     "note": "Module"
   },
   {
-    "code": "CSHI",
-    "title": "CSHI - PASSENGER SAFETY , CARGO SAFETY, AND HULL INTEGRITY TRAINING",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
     "code": "CST",
     "title": "CST - CRANE SAFETY TRAINING",
     "days": 1,
@@ -539,37 +495,24 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "ETO",
-    "title": "ETO W/ACCOM",
+    "title": "ETO",
     "days": 80.5,
     "duration": "80.5 days",
-    "mode": "With accommodation"
-  },
-  {
-    "code": "ETO",
-    "title": "ETO W/O ACCOM",
-    "days": 80.5,
-    "duration": "80.5 days",
-    "mode": "Without accommodation"
+    "modes": [
+      "With accommodation",
+      "Without accommodation"
+    ]
   },
   {
     "code": "ETR",
     "title": "ETR",
-    "days": 42,
-    "duration": "42 days"
-  },
-  {
-    "code": "ETR",
-    "title": "ETR W/ACCOM",
     "days": 40.5,
-    "duration": "40.5 days",
-    "mode": "With accommodation"
-  },
-  {
-    "code": "ETR",
-    "title": "ETR W/O ACCOM",
-    "days": 40.5,
-    "duration": "40.5 days",
-    "mode": "Without accommodation"
+    "daysTo": 42,
+    "duration": "40.5–42 days",
+    "modes": [
+      "With accommodation",
+      "Without accommodation"
+    ]
   },
   {
     "code": "FCM",
@@ -693,12 +636,6 @@ const COURSE_CATALOGUE = [
     "duration": "2 days"
   },
   {
-    "code": "GOC",
-    "title": "GOC/GMDSS",
-    "days": 16,
-    "duration": "16 days"
-  },
-  {
     "code": "GPM",
     "title": "GPM - GALLEY (PROVISION) MANAGEMENT",
     "days": 2,
@@ -797,12 +734,6 @@ const COURSE_CATALOGUE = [
   },
   {
     "code": "II",
-    "title": "II - 4",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "II",
     "title": "II - 4 Deck Ratings",
     "days": 1.5,
     "daysTo": 2,
@@ -811,12 +742,6 @@ const COURSE_CATALOGUE = [
   {
     "code": "II",
     "title": "II - 5 AB Deck",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "III",
-    "title": "III - 4",
     "days": 2,
     "duration": "2 days"
   },
@@ -1183,7 +1108,8 @@ const COURSE_CATALOGUE = [
     "code": "PASSENGER",
     "title": "PASSENGER SAFETY, CARGO SAFETY AND HULL INTEGRITY TRAINING",
     "days": 2.5,
-    "duration": "2.5 days"
+    "daysTo": 3,
+    "duration": "2.5–3 days"
   },
   {
     "code": "PDS",
@@ -1366,21 +1292,11 @@ const COURSE_CATALOGUE = [
     "code": "SCRB",
     "title": "SCRB",
     "days": 5,
-    "duration": "5 days"
-  },
-  {
-    "code": "SCRB",
-    "title": "SCRB - DISTANCE LEARNING",
-    "days": 5,
     "duration": "5 days",
-    "mode": "Distance learning"
-  },
-  {
-    "code": "SCRB",
-    "title": "SCRB - F2F",
-    "days": 5,
-    "duration": "5 days",
-    "mode": "Face to face"
+    "modes": [
+      "Distance learning",
+      "Face to face"
+    ]
   },
   {
     "code": "SCRB",

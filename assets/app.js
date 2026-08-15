@@ -345,7 +345,7 @@ VIEWS.courses = () => {
   /* 239 courses — the list is only usable with a filter in front of it. */
   const q = (state.q.crs || '').toLowerCase();
   const all = D().courses;
-  const rows = all.filter(c => !q || [c.code, c.title, c.mode, c.duration].join(' ').toLowerCase().includes(q));
+  const rows = all.filter(c => !q || [c.code, c.title, ...(c.modes||[]), c.duration].join(' ').toLowerCase().includes(q));
   return `
     <div class="toolbar">
       <input type="search" data-q="crs" value="${UI.esc(state.q.crs||'')}"
@@ -358,7 +358,7 @@ VIEWS.courses = () => {
       { h:'Code', k:c => `<b class="mono">${UI.esc(c.code)}</b>`, w:'90px' },
       { h:'Course Title', k:'title' },
       { h:'Duration', k:c => UI.esc(c.duration || '—') },
-      { h:'Mode', k:c => c.mode ? UI.esc(c.mode) : '<span class="muted">—</span>' },
+      { h:'Delivery', k:c => (c.modes||[]).length ? UI.esc(c.modes.join(', ')) : '<span class="muted">—</span>' },
       { h:'Scheduled', k:c => UI.int(D().batches.filter(b => b.courseId === c.id).length), cls:'num' },
       { h:'Enrolled', k:c => UI.int(D().enrollments.filter(e => e.courseId === c.id).length), cls:'num' },
       { h:'Status', k:c => UI.statusTag(c.active ? 'Open' : 'Closed') },
@@ -896,7 +896,7 @@ function applicationModal(a){
 
       <div class="note ${!closed && !options.length && !b ? 'warn' : ''}">
         <b>${UI.esc(c?.title || 'Course no longer in the catalogue')}</b>
-        ${c?.mode ? ` · ${UI.esc(c.mode)}` : ''}<br>
+        ${(c?.modes||[]).length ? ` · ${UI.esc(c.modes.join(' / '))}` : ''}<br>
         ${UI.esc(c?.duration || 'Duration to be confirmed')}<br>
         ${b
           ? `<b>Placed on</b> ${UI.dateRange(b.start,b.end)} · ${UI.esc(b.center)} ·
@@ -1175,14 +1175,15 @@ function courseForm(c){
     title: isNew ? 'Add course' : 'Edit course — ' + c.code,
     body: `
       ${UI.row(UI.f.text('code','Course code', c.code, { req:true, ph:'e.g. SCRB' }),
-               UI.f.text('mode','Delivery mode', c.mode, { ph:'e.g. Blended — optional' }))}
+               UI.f.text('modes','Delivery modes', (c.modes||[]).join(', '), { ph:'e.g. Blended, Face to face' }))}
       ${UI.f.text('title','Course title', c.title, { req:true })}
       ${UI.row(UI.f.num('days','Duration (days)', c.days, { step:'0.5', min:0 }),
                UI.f.text('duration','Duration shown to applicants', c.duration, { ph:'e.g. 5 days' }),
                UI.f.select('active','Status', c.active ? '1' : '0', [{v:'1',l:'Open for enrollment'},{v:'0',l:'Not offered'}]))}`,
     submitLabel: isNew ? 'Add course' : 'Save changes',
     onSubmit: fd => {
-      const rec = { ...fd, days:fd.days ? +fd.days : null, active:fd.active === '1' };
+      const rec = { ...fd, days:fd.days ? +fd.days : null, active:fd.active === '1',
+                    modes:String(fd.modes||'').split(',').map(s => s.trim()).filter(Boolean) };
       if(isNew){ D().courses.push({ id:DB.uid('crs'), ...rec }); DB.activity('Added course', rec.code); UI.toast('Course added.'); }
       else { Object.assign(c, rec); DB.activity('Updated course', c.code); UI.toast('Course updated.'); }
       refresh();

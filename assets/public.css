@@ -127,6 +127,27 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
   padding:1px 7px; border-radius:20px; vertical-align:1px; margin-left:5px;
 }
 
+/* ---------- catalogue pager ---------- */
+.p-pager{
+  display:flex; flex-wrap:wrap; gap:5px; justify-content:center;
+  align-items:center; margin-top:16px;
+}
+.p-page-btn{
+  min-width:36px; height:36px; padding:0 10px;
+  border:1px solid var(--border); border-radius:8px; background:var(--surface);
+  color:var(--tb-blue); font:inherit; font-size:13px; font-weight:700;
+  cursor:pointer; font-variant-numeric:tabular-nums;
+}
+.p-page-btn:hover:not(:disabled){ background:var(--tb-blue-soft); border-color:var(--tb-blue); }
+.p-page-btn.on{ background:var(--tb-blue); border-color:var(--tb-blue); color:#fff; }
+.p-page-btn:disabled{ opacity:.4; cursor:default; }
+.p-pager-gap{ color:var(--muted); padding:0 2px; font-weight:700; }
+
+@media (max-width:560px){
+  .p-pager{ gap:4px; }
+  .p-page-btn{ min-width:32px; height:32px; padding:0 7px; font-size:12px; }
+}
+
 /* course picker inside the wizard */
 .p-cat-pick{ margin-top:6px; max-height:320px; overflow-y:auto; }
 .p-cat-btn{

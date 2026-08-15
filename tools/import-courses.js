@@ -60,9 +60,35 @@ const keyOf = s => clean(s)
   .replace(/\s+/g, ' ')
   .trim();
 
-/* Delivery modes are real distinctions a seafarer chooses between, so they are
-   never auto-merged — but they do belong to a shared base course, which is what
-   the variant report groups on. */
+/* ---------- same course, two spellings ----------
+   Reviewed by hand from the near-duplicate report. Only pairs that are genuinely
+   one course belong here. Deliberately NOT included:
+     AB DECK        vs II-5 AB Deck    — a 7-day course vs a 2-day STCW rating assessment
+     AB ENGINE      vs III-5 AB Engine — same
+     SMAW WITH ASS  vs SMAW ASS        — course with assessment vs assessment alone
+     SVI - SIRE…    vs VETTING INSPECTION COURSE — 2 days vs 5 days, different depth
+   Each of those is two products, and merging them would hide one. */
+/* Matched against keyOf(title), so every spelling of the same thing resolves:
+   "II/4", "II-4" and "II - 4" all normalise to the key "II 4". */
+const ALIAS = [
+  [/^AB DECK COURSE$/,    'AB DECK'],
+  [/^AB ENGINE COURSE$/,  'AB ENGINE'],
+  [/^GOC GMDSS$/,         'GOC FOR GMDSS'],
+  [/^II 4$/,              'II - 4 Deck Ratings'],
+  [/^III 4$/,             'III - 4 Engine Ratings'],
+  [/^CSHI PASSENGER SAFETY.*HULL INTEGRITY TRAINING$/,
+    'PASSENGER SAFETY, CARGO SAFETY AND HULL INTEGRITY TRAINING'],
+];
+function unalias(title){
+  const k = keyOf(title);
+  for(const [re, canonical] of ALIAS) if(re.test(k)) return canonical;
+  return clean(title);
+}
+
+/* ---------- delivery modes ----------
+   "AFF", "AFF - F2F" and "AFF - DISTANCE LEARNING" are one course delivered three
+   ways. Listing them as three catalogue rows reads as a data-entry error to a
+   seafarer scanning the list, so they collapse to one row carrying its modes. */
 const MODES = [
   [/\s*-\s*FACE TO FACE$/i, 'Face to face'],
   [/\s*-\s*F2F$/i,          'Face to face'],
@@ -72,10 +98,11 @@ const MODES = [
   [/\s*W\/O\s*ACCOM$/i,     'Without accommodation'],
 ];
 function splitMode(title){
+  const t = unalias(title);
   for(const [re, label] of MODES){
-    if(re.test(title)) return { base:clean(title.replace(re, '')), mode:label };
+    if(re.test(t)) return { base:clean(t.replace(re, '')), mode:label };
   }
-  return { base:clean(title), mode:'' };
+  return { base:clean(t), mode:'' };
 }
 
 /* ---------- duration ---------- */
@@ -122,19 +149,24 @@ rows.forEach((r, i) => {
   /* A row whose course name is just a number is a data-entry slip, not a course. */
   if(!title || /^\d+$/.test(title)){ skipped.push({ line:i + 2, title:r[cTitle], why:'not a course name' }); return; }
 
-  const k = keyOf(title);
+  /* Group on the BASE course: aliases resolved, delivery mode stripped. One row
+     per course in the catalogue, whatever it was called in the matrix. */
+  const { base, mode } = splitMode(title);
+  const k = keyOf(base);
   if(!byKey.has(k)){
-    const { base, mode } = splitMode(title);
-    byKey.set(k, { key:k, title, base, mode, sources:[], durations:[] });
+    byKey.set(k, { key:k, title:base, base, modes:[], spellings:new Set(),
+                   sources:[], durations:[] });
   }
   const e = byKey.get(k);
   e.sources.push(center);
+  e.spellings.add(title);
+  if(mode && !e.modes.includes(mode)) e.modes.push(mode);
   if(dur.days != null) e.durations.push(dur);
   else e.missingDuration = true;
   if(dur.note && !e.note) e.note = dur.note;
   if(dur.ambiguous) e.ambiguous = true;
-  /* Keep the longest spelling — "II-4 Deck Ratings" beats "II/4" for a public list. */
-  if(title.length > e.title.length) e.title = title;
+  /* Keep the longest spelling of the base — "II-4 Deck Ratings" beats "II/4". */
+  if(base.length > e.title.length) e.title = base;
 });
 
 /* Resolve each merged entry's duration to a single value or a range. */
@@ -145,7 +177,8 @@ const catalogue = [...byKey.values()].map(e => {
     key:e.key,
     title:e.title,
     base:e.base,
-    mode:e.mode,
+    modes:e.modes.slice().sort(),
+    spellings:[...e.spellings],
     days:lo,
     daysTo:hi !== lo ? hi : undefined,
     duration:fmt(lo, hi),
@@ -155,19 +188,14 @@ const catalogue = [...byKey.values()].map(e => {
     _ambiguous:!!e.ambiguous,
     _missing:!!e.missingDuration && !e.durations.length,
   };
-}).sort((a,b) => a.title.localeCompare(b.title, 'en'));
+}).sort((a,b) => a.title.localeCompare(b.title, 'en', { sensitivity:'base', numeric:true }));
 
 /* ---------- duplicate report ---------- */
 const merged = [...byKey.values()].filter(e => e.sources.length > 1)
   .sort((a,b) => b.sources.length - a.sources.length);
 
-const variants = new Map();
-catalogue.forEach(c => {
-  const bk = keyOf(c.base);
-  if(!variants.has(bk)) variants.set(bk, []);
-  variants.get(bk).push(c);
-});
-const variantGroups = [...variants.values()].filter(g => g.length > 1);
+/* Courses that absorbed more than one spelling or delivery mode. */
+const collapsed = catalogue.filter(c => c.spellings.length > 1);
 
 const conflicts = catalogue.filter(c => c._conflict);
 const ambiguous = catalogue.filter(c => c._ambiguous);
@@ -188,7 +216,6 @@ const near = [];
 for(let i = 0; i < catalogue.length; i++){
   for(let j = i + 1; j < catalogue.length; j++){
     const a = catalogue[i], b = catalogue[j];
-    if(a.mode || b.mode) continue;                    // delivery modes already reported
     const A = sig(a.title), B = sig(b.title);
     if(!A.length || !B.length) continue;
 
@@ -228,12 +255,12 @@ merged.slice(0, 30).forEach(e => {
 });
 if(merged.length > 30) console.log(`  … and ${merged.length - 30} more`);
 
-console.log(`\n${line}\nVARIANTS — same base course, different delivery mode (kept separate)\n${line}`);
-variantGroups.forEach(g => {
-  console.log(`  ${g[0].base}`);
-  g.forEach(c => console.log(`     · ${c.title}${c.mode ? '   [' + c.mode + ']' : ''}  — ${c.duration}`));
+console.log(`\n${line}\nCOLLAPSED — several spellings or delivery modes, now one catalogue row\n${line}`);
+collapsed.forEach(c => {
+  console.log(`  ${c.title}  — ${c.duration}${c.modes.length ? '   [' + c.modes.join(', ') + ']' : ''}`);
+  c.spellings.forEach(s => { if(s !== c.title) console.log(`     was also: ${s}`); });
 });
-if(!variantGroups.length) console.log('  none');
+if(!collapsed.length) console.log('  none');
 
 console.log(`\n${line}\nNEAR-DUPLICATES — probably the same course, NOT merged automatically\n${line}`);
 if(near.length){
@@ -271,7 +298,7 @@ const publicRows = catalogue.map(c => ({
   daysTo:c.daysTo,
   duration:c.duration,
   note:c.note || undefined,
-  mode:c.mode || undefined,
+  modes:c.modes.length ? c.modes : undefined,
 }));
 
 const js = `/* assets/courses.js — GENERATED FILE, DO NOT EDIT BY HAND.
