@@ -97,13 +97,13 @@ const APPS = (() => {
   /* Shown next to a highlighted field, and reused by the registrar's screen. */
   const LABELS = {
     courseId:'Course',
-    srn:'SRN', last:'Last name', first:'First name', middle:'Middle name', suffix:'Suffix',
-    sex:'Sex', birth:'Date of birth', birthPlace:'Place of birth',
-    mobile:'Mobile number', email:'Email address', address:'Address',
-    facebook:'Facebook profile link', messenger:'Messenger / Meta chat link',
-    rank:'Rank / position', agency:'Company',
-    emergencyName:'Emergency contact person', emergencyRelation:'Relationship',
-    emergencyMobile:'Emergency contact number',
+    srn:'SRN', last:'Last Name', first:'First Name', middle:'Middle Name', suffix:'Suffix',
+    sex:'Sex', birth:'Date of Birth', birthPlace:'Place of Birth',
+    mobile:'Mobile Number', email:'Email Address', address:'Home Address',
+    facebook:'Facebook Profile Link', messenger:'Messenger / Meta Chat Link',
+    rank:'Rank / Position', agency:'Company',
+    emergencyName:'Emergency Contact Person', emergencyRelation:'Relationship',
+    emergencyMobile:'Emergency Contact Number',
     duplicate:'Application',
   };
 

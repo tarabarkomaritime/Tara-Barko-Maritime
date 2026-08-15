@@ -273,14 +273,14 @@ function stepDetails(){
 
     <form id="detailForm" autocomplete="on">
 
-      <h4 class="p-group">Seafarer identity</h4>
+      <h4 class="p-group">Seafarer Identity</h4>
       ${F('srn','SRN', { req:true, hint:'Seafarer Registration Number', ph:'e.g. SRN-123456' })}
       <div class="grid g2">
-        ${F('last','Last name',   { req:true, attr:'autocomplete="family-name"' })}
-        ${F('first','First name', { req:true, attr:'autocomplete="given-name"' })}
+        ${F('last','Last Name',   { req:true, attr:'autocomplete="family-name"' })}
+        ${F('first','First Name', { req:true, attr:'autocomplete="given-name"' })}
       </div>
       <div class="grid g2">
-        ${F('middle','Middle name', { attr:'autocomplete="additional-name"' })}
+        ${F('middle','Middle Name', { attr:'autocomplete="additional-name"' })}
         <label class="fld"><span>Suffix <small>if any</small></span>
           <select name="suffix">
             ${['','Jr.','Sr.','II','III','IV','V'].map(s =>
@@ -288,47 +288,47 @@ function stepDetails(){
           </select></label>
       </div>
 
-      <h4 class="p-group">Personal information</h4>
+      <h4 class="p-group">Personal Information</h4>
       <div class="grid g3">
         <label class="fld"><span>Sex</span>
           <select name="sex">
             <option value="M" ${d.sex!=='F'?'selected':''}>Male</option>
             <option value="F" ${d.sex==='F'?'selected':''}>Female</option>
           </select></label>
-        ${F('birth','Date of birth', { req:true, type:'date', attr:`max="${DB.today()}"` })}
-        ${F('birthPlace','Place of birth', { req:true, ph:'City / municipality, province' })}
+        ${F('birth','Date of Birth', { req:true, type:'date', attr:`max="${DB.today()}"` })}
+        ${F('birthPlace','Place of Birth', { req:true, ph:'City / municipality, province' })}
       </div>
-      <h4 class="p-group">Contact details</h4>
+      <h4 class="p-group">Contact Details</h4>
       <div class="grid g2">
-        ${F('mobile','Mobile number', { req:true, type:'tel', ph:'09XX XXX XXXX', attr:'autocomplete="tel"' })}
-        ${F('email','Email address',  { req:true, type:'email', attr:'autocomplete="email"' })}
+        ${F('mobile','Mobile Number', { req:true, type:'tel', ph:'09XX XXX XXXX', attr:'autocomplete="tel"' })}
+        ${F('email','Email Address',  { req:true, type:'email', attr:'autocomplete="email"' })}
       </div>
-      ${F('address','Home address', { req:true, ph:'House/unit, street, barangay, city, province',
+      ${F('address','Home Address', { req:true, ph:'House/unit, street, barangay, city, province',
                                       attr:'autocomplete="street-address"' })}
       <p class="p-note-inline">The Registrar replies on Facebook, so give us a link we can
          open &mdash; not just your display name.</p>
       <div class="grid g2">
-        ${F('facebook','Facebook profile link', { req:true,
+        ${F('facebook','Facebook Profile Link', { req:true,
              ph:'facebook.com/your.profile' })}
-        ${F('messenger','Messenger / Meta chat link', { hint:'optional',
+        ${F('messenger','Messenger / Meta Chat Link', { hint:'optional',
              ph:'m.me/your.profile' })}
       </div>
 
       <h4 class="p-group">Employment</h4>
       <div class="grid g2">
-        ${F('rank','Rank / position', { req:true, list:'rankList', ph:'e.g. Able Seaman' })}
+        ${F('rank','Rank / Position', { req:true, list:'rankList', ph:'e.g. Able Seaman' })}
         ${F('agency','Company', { req:true, list:'agencyList',
                                   hint:'manning agency or employer', ph:'Direct hire / walk-in' })}
       </div>
       <datalist id="rankList">${ranks.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
       <datalist id="agencyList">${agencies.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
 
-      <h4 class="p-group">In case of emergency</h4>
+      <h4 class="p-group">In Case of Emergency</h4>
       <p class="p-note-inline">Required before you may join any practical or sea-survival exercise.</p>
       <div class="grid g3">
-        ${F('emergencyName','Contact person', { req:true, ph:'Full name' })}
+        ${F('emergencyName','Contact Person', { req:true, ph:'Full name' })}
         ${F('emergencyRelation','Relationship', { ph:'e.g. Spouse, Parent' })}
-        ${F('emergencyMobile','Contact number', { req:true, type:'tel', ph:'09XX XXX XXXX' })}
+        ${F('emergencyMobile','Contact Number', { req:true, type:'tel', ph:'09XX XXX XXXX' })}
       </div>
     </form>
 
@@ -354,18 +354,18 @@ function stepReview(){
       ${esc(c.duration || 'Duration to be confirmed')}
     </div>
 
-    <h4 class="p-group">Seafarer identity</h4>
+    <h4 class="p-group">Seafarer Identity</h4>
     <div class="p-review">
       <dl class="def">${L('SRN', `<span class="mono">${esc(d.srn)}</span>`)}</dl>
       <dl class="def">${L('Name', esc(full))}</dl>
     </div>
 
-    <h4 class="p-group">Personal and contact</h4>
+    <h4 class="p-group">Personal and Contact</h4>
     <div class="p-review">
       <dl class="def">
         ${L('Sex', d.sex==='F'?'Female':'Male')}
-        ${L('Date of birth', UI.date(d.birth))}
-        ${L('Place of birth', esc(d.birthPlace))}
+        ${L('Date of Birth', UI.date(d.birth))}
+        ${L('Place of Birth', esc(d.birthPlace))}
       </dl>
       <dl class="def">
         ${L('Mobile', esc(d.mobile))}
@@ -376,16 +376,16 @@ function stepReview(){
       </dl>
     </div>
 
-    <h4 class="p-group">Employment and emergency contact</h4>
+    <h4 class="p-group">Employment and Emergency Contact</h4>
     <div class="p-review">
       <dl class="def">
-        ${L('Rank / position', esc(d.rank))}
+        ${L('Rank / Position', esc(d.rank))}
         ${L('Company', esc(d.agency))}
       </dl>
       <dl class="def">
-        ${L('Contact person', esc(d.emergencyName))}
+        ${L('Contact Person', esc(d.emergencyName))}
         ${L('Relationship', esc(d.emergencyRelation))}
-        ${L('Contact number', esc(d.emergencyMobile))}
+        ${L('Contact Number', esc(d.emergencyMobile))}
       </dl>
     </div>
 
