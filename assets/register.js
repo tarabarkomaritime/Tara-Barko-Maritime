@@ -43,23 +43,28 @@ const pageName = () => {
   return p ? `<b>${esc(p)}</b>` : 'our official Facebook page';
 };
 
-/* A course may be delivered several ways — face to face, blended, distance
-   learning. They are one course, so they share one row and wear their modes in
-   the Mode of Training column.
+/* "With accommodation" / "Without accommodation" came out of the price matrix
+   alongside the delivery modes, but they are a boarding arrangement, not a way
+   of being taught. They stay beside the course title. */
+const isBoarding = m => /accommodation/i.test(m);
 
-   The price matrix records a mode for only a handful of courses. Rather than
-   assert "Face to face" for the two hundred it says nothing about, the rest read
-   "To be confirmed" — the same answer the portal already gives for the schedule,
-   the center and the fee, all of which the Registrar settles with the applicant. */
+const pill = m => `<span class="p-mode">${esc(m)}</span>`;
+
+/* A course may be delivered several ways — face to face, blended, distance
+   learning, or as a module. They are one course, so they share one row and wear
+   every mode in the Mode of Training column.
+
+   The price matrix names a mode for some courses and says nothing for the rest;
+   those are face to face, which is the house default. */
 const modeCell = c => {
-  const modes = c.modes || [];
-  if(!modes.length) return `<span class="p-tbc">To be confirmed</span>`;
-  return modes.map(m => `<span class="p-mode">${esc(m)}</span>`).join('');
+  const modes = [
+    ...(c.modes || []).filter(m => !isBoarding(m)),
+    ...(c.note ? [c.note] : []),          // "Module", "Blended"
+  ];
+  return (modes.length ? modes : ['Face to face']).map(pill).join('');
 };
 
-/* "Module" and "Blended" describe the course itself, not how it is delivered,
-   so the note stays beside the title. */
-const noteTag = c => c.note ? `<span class="p-mode">${esc(c.note)}</span>` : '';
+const boardingTags = c => (c.modes || []).filter(isBoarding).map(pill).join('');
 
 /* The days column carries the number alone — the column heading says "Days", so
    repeating the word in every cell is noise. A range keeps both ends. Courses
@@ -82,7 +87,7 @@ const catTable = rows => `
       <tbody>
         ${rows.map(c => `
           <tr>
-            <td class="p-cat-title">${esc(c.title)} ${noteTag(c)}</td>
+            <td class="p-cat-title">${esc(c.title)} ${boardingTags(c)}</td>
             <td class="p-cat-dur">${daysCell(c)}</td>
             <td class="p-cat-mode">${modeCell(c)}</td>
           </tr>`).join('')}
@@ -133,7 +138,8 @@ function viewCourses(){
   const q = (P.q || '').toLowerCase();
   const active = d.courses.filter(c => c.active);
   const courses = active
-    .filter(c => !q || [c.code, c.title, ...(c.modes||[])].join(' ').toLowerCase().includes(q))
+    .filter(c => !q ||
+      [c.code, c.title, c.note || '', ...(c.modes||[])].join(' ').toLowerCase().includes(q))
     .sort(byTitle);
 
   const pages = Math.max(1, Math.ceil(courses.length / PER_PAGE));
