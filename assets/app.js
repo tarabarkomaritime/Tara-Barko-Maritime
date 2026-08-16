@@ -875,8 +875,8 @@ function centerVoucherForm(center){
     <tr>
       <td style="padding:4px 0"><label style="display:flex;gap:8px;align-items:center;cursor:pointer">
         <input type="checkbox" name="pick${i}" value="${r.e.id}" checked style="width:auto;margin:0">
-        <span>${UI.esc(name(T(r.e.traineeId)))}
-          <span class="muted">· ${UI.esc((CRS(r.e.courseId)||{}).title || '')}</span></span></label></td>
+        <span>${UI.esc(name(T(r.e.traineeId)))}</span></label></td>
+      <td class="muted" style="padding:4px 0">${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
       <td class="muted" style="padding:4px 0">${r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—'}</td>
       <td class="num" style="padding:4px 0">${UI.num(r.payable)}</td>
     </tr>`;
@@ -892,8 +892,8 @@ function centerVoucherForm(center){
         Clear the dates first if this should settle everything.</div>` : ''}
       <table style="width:100%;font-size:12.5px;margin-bottom:12px">
         <thead><tr>
-          <th style="text-align:left">Booking</th><th style="text-align:left">Training</th>
-          <th class="num">Fee</th>
+          <th style="text-align:left">Trainee</th><th style="text-align:left">Course</th>
+          <th style="text-align:left">Training</th><th class="num">Fee</th>
         </tr></thead>
         <tbody>${group.rows.map(row).join('')}</tbody>
       </table>
