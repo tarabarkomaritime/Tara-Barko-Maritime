@@ -1,18 +1,18 @@
 /* register.js — the Tara Barko Maritime public registration portal.
 
-   Two navigation tabs only: Courses and Enroll Now. Track Enrollment lives
-   inside Enroll Now as a sub-tab, because tracking is part of the registration
-   journey rather than a separate destination — an applicant looking for it has
-   already registered, and looks where they registered.
+   One destination: Enroll Now. Track Enrollment lives inside it as a sub-tab,
+   because tracking is part of the registration journey rather than a separate
+   place — an applicant looking for it has already registered, and looks where
+   they registered.
 
-   The public site shows no schedules at all. An applicant chooses a course; the
-   registrar places them on a dated run at a partner center when approving, and
-   that choice sets the fee.
+   The public site publishes no course catalogue, no schedules and no fees. An
+   applicant registers who they are; the Registrar settles the course, the dated
+   run at a partner center and the fee with them afterwards, and that placement
+   is recorded when the application is converted.
 
    Routes
-     #/courses            the paginated course catalogue (the landing view)
-     #/enroll             the three-step enrollment wizard
-     #/enroll/track       track an existing enrollment by reference code
+     #/enroll             the two-step enrollment wizard (the landing view)
+     #/enroll/track       track an existing enrollment by SRN and last name
 
    Shares db.js, ui.js, accounting.js and applications.js with the internal
    system, so an application submitted here is the same record the registrar
@@ -22,17 +22,14 @@ const esc  = UI.esc, peso = UI.peso;
 const CO   = () => DB.get().company;
 
 const P = {
-  view:'courses', tab:'apply', step:1,
+  view:'enroll', tab:'apply', step:1,
   draft:{}, errors:[], result:null,
   tracked:null, trackOthers:[], trackSrn:'', trackSurname:'', trackError:'',
-  q:'', page:1, cq:'',
 };
 
-/* Catalogue paging. The full catalogue is a couple of hundred courses — too many
-   for one scroll, and too much to send down a mobile connection at the pier. */
-const PER_PAGE = 15;
-const MAX_PAGE_BUTTONS = 15;   // beyond this the pager windows around the current page
-
+/* Still needed after the catalogue came down: once the Registrar places an
+   applicant on a batch, the tracker and the slip name the course they were
+   placed on. Nothing here lists courses that have not been assigned. */
 const courseOf = id => DB.get().courses.find(c => c.id === id);
 
 /* Where the applicant sends their screenshot. Named if the office has filled it
@@ -42,156 +39,6 @@ const pageName = () => {
   const p = (CO().page || '').trim();
   return p ? `<b>${esc(p)}</b>` : 'our official Facebook page';
 };
-
-/* "With accommodation" / "Without accommodation" came out of the price matrix
-   alongside the delivery modes, but they are a boarding arrangement, not a way
-   of being taught. They stay beside the course title. */
-const isBoarding = m => /accommodation/i.test(m);
-
-const pill = m => `<span class="p-mode">${esc(m)}</span>`;
-
-/* A course may be delivered several ways — face to face, blended, distance
-   learning, or as a module. They are one course, so they share one row and wear
-   every mode in the Mode of Training column.
-
-   The price matrix names a mode for some courses and says nothing for the rest;
-   those are face to face, which is the house default. */
-const modeCell = c => {
-  const modes = [
-    ...(c.modes || []).filter(m => !isBoarding(m)),
-    ...(c.note ? [c.note] : []),          // "Module", "Blended"
-  ];
-  return (modes.length ? modes : ['Face to face']).map(pill).join('');
-};
-
-const boardingTags = c => (c.modes || []).filter(isBoarding).map(pill).join('');
-
-/* The days column carries the number alone — the column heading says "Days", so
-   repeating the word in every cell is noise. A range keeps both ends. Courses
-   whose length the partner center has not confirmed say so rather than show 0. */
-const daysCell = c => {
-  if(c.days == null) return `<span class="p-tbc">To be confirmed</span>`;
-  return c.daysTo && c.daysTo !== c.days ? `${c.days}&ndash;${c.daysTo}` : String(c.days);
-};
-
-const catTable = rows => `
-  <div class="p-cat">
-    <table class="p-cat-tbl">
-      <thead>
-        <tr>
-          <th scope="col">Courses</th>
-          <th scope="col" class="p-cat-dur">Days of Training</th>
-          <th scope="col" class="p-cat-mode">Mode of Training</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map(c => `
-          <tr>
-            <td class="p-cat-title">${esc(c.title)} ${boardingTags(c)}</td>
-            <td class="p-cat-dur">${daysCell(c)}</td>
-            <td class="p-cat-mode">${modeCell(c)}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
-  </div>`;
-
-/* The generated catalogue is already alphabetical, but a course added by hand in
-   the internal system would land at the end — so sort here rather than trust it. */
-const byTitle = (a,b) => a.title.localeCompare(b.title, 'en', { sensitivity:'base', numeric:true });
-
-/* Page numbers to render: all of them while they fit, otherwise a window around
-   the current page with the first and last always reachable. */
-function pageNumbers(current, total){
-  /* Window only when it actually saves room. Collapsing one or two numbers behind
-     an ellipsis costs the reader a click and saves nothing. */
-  if(total <= MAX_PAGE_BUTTONS + 2) return Array.from({ length:total }, (_,i) => i + 1);
-  const span = MAX_PAGE_BUTTONS - 2;                     // leave room for first and last
-  let from = Math.max(2, current - Math.floor(span / 2));
-  let to   = Math.min(total - 1, from + span - 1);
-  from = Math.max(2, to - span + 1);
-  const out = [1];
-  if(from > 2) out.push('…');
-  for(let i = from; i <= to; i++) out.push(i);
-  if(to < total - 1) out.push('…');
-  out.push(total);
-  return out;
-}
-
-function pager(page, pages){
-  if(pages <= 1) return '';
-  const btn = (label, target, opts = {}) =>
-    opts.gap ? `<span class="p-pager-gap">…</span>`
-      : `<button type="button" class="p-page-btn ${opts.on?'on':''}"
-           ${opts.disabled?'disabled':''} data-page="${target}">${label}</button>`;
-
-  return `<div class="p-pager" role="navigation" aria-label="Catalogue pages">
-    ${btn('&larr; Prev', page - 1, { disabled:page === 1 })}
-    ${pageNumbers(page, pages).map(n =>
-      n === '…' ? btn('', 0, { gap:true }) : btn(n, n, { on:n === page })).join('')}
-    ${btn('Next &rarr;', page + 1, { disabled:page === pages })}
-  </div>`;
-}
-
-/* ================= COURSES ================= */
-function viewCourses(){
-  const d = DB.get();
-  const q = (P.q || '').toLowerCase();
-  const active = d.courses.filter(c => c.active);
-  const courses = active
-    .filter(c => !q ||
-      [c.code, c.title, c.note || '', ...(c.modes||[])].join(' ').toLowerCase().includes(q))
-    .sort(byTitle);
-
-  const pages = Math.max(1, Math.ceil(courses.length / PER_PAGE));
-  const page  = Math.min(Math.max(1, P.page), pages);      // clamp after a search shrinks the list
-  const from  = (page - 1) * PER_PAGE;
-  const shown = courses.slice(from, from + PER_PAGE);
-
-  return `
-    <section class="p-hero">
-      <div class="p-hero-text">
-        <span class="p-eyebrow">Training &amp; assessment endorsement</span>
-        <h1>Enroll with TB Maritime.</h1>
-        <p>Basic safety, advanced safety, medical, security and simulator courses for
-           Filipino seafarers, delivered at MARINA and STCW accredited partner training
-           centers. Tell us which course you need &mdash; we will find you a seat and confirm
-           the schedule and the fee with you.</p>
-        <div class="p-hero-acts">
-          <a class="btn btn-accent btn-lg" href="#/enroll">Enroll now</a>
-          <a class="btn btn-onblue btn-lg" href="#/enroll/track">Track my enrollment</a>
-        </div>
-      </div>
-      <div class="p-hero-stats">
-        <div><b>${active.length}</b><span>accredited courses</span></div>
-      </div>
-    </section>
-
-    <div class="p-sec-head">
-      <h2>Course catalogue</h2>
-      <p>${active.length} accredited courses. Fees and dates depend on the training center
-         &mdash; the Registrar confirms both when your enrollment is approved.</p>
-    </div>
-    <div class="toolbar" style="margin-bottom:14px">
-      <input type="search" id="cq" value="${esc(P.q||'')}"
-             placeholder="Search course title or code…" style="min-width:300px">
-      <span class="muted">${courses.length
-        ? `Showing ${from + 1}–${Math.min(from + PER_PAGE, courses.length)} of ${courses.length}
-           course(s)${pages > 1 ? ` &middot; page ${page} of ${pages}` : ''}`
-        : 'No matches'}</span>
-    </div>
-    ${shown.length ? `
-      ${catTable(shown)}
-      ${pager(page, pages)}`
-    : `<div class="empty">No course matches &ldquo;${esc(P.q)}&rdquo;.</div>`}
-
-    <div class="p-more">
-      <b>Other courses may be available.</b>
-      This list covers the courses we book most often. If you need one that is not here,
-      contact TB Maritime &mdash; we work with several accredited training centers and can
-      usually arrange it.
-      <span class="p-more-contact">${esc(CO().contact)}</span>
-    </div>`;
-}
 
 /* ================= ENROLL NOW ================= */
 /* Two sub-tabs. Tracking is part of registration, not a separate destination. */
@@ -320,8 +167,7 @@ function stepDetails(){
       </div>
     </form>
 
-    <div class="p-acts">
-      <a class="btn btn-ghost" href="#/courses">&larr; Back to Courses</a>
+    <div class="p-acts p-acts-end">
       <button class="btn btn-accent" id="next2">Review &rarr;</button>
     </div>`;
 }
@@ -620,28 +466,28 @@ function trackResult(a){
     </div>`;
 }
 
-/* ================= ROUTER ================= */
+/* ================= ROUTER =================
+   Every route is an enrollment route now. #/courses is kept as a silent alias
+   rather than a dead end: it was the landing page, so it is bookmarked, shared
+   in Messenger threads and sitting in browser histories. Those visitors land on
+   the enrollment form instead of an empty page. */
 function parseHash(){
-  const raw = location.hash.replace(/^#\/?/, '') || 'courses';
+  const raw = location.hash.replace(/^#\/?/, '') || 'enroll';
   const [path, query] = raw.split('?');
   const parts = path.split('/');
-  return { view:parts[0] || 'courses', sub:parts[1] || '', params:new URLSearchParams(query || '') };
+  return { sub:parts[1] || '', params:new URLSearchParams(query || '') };
 }
 
 function render(){
-  const { view, sub, params } = parseHash();
-  P.view = (view === 'enroll') ? 'enroll' : 'courses';
-
-  if(P.view === 'enroll'){
-    P.tab = sub === 'track' ? 'track' : 'apply';
-    if(P.tab === 'track' && params.get('srn')) P.trackSrn = params.get('srn');
-  }
+  const { sub, params } = parseHash();
+  P.view = 'enroll';
+  P.tab  = sub === 'track' ? 'track' : 'apply';
+  if(P.tab === 'track' && params.get('srn')) P.trackSrn = params.get('srn');
 
   document.querySelectorAll('[data-p]').forEach(a =>
     a.classList.toggle('active', a.dataset.p === P.view));
 
-  document.getElementById('pView').innerHTML =
-    P.view === 'enroll' ? viewEnroll() : viewCourses();
+  document.getElementById('pView').innerHTML = viewEnroll();
 
   wire();
   window.scrollTo(0,0);
@@ -720,25 +566,6 @@ function wire(){
     P.result = null; P.draft = keep; P.step = 1; P.errors = [];
     location.hash = '#/enroll';
     render();
-  });
-
-  const cq = document.getElementById('cq');
-  if(cq) cq.oninput = () => {
-    P.q = cq.value;
-    P.page = 1;                       // a new search starts at the beginning
-    const pos = cq.selectionStart;
-    render();
-    const again = document.getElementById('cq');
-    if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
-  };
-
-  /* Catalogue paging. Scroll back to the top of the list rather than the top of
-     the page — the reader's eye is already at the pager. */
-  document.querySelectorAll('[data-page]').forEach(b => b.onclick = () => {
-    P.page = Number(b.dataset.page);
-    render();
-    const list = document.querySelector('.p-cat');
-    if(list) list.scrollIntoView({ block:'start' });
   });
 
   const tf = document.getElementById('trackForm');
