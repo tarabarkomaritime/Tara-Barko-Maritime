@@ -67,6 +67,8 @@ const DB = (() => {
     address:'9th Flr. GLC Bldg., T.M. Kalaw, Ermita, Manila',
     contact:'0985 804 4310  •  tarabarkomaritime@gmail.com',
     tin:'009-482-771-000',
+    /* Shown under the contact line on every document. */
+    tradeName:'by QMCS',
     /* One line per row when displayed. Editable in Settings so the office can
        change them without a code change. */
     hours:'Monday to Friday, 8:00 AM – 5:00 PM\nSaturday, 8:00 AM – 5:00 PM',

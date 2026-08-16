@@ -176,6 +176,16 @@ function wireCopy(textFn){
 /* The Registrar replies on Facebook, so these are meant to be clicked. Applicants
    paste bare handles as often as full URLs, so add the scheme when it is missing.
    rel=noopener because the target is a stranger's link. */
+/* The company block as it appears at the head of a document. One function so
+   the receipt, the bill and the voucher cannot drift into saying different
+   things about who we are. */
+function docCompany(){
+  const co = D().company;
+  return `<div><h2>${UI.esc(co.name)}</h2>
+    <div class="co">${UI.esc(co.address)}<br>${UI.esc(co.contact)}
+      ${co.tradeName ? `<br>${UI.esc(co.tradeName)}` : ''}</div></div>`;
+}
+
 function fbLink(v){
   const s = String(v || '').trim();
   if(!s) return '<span class="muted">—</span>';
@@ -368,7 +378,7 @@ VIEWS.dashboard = () => {
                startingTomorrow.length ? 'confirm attendance today' : 'nobody starting',
                startingTomorrow.length ? 'warn' : '')}
       ${UI.kpi('Amount Received', UI.peso(receivedTotal),
-               `${receiptCount} official receipt(s)`, 'ok')}
+               `${receiptCount} payment(s)`, 'ok')}
       ${UI.kpi('Cash on Hand', UI.peso(cashOnHand),
                otherPots,
                cashOnHand < 0 ? 'bad' : '')}
@@ -612,7 +622,7 @@ VIEWS.payments = () => {
     </div>
     <div class="grid g-2-1">
       <div>${UI.card('', UI.table([
-        { h:'OR No.', k:p => `<b class="mono">${UI.esc(p.no)}</b>`, w:'130px' },
+        { h:'Ref no.', k:p => `<b class="mono">${UI.esc(p.no)}</b>`, w:'130px' },
         { h:'Date', k:p => UI.date(p.date), w:'115px' },
         { h:'Received from', k:p => UI.esc(name(T(p.traineeId))) },
         { h:'Applied to', k:p => { const i = INV(p.invoiceId); return i ? `<span class="mono">${UI.esc(i.no)}</span>` : '—'; }, w:'135px' },
@@ -628,7 +638,7 @@ VIEWS.payments = () => {
         ${UI.card('Collections this period', `
           <div class="kpi" style="border:none;box-shadow:none;padding:0;margin-bottom:14px">
             <div class="lbl">Total received</div><div class="val">${UI.peso(col.total)}</div>
-            <div class="sub">${col.rows.length} official receipt(s)</div></div>
+            <div class="sub">${col.rows.length} payment(s)</div></div>
           <div class="hr"></div>
           ${UI.donut(methods, { money:true, center:'BY MODE' })}`)}
         ${UI.card('Cash position', (() => {
@@ -888,10 +898,7 @@ function voucherModal(v){
   const sheet = `
     <div class="doc">
       <div class="doc-head">
-        <div>
-          <h2>${UI.esc(co.name)}</h2>
-          <div class="co">${UI.esc(co.address)}<br>${UI.esc(co.contact)}<br>TIN ${UI.esc(co.tin)}</div>
-        </div>
+        ${docCompany()}
         <div class="doc-title">
           <div class="t">DISBURSEMENT VOUCHER</div>
           <div class="n">${UI.esc(v.no)}</div>
@@ -1210,7 +1217,7 @@ VIEWS.daily = () => {
     </div>
 
     <div class="grid g4" style="margin-bottom:18px">
-      ${UI.kpi('Received', UI.peso(totalIn), `${receipts.length} official receipt(s)`, 'ok')}
+      ${UI.kpi('Received', UI.peso(totalIn), `${receipts.length} payment(s)`, 'ok')}
       ${UI.kpi('Paid out', UI.peso(totalOut),
                `${vouchers.length + remits.length + refunds.length} approved document(s)`, totalOut ? 'warn' : '')}
       ${UI.kpi('Net movement', UI.peso(ACC.r2(totalIn - totalOut)),
@@ -1230,7 +1237,7 @@ VIEWS.daily = () => {
     <div style="height:18px"></div>
     <div class="grid g2">
       ${UI.card('Collections', UI.table([
-        { h:'OR No.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+        { h:'Ref no.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
         { h:'From', k:p => UI.esc(name(T(p.traineeId))) },
         { h:'Mode', k:p => UI.esc(p.method) },
         { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
@@ -1449,12 +1456,12 @@ VIEWS.reports = () => {
     col.rows.forEach(p => byDay[p.date] = ACC.r2((byDay[p.date]||0) + p.amount));
     return nav + UI.card('', head('COLLECTION REPORT', `${UI.date(from)} to ${UI.date(to)}`) + `
       <div class="grid g3" style="margin-bottom:18px">
-        ${UI.kpi('Total Collections', UI.peso(col.total), `${col.rows.length} official receipt(s)`, 'ok')}
+        ${UI.kpi('Total Collections', UI.peso(col.total), `${col.rows.length} payment(s)`, 'ok')}
         ${UI.kpi('Cash', UI.peso(col.byMethod['Cash']||0), 'Received at the window', '')}
         ${UI.kpi('Non-cash', UI.peso(ACC.r2(col.total-(col.byMethod['Cash']||0))), 'Bank, GCash, cheque', 'sea')}
       </div>` +
       UI.table([
-        { h:'OR No.', k:p => `<b class="mono">${UI.esc(p.no)}</b>`, w:'130px' },
+        { h:'Ref no.', k:p => `<b class="mono">${UI.esc(p.no)}</b>`, w:'130px' },
         { h:'Date', k:p => UI.date(p.date), w:'115px' },
         { h:'Received from', k:p => UI.esc(name(T(p.traineeId))) },
         { h:'Invoice', k:p => { const i = INV(p.invoiceId); return i ? `<span class="mono">${UI.esc(i.no)}</span>` : '—'; } },
@@ -2009,7 +2016,7 @@ function enrollmentModal(e){
       ${inv ? (receipts.length ? `
         <div class="hr"></div>
         ${UI.table([
-          { h:'OR No.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+          { h:'Ref no.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
           { h:'Date', k:p => UI.date(p.date) },
           { h:'Mode', k:'method' },
           { h:'Reference', k:p => UI.esc(p.ref||'—') },
@@ -2080,10 +2087,7 @@ function invoiceModal(inv){
       <button type="button" class="btn btn-primary" onclick="UI.print()">Print</button>`,
     body: twoUp(`<div class="doc">
       <div class="doc-head">
-        <div>
-          <h2>${UI.esc(co.name)}</h2>
-          <div class="co">${UI.esc(co.address)}<br>${UI.esc(co.contact)}<br>TIN ${UI.esc(co.tin)}</div>
-        </div>
+        ${docCompany()}
         <div class="doc-title">
           <div class="t">STATEMENT OF ACCOUNT</div>
           <div class="n">${UI.esc(inv.no)}</div>
@@ -2121,7 +2125,7 @@ function invoiceModal(inv){
       </table></div>
       ${pays.length ? `<div class="hr"></div><h4 style="margin:0 0 6px;font-size:13px">Official receipts applied</h4>
         ${UI.table([
-          { h:'OR No.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+          { h:'Ref no.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
           { h:'Date', k:p => UI.date(p.date) },
           { h:'Mode', k:'method' },
           { h:'Reference', k:p => UI.esc(p.ref||'—') },
@@ -2174,7 +2178,7 @@ function paymentForm(inv){
 
   UI.modal({
     title:'Record collection',
-    sub: inv ? `Against ${inv.no} · balance ${UI.peso(bal)}` : 'Issue an official receipt',
+    sub: inv ? `Against ${inv.no} · balance ${UI.peso(bal)}` : 'Record a payment',
     wide:true,
     body: `
       ${inv ? `<input type="hidden" name="invoiceId" value="${inv.id}">
@@ -2184,7 +2188,7 @@ function paymentForm(inv){
 
       ${UI.f.text('note','Notes','')}
       <p class="muted" style="margin:-6px 0 4px;font-size:12px">Received today,
-         ${UI.date(DB.today())} — an official receipt carries the date it is issued.</p>
+         ${UI.date(DB.today())} — a proof of payment carries the date it is issued.</p>
 
       <div class="hr"></div>
       <h4 style="margin:0 0 4px;font-size:13px">How it was paid</h4>
@@ -2198,7 +2202,7 @@ function paymentForm(inv){
         <button type="button" class="btn btn-ghost btn-xs" id="halfPay">Half</button>
       </div>
       <div id="payWarn"></div>`,
-    submitLabel:'Issue official receipt',
+    submitLabel:'Record payment',
     onSubmit: fd => {
       const target = inv || INV(fd.invoiceId);
       if(!target){ UI.toast('Select an invoice.', 'bad'); return false; }
@@ -2224,7 +2228,7 @@ function paymentForm(inv){
       const p = ACC.buildPayment({ invoiceId:target.id, traineeId:target.traineeId,
                                    date:DB.today(), tenders, note:fd.note });
       D().payments.push(p); ACC.postPayment(p, target);
-      DB.activity('Issued official receipt', `${p.no} vs ${target.no}`);
+      DB.activity('Recorded payment', `${p.no} vs ${target.no}`);
       DB.save();
       UI.toast(`OR ${p.no} issued for ${UI.peso(amt)}`);
       render();
@@ -2297,15 +2301,13 @@ function receiptModal(p){
   const words = amountInWords(p.amount);
 
   UI.modal({
-    title:'Official Receipt', sub:p.no, hideSubmit:true, wide:true,
-    footExtra:`${!p.voided && can('payments') ? `<button type="button" class="btn btn-danger" id="voidPay">Void receipt</button>` : ''}
+    title:'Proof of Payment', sub:UI.date(p.date), hideSubmit:true, wide:true,
+    footExtra:`${!p.voided && can('payments') ? `<button type="button" class="btn btn-danger" id="voidPay">Void payment</button>` : ''}
                <button type="button" class="btn btn-primary" onclick="UI.print()">Print</button>`,
     body: `<div class="doc">
       <div class="doc-head">
-        <div><h2>${UI.esc(co.name)}</h2>
-          <div class="co">${UI.esc(co.address)}<br>${UI.esc(co.contact)}<br>TIN ${UI.esc(co.tin)}</div></div>
-        <div class="doc-title"><div class="t">OFFICIAL RECEIPT</div>
-          <div class="n">${UI.esc(p.no)}</div>
+        ${docCompany()}
+        <div class="doc-title"><div class="t">PROOF OF PAYMENT</div>
           <div class="muted" style="font-size:12px">${UI.date(p.date)}</div>
           ${p.voided ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}</div>
       </div>
@@ -2313,7 +2315,7 @@ function receiptModal(p){
         <dt>Received from</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}</dd>
         <dt>Address</dt><dd>${UI.esc(t?.address||'—')}</dd>
         <dt>The sum of</dt><dd><b>${UI.esc(words)}</b></dd>
-        <dt>In payment of</dt><dd>${UI.esc(c ? c.code + ' — ' + c.title : 'Training fees')}${inv ? ' · Invoice ' + UI.esc(inv.no) : ''}</dd>
+        <dt>In payment of</dt><dd>${UI.esc(c ? c.title : 'Training fees')}${inv ? ' · Bill ' + UI.esc(inv.no) : ''}</dd>
         <dt>Mode of payment</dt><dd>${(p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, ref:p.ref, amount:p.amount }])
           .map(t => `${UI.esc(t.method)}${t.ref ? ' · Ref ' + UI.esc(t.ref) : ''} — ${UI.num(t.amount)}`).join('<br>')}</dd>
       </dl>
@@ -2325,15 +2327,17 @@ function receiptModal(p){
       </table></div>
       ${p.note ? `<div class="note" style="margin-top:14px">${UI.esc(p.note)}</div>` : ''}
       <div class="doc-sign"><div>Cashier</div><div>Received the above amount</div></div>
-      <p class="muted" style="font-size:11px;margin-top:18px">This receipt is valid only when the corresponding payment has cleared. Computer-generated.</p>
+      <p class="muted" style="font-size:11px;margin-top:18px">Valid only when the corresponding
+        payment has cleared. Computer-generated. The official receipt for the training
+        itself is issued by the training center.</p>
     </div>`
   });
   const vb = document.getElementById('voidPay');
-  if(vb) vb.onclick = () => UI.confirm('Void this official receipt?', fd => {
+  if(vb) vb.onclick = () => UI.confirm('Void this proof of payment?', fd => {
       p.voided = true;
       ACC.reverse(p.id, fd.reason || 'Receipt voided');
       if(inv) ACC.recomputeInvoice(inv);
-      DB.activity('Voided receipt', p.no + (fd.reason ? ' — ' + fd.reason : ''));
+      DB.activity('Voided payment', p.no + (fd.reason ? ' — ' + fd.reason : ''));
       UI.toast('Receipt voided; the balance has been restored.');
       refresh();
     }, { danger:true, reason:true, yes:'Void receipt',
