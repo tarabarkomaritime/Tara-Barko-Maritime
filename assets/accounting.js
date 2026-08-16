@@ -6,23 +6,13 @@ const ACC = (() => {
   const r2 = n => Math.round((Number(n)||0) * 100) / 100;
 
   const co  = () => DB.get().company;
-  const rate= () => (Number(co().vatRate)||0) / 100;
 
   const acct = code => DB.get().accounts.find(a => a.code === code) || { code, name:code, type:'Other', nature:'debit' };
 
-  /* ---------- VAT ---------- */
-  /* Fees are quoted VAT-inclusive by default (the usual practice for published
-     training rates). Switch `vatInclusive` off in Settings to add VAT on top. */
-  function vatSplit(gross){
-    const r = rate();
-    if(!r) return { net:r2(gross), vat:0, total:r2(gross) };
-    if(co().vatInclusive){
-      const net = r2(gross / (1 + r));
-      return { net, vat:r2(gross - net), total:r2(gross) };
-    }
-    const vat = r2(gross * r);
-    return { net:r2(gross), vat, total:r2(gross + vat) };
-  }
+  /* No VAT and no withholding anywhere in this engine. The amount agreed with
+     the applicant is the amount billed, collected and reported — one figure the
+     whole way through. If tax is ever reinstated it belongs here, in one place,
+     and not scattered through the views. */
 
   /* ---------- journal ---------- */
   /* Nudges sub-centavo rounding residue onto one line so entries always balance. */
@@ -77,9 +67,8 @@ const ACC = (() => {
   function computeInvoice(items, discount){
     const subtotal = r2(items.reduce((s,i) => s + (Number(i.qty)||0) * (Number(i.price)||0), 0));
     const disc     = r2(Math.min(Number(discount)||0, subtotal));
-    const gross    = r2(subtotal - disc);
-    const { net, vat, total } = vatSplit(gross);
-    return { subtotal, discount:disc, gross, net, vat, total };
+    const total    = r2(subtotal - disc);
+    return { subtotal, discount:disc, total };
   }
 
   function buildInvoice({ enrollmentId, traineeId, date, items, discount, terms }){
@@ -94,32 +83,70 @@ const ACC = (() => {
   }
 
   function postInvoice(inv){
-    const r = rate(), div = co().vatInclusive ? (1 + r) : 1;
     const lines = [{ account:'1200', debit:inv.total, credit:0 }];
 
-    // Each line credits its own revenue account, net of VAT.
+    // Each line credits its own revenue account, at the amount charged.
     const byAcct = {};
     inv.items.forEach(i => {
       const a = i.account || '4000';
-      byAcct[a] = r2((byAcct[a]||0) + i.amount / div);
+      byAcct[a] = r2((byAcct[a]||0) + i.amount);
     });
     Object.entries(byAcct).forEach(([a,v]) => lines.push({ account:a, debit:0, credit:v }));
 
-    if(inv.discount) lines.push({ account:'4900', debit:r2(inv.discount / div), credit:0 });
-    if(inv.vat)      lines.push({ account:'2100', debit:0, credit:inv.vat });
+    if(inv.discount) lines.push({ account:'4900', debit:inv.discount, credit:0 });
 
     balanceLines(lines, lines.length - 1);
     return post({ date:inv.date, memo:`Billing — ${inv.no}`, refType:'Invoice', refNo:inv.no, refId:inv.id, lines });
   }
 
-  const cashAccount = method => (method === 'Cash' ? '1000' : '1010');
+  /* Three modes of payment, three places the money lands. GCash gets its own
+     account rather than sharing Cash in Bank: the wallet is reconciled against
+     a GCash statement, the bank against a bank statement, and a cashier who has
+     to unpick one from the other at month end will not bother. */
+  const METHODS = ['Cash','GCash','Bank'];
+  const CASH_ACCOUNT = { Cash:'1000', GCash:'1020', Bank:'1010' };
+  /* Older records used these names; they still have to post somewhere. */
+  const LEGACY = { 'Bank Transfer':'Bank', Cheque:'Bank', Card:'Bank' };
+  const normalMethod = m => METHODS.includes(m) ? m : (LEGACY[m] || 'Cash');
+  const cashAccount  = m => CASH_ACCOUNT[normalMethod(m)];
 
-  function buildPayment({ invoiceId, traineeId, date, amount, method, ref, note }){
+  /* A receipt may be settled in more than one way at the window — half in cash,
+     half by GCash. `tenders` is the truth; `method` is the one-word summary the
+     tables and the donut chart read. */
+  function normalTenders(input, fallbackAmount){
+    const list = (Array.isArray(input) ? input : [])
+      .map(t => ({ method:normalMethod(t.method), ref:String(t.ref||'').trim(), amount:r2(t.amount) }))
+      .filter(t => t.amount > 0);
+    if(list.length) return list;
+    return [{ method:'Cash', ref:'', amount:r2(fallbackAmount) }];
+  }
+
+  function buildPayment({ invoiceId, traineeId, date, amount, method, ref, note, tenders }){
+    const list = tenders
+      ? normalTenders(tenders, amount)
+      : [{ method:normalMethod(method), ref:String(ref||'').trim(), amount:r2(amount) }];
+    const total = r2(list.reduce((s,t) => s + t.amount, 0));
     return {
       id:DB.uid('pay'), no:DB.nextNo('receipt','OR'),
       invoiceId, traineeId, date:date||DB.today(),
-      amount:r2(amount), method:method||'Cash', ref:ref||'', note:note||'', voided:false,
+      amount:total,
+      tenders:list,
+      method: list.length > 1 ? 'Split' : list[0].method,
+      ref: list.map(t => t.ref).filter(Boolean).join(' · '),
+      note:note||'', voided:false,
     };
+  }
+
+  /* Every tender debits the account its money actually landed in; the whole
+     receipt credits receivables once. */
+  function paymentLines(p){
+    const list = p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, amount:p.amount }];
+    const byAcct = {};
+    list.forEach(t => {
+      const a = cashAccount(t.method);
+      byAcct[a] = r2((byAcct[a]||0) + r2(t.amount));
+    });
+    return Object.entries(byAcct).map(([account, debit]) => ({ account, debit, credit:0 }));
   }
 
   function postPayment(p, inv){
@@ -128,10 +155,7 @@ const ACC = (() => {
     return post({
       date:p.date, memo:`Collection — ${p.no} vs ${inv.no}`,
       refType:'Receipt', refNo:p.no, refId:p.id,
-      lines:[
-        { account:cashAccount(p.method), debit:p.amount, credit:0 },
-        { account:'1200', debit:0, credit:p.amount },
-      ],
+      lines:[ ...paymentLines(p), { account:'1200', debit:0, credit:p.amount } ],
     });
   }
 
@@ -251,9 +275,9 @@ const ACC = (() => {
   }
 
   return {
-    r2, vatSplit, computeInvoice, post, reverse, acct,
+    r2, computeInvoice, post, reverse, acct, METHODS,
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
-    recomputeInvoice, balanceOf, cashAccount,
+    recomputeInvoice, balanceOf, cashAccount, paymentLines,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
   };
 })();

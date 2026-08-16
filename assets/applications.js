@@ -1,40 +1,28 @@
-/* applications.js — the admissions bridge.
+/* applications.js — the registration bridge.
 
-   One application record is written by the public portal and read, decided on and
-   converted by the registrar inside the internal system. Both sides load this file,
-   so the lifecycle rules live in exactly one place: the portal cannot invent a
-   status the registrar does not understand, and the registrar cannot convert an
-   application in a way the portal's tracker would misreport.
+   The public portal writes a registration; the internal system reads it. Both
+   sides load this file, so the rules live in exactly one place: the portal
+   cannot write a record the staff screens do not understand, and the staff
+   cannot record an enrollment the portal's tracker would misreport.
 
-   Lifecycle:
-     Submitted ─▶ Under Review ─▶ Approved ─▶ Enrolled        (terminal, has enrollment)
-                       │              │
-                       └──────────────┴─▶ Rejected            (terminal, has reason)
-     any non-terminal ──────────────────▶ Withdrawn           (terminal, applicant pulled out)
-*/
+   There is no approval queue. A public registration creates the seafarer's
+   master record straight away — the registrar finds them by searching Trainees
+   and encodes an enrollment against a course and a date agreed with them. A
+   seafarer registering a second time updates the record they already have
+   rather than being turned away as a duplicate: coming back for another course
+   is the normal case, not an error.
+
+   Money lives here too (`enroll`), next to the record it bills, so the whole
+   chain — trainee, enrollment, invoice, journal entry — is one transaction that
+   can be exercised in the test harness without a browser. */
 
 const APPS = (() => {
 
-  const OPEN_STATES  = ['Submitted','Under Review','Approved'];
-  const FINAL_STATES = ['Enrolled','Rejected','Withdrawn'];
-  const ALL_STATES   = [...OPEN_STATES, ...FINAL_STATES];
-
-  /* What each state is allowed to become. Anything else is a bug, not a workflow. */
-  const NEXT = {
-    'Submitted':    ['Under Review','Approved','Rejected','Withdrawn'],
-    'Under Review': ['Approved','Rejected','Withdrawn'],
-    'Approved':     ['Enrolled','Rejected','Withdrawn'],
-    'Enrolled':     [],
-    'Rejected':     [],
-    'Withdrawn':    [],
-  };
-
   const D = () => DB.get();
-  const isOpen  = a => OPEN_STATES.includes(a.status);
-  const isFinal = a => FINAL_STATES.includes(a.status);
+  const t = s => String(s ?? '').trim();
 
   /* ---------- reference codes ----------
-     Six characters the applicant can read over the phone: no O/0, no I/1/L. */
+     Six characters the seafarer can read over the phone: no O/0, no I/1/L. */
   const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   function refCode(){
     let code;
@@ -45,48 +33,22 @@ const APPS = (() => {
     return code;
   }
 
-  /* ---------- seat accounting ----------
-     Applications no longer pick a schedule, so a pending one holds a seat only
-     once the registrar has placed it on a batch. Until then it is demand for a
-     course, not a claim on a chair. */
-  function seatsTaken(batch){
-    const enrolled = D().enrollments
-      .filter(e => e.batchId === batch.id && ['Enrolled','Reserved','Completed'].includes(e.status)).length;
-    const pending = D().applications
-      .filter(a => a.batchId === batch.id && isOpen(a) && !a.enrollmentId).length;
-    return { enrolled, pending, total:enrolled + pending, free:Math.max(0, batch.capacity - enrolled - pending) };
-  }
-
-  /* Schedules the registrar may place an applicant on: open, not yet started,
-     with a free seat. Internal only — the public never sees these. */
-  function openBatches(courseId){
-    const today = DB.today();
-    return D().batches
-      .filter(b => b.status === 'Open' && b.start >= today && seatsTaken(b).free > 0)
-      .filter(b => !courseId || b.courseId === courseId)
-      .sort((a,b) => a.start.localeCompare(b.start));
-  }
-
   const course = id => D().courses.find(c => c.id === id);
-  const batch  = id => D().batches.find(b => b.id === id);
 
-  /* ---------- submission ----------
-     Field order here mirrors the order the applicant fills them in, which is the
-     order the registrar reads them back. Grouped: identity, personal, contact,
-     employment, emergency. */
-  /* No course here. The applicant registers their details; which course, which
-     dated run and at which partner center are all settled with the Registrar
-     afterwards and recorded at conversion. */
+  /* ---------- the registration form ----------
+     Field order mirrors the order the applicant fills them in, which is the
+     order the registrar reads them back: identity, personal, contact,
+     employment, emergency. No course and no date — those are agreed with the
+     Registrar and encoded by staff. */
   const REQUIRED = [
-    'srn',                                   // identity
+    'srn',
     'last','first',
-    'birth','birthPlace',                    // personal
-    'mobile','email','address','facebook',   // contact — Facebook is how the Registrar replies
-    'rank','agency',                         // employment ("Company" on the form)
-    'emergencyName','emergencyMobile',       // emergency
+    'birth','birthPlace',
+    'mobile','email','address','facebook',
+    'rank','agency',
+    'emergencyName','emergencyMobile',
   ];
 
-  /* Shown next to a highlighted field, and reused by the registrar's screen. */
   const LABELS = {
     srn:'SRN', last:'Last Name', first:'First Name', middle:'Middle Name', suffix:'Suffix',
     sex:'Sex', birth:'Date of Birth', birthPlace:'Place of Birth',
@@ -95,12 +57,11 @@ const APPS = (() => {
     rank:'Rank / Position', agency:'Company',
     emergencyName:'Emergency Contact Person', emergencyRelation:'Relationship',
     emergencyMobile:'Emergency Contact Number',
-    duplicate:'Application',
   };
 
   function validate(p){
     const errors = [];
-    REQUIRED.forEach(f => { if(!String(p[f] || '').trim()) errors.push(f); });
+    REQUIRED.forEach(f => { if(!t(p[f])) errors.push(f); });
 
     if(p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) errors.push('email');
     if(p.birth && p.birth >= DB.today()) errors.push('birth');
@@ -120,202 +81,142 @@ const APPS = (() => {
     /* The Registrar has to open these to reply, so a name typed where a link
        belongs is a dead end. Checked loosely — a bare username is fine, a
        sentence is not. */
-    const linkish = v => /^\S+$/.test(String(v||'').trim()) && String(v).trim().length >= 3;
+    const linkish = v => /^\S+$/.test(t(v)) && t(v).length >= 3;
     if(p.facebook  && !linkish(p.facebook))  errors.push('facebook');
     if(p.messenger && !linkish(p.messenger)) errors.push('messenger');
 
-    /* One open registration per seafarer. Without a course to distinguish them,
-       a second submission while the first is still being handled is a duplicate
-       — the Registrar settles every course they want in the same conversation. */
-    const srn = String(p.srn || '').trim().toUpperCase();
-    if(srn && D().applications.some(a =>
-      isOpen(a) && t(a.srn).toUpperCase() === srn)) errors.push('duplicate');
-
+    /* Deliberately no duplicate rule. A seafarer who already registered may
+       register again for another course; the record is updated, not rejected. */
     return errors;
   }
 
+  /* ---------- master record ----------
+     Seafarers come back for refreshers, so most people registering already
+     exist. Matching on SRN first, then name + birthdate, avoids a second master
+     record whose invoices and certificates would live under a different number. */
+  function matchTrainee(p){
+    const reg = D().trainees;
+    const srn = t(p.srn).toUpperCase();
+    if(srn){
+      const bySrn = reg.find(x => t(x.srn).toUpperCase() === srn);
+      if(bySrn) return { trainee:bySrn, on:'SRN' };
+    }
+    const byName = reg.find(x =>
+      x.last.toLowerCase()  === t(p.last).toLowerCase() &&
+      x.first.toLowerCase() === t(p.first).toLowerCase() &&
+      (!p.birth || !x.birth || x.birth === p.birth));
+    return byName ? { trainee:byName, on:'name and birthdate' } : null;
+  }
+
+  /* Create the seafarer's file, or refresh the one we have. The existing record
+     keeps its identity and its number; what the seafarer just typed is fresher
+     for anything we use to reach them. */
+  const FRESHER = ['mobile','email','address','facebook','messenger','rank','agency',
+                   'emergencyName','emergencyRelation','emergencyMobile'];
+  const FILL_IF_BLANK = ['srn','middle','suffix','sex','birth','birthPlace'];
+
+  function upsertTrainee(p, source){
+    const hit = matchTrainee(p);
+    if(hit){
+      FRESHER.forEach(f => { if(t(p[f])) hit.trainee[f] = t(p[f]); });
+      FILL_IF_BLANK.forEach(f => { if(t(p[f]) && !t(hit.trainee[f])) hit.trainee[f] = t(p[f]); });
+      return { trainee:hit.trainee, reused:true, matchedOn:hit.on };
+    }
+    const trainee = {
+      id:DB.uid('trn'), no:DB.nextNo('trainee','TRN'),
+      srn:t(p.srn).toUpperCase(),
+      last:t(p.last), first:t(p.first), middle:t(p.middle), suffix:t(p.suffix),
+      sex:p.sex || 'M', birth:p.birth || '', birthPlace:t(p.birthPlace),
+      sirb:'', passport:'',          // recorded by staff from the originals
+      rank:t(p.rank), agency:t(p.agency),
+      mobile:t(p.mobile), email:t(p.email).toLowerCase(), address:t(p.address),
+      facebook:t(p.facebook), messenger:t(p.messenger),
+      emergencyName:t(p.emergencyName), emergencyRelation:t(p.emergencyRelation),
+      emergencyMobile:t(p.emergencyMobile),
+      registered:DB.today(),
+      source:source || 'Encoded at the desk',
+      remarks:'',
+    };
+    D().trainees.push(trainee);
+    return { trainee, reused:false, matchedOn:'' };
+  }
+
+  /* ---------- public registration ---------- */
   function submit(p){
     DB.reload();                      // another tab may have written since this page loaded
     const errors = validate(p);
     if(errors.length){ const e = new Error('Validation failed'); e.errors = errors; throw e; }
 
     const now = new Date().toISOString();
-    const app = {
+    const { trainee, reused } = upsertTrainee(p, 'Public portal');
+
+    /* The registration row is kept even though there is no queue to work: it is
+       the record of what this person agreed to and when. The terms carry a
+       no-refund and a limited-liability clause, both only enforceable if the
+       exact wording accepted can be identified later — hence the version stamp
+       rather than a bare boolean. */
+    const reg = {
       id:DB.uid('app'),
-      no:DB.nextNo('application','APP'),
+      no:DB.nextNo('application','REG'),
       ref:refCode(),
       submitted:DB.today(),
       channel:'Public Portal',
-      status:'Submitted',
-      /* Both settled by the Registrar at conversion, from the batch they pick. */
-      courseId:'', batchId:'',
-      // identity
-      srn:t(p.srn).toUpperCase(),
-      last:t(p.last), first:t(p.first), middle:t(p.middle), suffix:t(p.suffix),
-      // personal
-      sex:p.sex || 'M', birth:p.birth || '', birthPlace:t(p.birthPlace),
-      // contact
-      mobile:t(p.mobile), email:t(p.email).toLowerCase(), address:t(p.address),
-      facebook:t(p.facebook), messenger:t(p.messenger),
-      // employment
-      rank:t(p.rank), agency:t(p.agency),
-      // emergency
-      emergencyName:t(p.emergencyName), emergencyRelation:t(p.emergencyRelation),
-      emergencyMobile:t(p.emergencyMobile),
-      /* SIRB and passport are NOT collected online. The registrar records them
-         from the originals, which the applicant brings on the first training
-         day — a typed document number nobody has seen is worth nothing. */
-
-      /* What the applicant agreed to, and when. The terms carry a no-refund and
-         a limited-liability clause, both of which are only enforceable if the
-         exact wording accepted can be identified later — hence the version
-         stamp rather than a bare boolean. */
+      status:'Registered',
+      traineeId:trainee.id,
+      srn:trainee.srn, last:trainee.last, first:trainee.first,
       termsVersion:t(p.termsVersion),
       termsAccepted:Array.isArray(p.termsAccepted) ? p.termsAccepted.slice() : [],
       termsAcceptedAt:now,
-      traineeId:'', enrollmentId:'', decidedBy:'', decidedOn:'', reason:'',
-      history:[{ ts:now, status:'Submitted', by:'Public Portal',
-                 note:`Application received online · terms ${t(p.termsVersion) || 'not recorded'} accepted` }],
+      history:[{ ts:now, status:'Registered', by:'Public Portal',
+                 note:`Registered online · terms ${t(p.termsVersion) || 'not recorded'} accepted` }],
     };
-    D().applications.push(app);
-    DB.activity('Public application received', app.no);
+    D().applications.push(reg);
+    DB.activity(reused ? 'Public registration (existing seafarer)' : 'Public registration', reg.no);
     DB.save();
-    return app;
-  }
-  const t = s => String(s ?? '').trim();
 
-  /* ---------- tracking ----------
-     Looked up by SRN and last name. A seafarer knows their SRN by heart and can
-     lose a printed slip, so this is the pair they can always produce. Neither
-     half alone is enough: the SRN is not secret, and the surname keeps one
-     applicant out of another's file.
-
-     Unlike a reference code, an SRN is not unique across applications — a
-     returning seafarer has one per course — so this returns every match, newest
-     first, and the portal shows the most recent with the rest listed under it. */
-  function trackAll(srn, surname){
-    const r = t(srn).toUpperCase(), s = t(surname).toLowerCase();
-    if(!r || !s) return [];
-    return D().applications
-      .filter(a => t(a.srn).toUpperCase() === r && a.last.toLowerCase() === s)
-      .sort((x,y) => y.submitted.localeCompare(x.submitted) || y.no.localeCompare(x.no));
-  }
-  const track = (srn, surname) => trackAll(srn, surname)[0] || null;
-
-  /* ---------- state changes ---------- */
-  function advance(app, status, by, note){
-    if(!NEXT[app.status].includes(status)){
-      throw new Error(`Cannot move an application from ${app.status} to ${status}.`);
-    }
-    app.status = status;
-    app.history.push({ ts:new Date().toISOString(), status, by:by || 'System', note:note || '' });
-    if(FINAL_STATES.includes(status)){ app.decidedBy = by || 'System'; app.decidedOn = DB.today(); }
-    return app;
+    return { ...reg, trainee, reused };
   }
 
-  function reject(app, reason, by){
-    advance(app, 'Rejected', by, reason);
-    app.reason = reason || '';
-    DB.activity('Rejected application', app.no);
-    return app;
-  }
+  /* ---------- enrollment ----------
+     Encoded by staff against a course and a date they agreed with the trainee.
+     There is no schedule to pick from and no seat count: every enrollment is
+     its own booking at its own price, which is what brokering seats at partner
+     centers actually is.
 
-  function withdraw(app, reason, by){
-    advance(app, 'Withdrawn', by, reason);
-    app.reason = reason || '';
-    DB.activity('Withdrew application', app.no);
-    return app;
-  }
+     opts = { courseId, start, end, center, room, instructor, fee, by,
+              mode:'Enrolled'|'Reserved', charges:[{desc,account,price}],
+              discount, discountNote } */
+  function enroll(trainee, opts = {}){
+    if(!trainee) throw new Error('Choose the trainee to enroll.');
+    const c = course(opts.courseId);
+    if(!c) throw new Error('Choose the course to enroll them in.');
+    if(!opts.start) throw new Error('Set the training date.');
 
-  /* ---------- duplicate detection ----------
-     Seafarers come back for refreshers, so most applicants already exist in the
-     registry. Matching on SRN first, then name + birthdate, avoids a second master
-     record whose invoices and certificates would live under a different number. */
-  function matchTrainee(app){
-    const reg = D().trainees;
-    const srn = t(app.srn).toUpperCase();
-    if(srn){
-      const bySrn = reg.find(x => t(x.srn).toUpperCase() === srn);
-      if(bySrn) return { trainee:bySrn, on:'SRN' };
-    }
-    const byName = reg.find(x =>
-      x.last.toLowerCase()  === app.last.toLowerCase() &&
-      x.first.toLowerCase() === app.first.toLowerCase() &&
-      (!app.birth || !x.birth || x.birth === app.birth));
-    return byName ? { trainee:byName, on:'name and birthdate' } : null;
-  }
+    const fee = ACC.r2(opts.fee);
+    if(!(fee >= 0)) throw new Error('Enter the agreed fee.');
+    if(opts.end && opts.end < opts.start) throw new Error('The end date cannot fall before the start date.');
 
-  /* ---------- conversion ----------
-     Approve → enroll in one transaction: the master record, the enrollment and (when
-     the registrar confirms rather than reserves) the invoice and its journal entry.
-     opts = { by, mode:'Enrolled'|'Reserved', addons:[{desc,account,price}], discount, discountNote } */
-  function convert(app, opts = {}){
-    if(app.enrollmentId) throw new Error('This application has already been enrolled.');
-    if(app.status !== 'Approved') throw new Error('Approve the application before enrolling it.');
-
-    /* The applicant registered their details, not a course. The batch the
-       Registrar picks here decides both the course and the schedule. */
-    const b = batch(opts.batchId || app.batchId);
-    if(!b) throw new Error('Choose a course and schedule to place this applicant on.');
-    const c = course(b.courseId);
-    if(!c) throw new Error('That schedule points at a course no longer in the catalogue.');
-
-    const enrolledSeats = D().enrollments
-      .filter(e => e.batchId === b.id && ['Enrolled','Reserved','Completed'].includes(e.status)).length;
-    if(enrolledSeats >= b.capacity) throw new Error('That batch is now full — move the applicant to another schedule.');
-
-    const by = opts.by || 'System';
-
-    /* 1 — master record: reuse the seafarer's existing file when we have one. */
-    const hit = matchTrainee(app);
-    let trainee = hit && hit.trainee;
-    if(trainee){
-      /* The application carries the fresher contact and next-of-kin details;
-         the existing file keeps its identity and its number. */
-      ['mobile','email','address','facebook','messenger','rank','agency',
-       'emergencyName','emergencyRelation','emergencyMobile']
-        .forEach(f => { if(app[f]) trainee[f] = app[f]; });
-      ['srn','suffix','birthPlace']
-        .forEach(f => { if(app[f] && !trainee[f]) trainee[f] = app[f]; });
-    }else{
-      trainee = {
-        id:DB.uid('trn'), no:DB.nextNo('trainee','TRN'),
-        srn:app.srn,
-        last:app.last, first:app.first, middle:app.middle, suffix:app.suffix,
-        sex:app.sex, birth:app.birth, birthPlace:app.birthPlace,
-        sirb:'', passport:'',        // recorded by the registrar from the originals
-        rank:app.rank, agency:app.agency,
-        mobile:app.mobile, email:app.email, address:app.address,
-        facebook:app.facebook, messenger:app.messenger,
-        emergencyName:app.emergencyName, emergencyRelation:app.emergencyRelation,
-        emergencyMobile:app.emergencyMobile,
-        registered:DB.today(),
-        remarks:`Registered through the public portal — ${app.no}`,
-      };
-      D().trainees.push(trainee);
-    }
-
-    /* 2 — enrollment */
     const mode = opts.mode === 'Reserved' ? 'Reserved' : 'Enrolled';
     const discount = ACC.r2(opts.discount || 0);
+
     const enr = {
       id:DB.uid('enr'), no:DB.nextNo('enrollment','ENR'),
-      traineeId:trainee.id, batchId:b.id, courseId:c.id,
+      traineeId:trainee.id, courseId:c.id,
+      /* The booking itself: where, when and for how much. */
+      center:t(opts.center), room:t(opts.room), instructor:t(opts.instructor),
+      start:opts.start, end:opts.end || opts.start,
       date:DB.today(), status:mode, result:'',
-      /* The fee belongs to the batch — the same course costs a different amount
-         at each partner training center. */
-      fee:b.fee, discount, discountNote:opts.discountNote || '',
-      certificateNo:'', remarks:`From application ${app.no}`,
-      applicationId:app.id,
+      fee, discount, discountNote:t(opts.discountNote),
+      certificateNo:'', remarks:t(opts.remarks),
     };
     D().enrollments.push(enr);
 
-    /* 3 — billing, only when the seat is confirmed. A reservation is not receivable. */
+    /* Billing, only when the booking is confirmed. A reservation is not receivable. */
     let inv = null;
     if(mode === 'Enrolled'){
       const items = [
-        { desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee },
-        ...(opts.addons || []).map(a => ({ desc:a.desc, account:a.account, qty:1, price:a.price })),
+        { desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee },
+        ...(opts.charges || []).map(a => ({ desc:a.desc, account:a.account || '4100', qty:1, price:a.price })),
       ];
       inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:trainee.id, date:enr.date, items, discount });
       D().invoices.push(inv);
@@ -323,43 +224,62 @@ const APPS = (() => {
       enr.invoiceId = inv.id;
     }
 
-    /* 4 — close the application against what was actually created */
-    app.traineeId = trainee.id;
-    app.enrollmentId = enr.id;
-    app.batchId = b.id;                       // the schedule the Registrar chose
-    app.courseId = c.id;                      // and the course it runs
-    advance(app, 'Enrolled', by,
-      `Enrolled as ${enr.no}${inv ? ' · billed ' + inv.no : ' · reserved, not yet billed'}`);
-    DB.activity('Converted application to enrollment', `${app.no} → ${enr.no}`);
+    DB.activity('Enrolled trainee', `${trainee.no} → ${enr.no}`);
     DB.save();
-
-    return { trainee, enrollment:enr, invoice:inv, reused:!!hit, matchedOn:hit ? hit.on : '' };
+    return { trainee, enrollment:enr, invoice:inv };
   }
 
-  /* ---------- queue helpers for the registrar's screen ---------- */
-  const pending = () => D().applications.filter(a => a.status === 'Submitted' || a.status === 'Under Review');
-
-  function counts(){
-    const out = Object.fromEntries(ALL_STATES.map(s => [s, 0]));
-    D().applications.forEach(a => { out[a.status] = (out[a.status] || 0) + 1; });
-    return out;
+  /* Register and enroll in one step — the walk-in at the counter, who is not
+     going to fill in the public form first. */
+  function encode(p, opts = {}){
+    const errors = validate(p);
+    if(errors.length){ const e = new Error('Validation failed'); e.errors = errors; throw e; }
+    const { trainee, reused, matchedOn } = upsertTrainee(p, opts.source || 'Encoded at the desk');
+    const out = enroll(trainee, opts);
+    return { ...out, reused, matchedOn };
   }
 
-  const find    = id  => D().applications.find(a => a.id === id);
-  const ageDays = a   => Math.floor((new Date(DB.today()) - new Date(a.submitted)) / 86400000);
+  /* ---------- tracking ----------
+     Looked up by SRN and last name. A seafarer knows their SRN by heart and can
+     lose a printed slip, so this is the pair they can always produce. Neither
+     half alone is enough: the SRN is not secret, and the surname keeps one
+     seafarer out of another's file. */
+  function findTrainee(srn, surname){
+    const r = t(srn).toUpperCase(), s = t(surname).toLowerCase();
+    if(!r || !s) return null;
+    return D().trainees.find(x =>
+      t(x.srn).toUpperCase() === r && t(x.last).toLowerCase() === s) || null;
+  }
+
+  /* Every enrollment on that file, newest booking first. A returning seafarer
+     has several, and the portal lists them all. */
+  const enrollmentsFor = traineeId => D().enrollments
+    .filter(e => e.traineeId === traineeId)
+    .sort((a,b) => String(b.start||'').localeCompare(String(a.start||'')) || b.no.localeCompare(a.no));
+
+  function track(srn, surname){
+    const trainee = findTrainee(srn, surname);
+    if(!trainee) return null;
+    return { trainee, enrollments:enrollmentsFor(trainee.id),
+             registrations:D().applications.filter(a => a.traineeId === trainee.id) };
+  }
+
+  const registrationsFor = traineeId => D().applications.filter(a => a.traineeId === traineeId);
 
   /* "Dela Cruz Jr., Juan M." — surname first, suffix attached to it, middle
-     initialled. Works for applications and trainees alike; both carry the same
+     initialled. Works for registrations and trainees alike; both carry the same
      name fields. */
   const forName = a => a
     ? `${a.last}${a.suffix ? ' ' + a.suffix : ''}, ${a.first}${a.middle ? ' ' + a.middle[0] + '.' : ''}`
     : '—';
 
   return {
-    OPEN_STATES, FINAL_STATES, ALL_STATES, NEXT, REQUIRED, LABELS,
-    isOpen, isFinal, refCode, seatsTaken, openBatches,
-    validate, submit, track, trackAll, advance, reject, withdraw,
-    matchTrainee, convert, pending, counts, find, forName, ageDays,
-    course, batch,
+    REQUIRED, LABELS,
+    refCode, validate, submit, encode, enroll,
+    matchTrainee, upsertTrainee,
+    track, findTrainee, enrollmentsFor, registrationsFor,
+    forName, course,
   };
 })();
+
+if(typeof module !== 'undefined') module.exports = { APPS };

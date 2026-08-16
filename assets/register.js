@@ -277,7 +277,9 @@ function termsPanel(){
 
 /* ----- confirmation ----- */
 function paneDone(){
-  const a = P.result;
+  /* The registration row carries the reference and the date; the seafarer's
+     own details live on the master record it just created or refreshed. */
+  const a = P.result, t = a.trainee || a;
   return `
     <div class="p-panel p-center">
       <div class="p-ok-mark">&#10003;</div>
@@ -286,7 +288,7 @@ function paneDone(){
          <b>last name</b>.</p>
       <div class="p-ref">${esc(a.srn)}</div>
       <p class="muted p-appno">Reference <span class="mono">${esc(a.ref)}</span> &middot;
-         application no. <span class="mono">${esc(a.no)}</span></p>
+         registration no. <span class="mono">${esc(a.no)}</span></p>
     </div>
 
     <div class="p-slip" id="slip">
@@ -305,18 +307,19 @@ function paneDone(){
       </div>
       <div class="p-review">
         <dl class="def">
-          <dt>Applicant</dt><dd><b>${esc(APPS.forName(a))}</b></dd>
-          <dt>SRN</dt><dd class="mono">${esc(a.srn)}</dd>
-          <dt>Rank / position</dt><dd>${esc(a.rank)}</dd>
-          <dt>Company</dt><dd>${esc(a.agency)}</dd>
-          <dt>Mobile</dt><dd>${esc(a.mobile)}</dd>
-          <dt>Facebook</dt><dd>${esc(a.facebook)}</dd>
+          <dt>Applicant</dt><dd><b>${esc(APPS.forName(t))}</b></dd>
+          <dt>SRN</dt><dd class="mono">${esc(t.srn)}</dd>
+          <dt>Trainee no.</dt><dd class="mono">${esc(t.no || '—')}</dd>
+          <dt>Rank / position</dt><dd>${esc(t.rank)}</dd>
+          <dt>Company</dt><dd>${esc(t.agency)}</dd>
+          <dt>Mobile</dt><dd>${esc(t.mobile)}</dd>
+          <dt>Facebook</dt><dd>${esc(t.facebook)}</dd>
         </dl>
         <dl class="def">
           <dt>Course</dt><dd><span class="muted">To be settled with the Registrar</span></dd>
           <dt>Schedule</dt><dd><span class="muted">To be assigned by the Registrar</span></dd>
           <dt>Reference code</dt><dd class="mono"><b>${esc(a.ref)}</b></dd>
-          <dt>Status</dt><dd>${UI.statusTag('Submitted')}</dd>
+          <dt>Status</dt><dd>${UI.statusTag('Registered')}</dd>
         </dl>
       </div>
       ${requirementsList()}
@@ -358,11 +361,9 @@ function requirementsList(){
 }
 
 /* ----- track sub-tab ----- */
-const STAGE_ORDER = ['Submitted','Under Review','Approved','Enrolled'];
 
 function paneTrack(){
-  const a = P.tracked;
-  const others = P.trackOthers || [];
+  const hit = P.tracked;
   return `
     <div class="p-panel">
       <form id="trackForm">
@@ -378,90 +379,65 @@ function paneTrack(){
       </form>
       ${P.trackError ? `<div class="note bad p-track-err">${esc(P.trackError)}</div>` : ''}
     </div>
-    ${a ? trackResult(a) + (others.length ? otherEnrollments(others) : '') : `
+    ${hit ? trackResult(hit) : `
       <div class="p-hint">
         Enter the SRN you used when you enrolled, together with your last name.
         Need help? Call the Registrar at ${esc(CO().contact)}.
       </div>`}`;
 }
 
-/* A returning seafarer has one enrollment per course under the same SRN. The
-   newest is shown in full; the rest are listed so none of them silently vanish. */
-function otherEnrollments(list){
-  return `
-    <div class="p-panel p-others">
-      <h4 class="p-group">Your other enrollments</h4>
-      ${list.map(o => {
-        const c = courseOf(o.courseId);
-        return `<div class="p-other-row">
-          <div>
-            <b>${esc(c ? c.title : '—')}</b>
-            <small>${esc(o.no)} &middot; submitted ${UI.date(o.submitted)}</small>
-          </div>
-          <span class="p-flex"></span>
-          ${UI.statusTag(o.status)}
-        </div>`;
-      }).join('')}
-    </div>`;
-}
+/* The tracker follows the seafarer, not a queue position. Registering creates
+   their record straight away; what changes afterwards is the list of courses
+   the office has booked them on, so that is what this shows. */
+function trackResult(hit){
+  const t = hit.trainee, list = hit.enrollments;
 
-function trackResult(a){
-  const b = a.batchId ? APPS.batch(a.batchId) : null;   // both assigned only at conversion
-  const c = a.courseId ? courseOf(a.courseId) : null;
-  const reached = STAGE_ORDER.indexOf(a.status);
-  const closed = a.status === 'Rejected' || a.status === 'Withdrawn';
-
-  const stages = STAGE_ORDER.map((s,i) => {
-    const evt = a.history.find(h => h.status === s);
-    const hit = evt || (reached >= 0 && i <= reached);
-    return `<li class="${hit?'hit':''}">
-      <div class="t-what">${esc(s)}</div>
-      <div class="t-when">${evt ? UI.date(evt.ts.slice(0,10)) : 'Pending'}</div>
-      ${evt && evt.note ? `<div class="t-note">${esc(evt.note)}</div>` : ''}
-    </li>`;
-  }).join('');
-
-  const closedRow = `<li class="hit closed">
-      <div class="t-what">${esc(a.status)}</div>
-      <div class="t-when">${UI.date(a.decidedOn)}</div>
-      ${a.reason ? `<div class="t-note">${esc(a.reason)}</div>` : ''}</li>`;
+  const row = e => {
+    const c = courseOf(e.courseId);
+    const dates = e.start ? UI.dateRange(e.start, e.end) : 'Dates to be confirmed';
+    return `
+      <div class="p-other-row">
+        <div>
+          <b>${esc(c ? c.title : 'Course to be confirmed')}</b>
+          <small>${esc(dates)}${e.center ? ' &middot; ' + esc(e.center) : ''}</small>
+        </div>
+        <span class="p-flex"></span>
+        ${UI.statusTag(e.status)}
+      </div>`;
+  };
 
   return `
     <div class="p-panel p-track-res">
       <div class="p-track-head">
         <div>
-          <h2>${esc(APPS.forName(a))}</h2>
-          <p class="p-lead"><span class="mono">${esc(a.no)}</span> &middot;
-             submitted ${UI.date(a.submitted)} &middot; ${APPS.ageDays(a)} day(s) ago</p>
+          <h2>${esc(APPS.forName(t))}</h2>
+          <p class="p-lead"><span class="mono">${esc(t.no)}</span> &middot;
+             registered ${UI.date(t.registered)}</p>
         </div>
-        <div>${UI.statusTag(a.status)}</div>
+        <div>${UI.statusTag(list.length ? 'Enrolled' : 'Registered')}</div>
       </div>
       <div class="hr"></div>
       <dl class="def">
-        <dt>Course</dt><dd>${c
-          ? `<b>${esc(c.title)}</b> <span class="muted">&middot; ${esc(c.duration || '')}</span>`
-          : '<span class="muted">Not yet settled — the Registrar will confirm your course</span>'}</dd>
-        <dt>Schedule</dt><dd>${b
-          ? `${UI.dateRange(b.start,b.end)} &middot; ${esc(b.center)} &middot; ${esc(b.room)}`
-          : '<span class="muted">Not yet assigned — the Registrar will confirm your dates</span>'}</dd>
-        <dt>SRN</dt><dd class="mono">${esc(a.srn)}</dd>
+        <dt>SRN</dt><dd class="mono">${esc(t.srn)}</dd>
+        <dt>Rank / Position</dt><dd>${esc(t.rank || '—')}</dd>
+        <dt>Company</dt><dd>${esc(t.agency || '—')}</dd>
       </dl>
       <div class="hr"></div>
-      <h4 class="p-group">Progress</h4>
-      <ul class="p-time">${closed ? closedRow : stages}</ul>
-      ${a.status === 'Enrolled'
-        ? `<div class="note ok p-flush"><b>You are enrolled.</b> The Registrar will
-             confirm your schedule, training center and fee on your Facebook Account. Your
-             training center will tell you what to bring on the first day.</div>`
-        : a.status === 'Rejected'
-        ? `<div class="note bad p-flush">Please contact the Registrar at ${esc(CO().contact)}
-             if you would like to re-apply.</div>`
-        : closed ? ''
+      <h4 class="p-group">Your Enrollments</h4>
+      ${list.length
+        ? list.map(row).join('')
+        : `<div class="p-hint">No course has been booked for you yet. The Registrar
+             settles the course, the schedule, the training center and the fee with you
+             on your Facebook Account, and it appears here once booked.</div>`}
+      ${list.length
+        ? `<div class="note ok p-flush"><b>You are enrolled.</b> Your training center
+             will tell you what to bring on the first day.</div>`
         : `<div class="note">If you have not already, send a screenshot of your
              submitted enrollment to ${pageName()} &mdash; the Registrar checks your
              details from there, then contacts you on your Facebook Account with the
-             schedule, the training center and the fee. Enrollments submitted outside our
-             office hours are processed on the following business day.</div>
+             course, the schedule, the training center and the fee. Enrollments
+             submitted outside our office hours are processed on the following
+             business day.</div>
            ${requirementsList()}`}
     </div>`;
 }
@@ -559,7 +535,7 @@ function wire(){
   on('another','onclick', () => {
     /* Keep who they are, drop what they enrolled in. */
     const keep = { ...P.result };
-    ['id','no','ref','submitted','channel','status','courseId','batchId',
+    ['id','no','ref','submitted','channel','status','trainee','reused',
      'traineeId','enrollmentId','decidedBy','decidedOn','reason','history','remarks',
      'termsVersion','termsAccepted','termsAcceptedAt']
       .forEach(k => delete keep[k]);
@@ -574,11 +550,10 @@ function wire(){
     const fd = Object.fromEntries(new FormData(tf).entries());
     P.trackSrn = fd.srn; P.trackSurname = fd.surname;
     DB.reload();
-    const all = APPS.trackAll(fd.srn, fd.surname);
-    P.tracked = all[0] || null;
-    P.trackOthers = all.slice(1);
-    P.trackError = all.length ? '' :
-      'We could not find an enrollment with that SRN and last name. Check your SRN, or call the Registrar for help.';
+    const hit = APPS.track(fd.srn, fd.surname);
+    P.tracked = hit;
+    P.trackError = hit ? '' :
+      'We could not find a registration with that SRN and last name. Check your SRN, or call the Registrar for help.';
     render();
   };
 }

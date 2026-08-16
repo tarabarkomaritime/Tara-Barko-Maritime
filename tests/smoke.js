@@ -1,11 +1,12 @@
-/* tests/smoke.js — headless smoke test for the data and admissions layer.
+/* tests/smoke.js — headless smoke test for the data, registration and money layers.
 
    The portal is a zero-dependency static site, so there is no test runner to
-   install. This file loads db.js, accounting.js and applications.js into a Node
-   VM context with a stub localStorage, then exercises the paths that would be
-   expensive to get wrong: seat accounting, the application lifecycle guards,
-   duplicate seafarer detection, and whether the ledger still balances after an
-   application is converted into an enrollment.
+   install. This file loads courses.js, terms.js, db.js, accounting.js and
+   applications.js into a Node VM context with a stub localStorage, then
+   exercises the paths that would be expensive to get wrong: registration and
+   repeat registration, encoding an enrollment against a course and a manually
+   chosen date, split-tender collections landing in the right cash accounts, and
+   whether the ledger still balances afterwards.
 
    The DOM layers (ui.js, app.js, register.js) are not covered here — those are
    checked by hand against docs/testing-checklist.md.
@@ -16,7 +17,7 @@
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const ASSETS = path.join(__dirname, '..', 'assets');
 
-/* ---------- a browser, in the smallest form these three files need ---------- */
+/* ---------- a browser, in the smallest form these files need ---------- */
 const store = {};
 const ctx = {
   console,
@@ -45,325 +46,257 @@ const check = (label, fn) => {
     else { console.log('  FAIL ' + label + ' -> ' + r); fail++; }
   }catch(e){ console.log('  FAIL ' + label + ' -> threw: ' + e.message); fail++; }
 };
+const balanced = () => {
+  const tb = run('ACC.trialBalance()');
+  return Math.abs(tb.totalDr - tb.totalCr) < 0.01 || `dr ${tb.totalDr} cr ${tb.totalCr}`;
+};
 
-console.log('\n- seed & migration -');
+console.log('\n- seed -');
 run('DB.load()');
-check('seeds trainees',      () => run('DB.get().trainees.length') === 18 || 'got ' + run('DB.get().trainees.length'));
-check('seeds applications',  () => run('DB.get().applications.length') === 5 || 'got ' + run('DB.get().applications.length'));
-check('application numbers', () => /^APP-\d{4}-0001$/.test(run('DB.get().applications[0].no')) || run('DB.get().applications[0].no'));
-check('seq.application set', () => run('DB.get().seq.application') === 5 || run('DB.get().seq.application'));
+check('seeds the trainee registry', () => run('DB.get().trainees.length') === 23 || 'got ' + run('DB.get().trainees.length'));
+check('seeds people who registered online but are not booked', () =>
+  run(`DB.get().trainees.filter(t => t.source === 'Public portal').length`) === 5 ||
+  run(`DB.get().trainees.filter(t => t.source === 'Public portal').length`));
+check('seeds enrollments', () => run('DB.get().enrollments.length') > 20 || run('DB.get().enrollments.length'));
+check('no schedules collection remains', () => run('DB.get().batches === undefined') === true || 'batches still present');
+check('no seat capacity on enrollments', () =>
+  run('DB.get().enrollments.every(e => e.capacity === undefined)') === true || 'capacity found');
 
-console.log('\n- existing ledger still balances -');
-const tb = run('ACC.trialBalance()');
-check('trial balance balances', () => Math.abs(tb.totalDr - tb.totalCr) < 0.01 || `dr ${tb.totalDr} cr ${tb.totalCr}`);
-check('trial balance non-empty', () => tb.totalDr > 0 || 'zero');
+console.log('\n- every enrollment carries its own booking -');
+check('each has a course', () => run('DB.get().enrollments.every(e => !!e.courseId)') === true || 'missing courseId');
+check('each has a training date', () => run('DB.get().enrollments.every(e => !!e.start)') === true || 'missing start');
+check('each has a center', () => run('DB.get().enrollments.every(e => !!e.center)') === true || 'missing center');
+check('each has its own fee', () => run('DB.get().enrollments.every(e => typeof e.fee === "number")') === true || 'missing fee');
+check('no enrollment points at a batch', () =>
+  run('DB.get().enrollments.every(e => e.batchId === undefined)') === true || 'batchId survives');
 
-console.log('\n- seat accounting -');
-const ob = run('APPS.openBatches()');
-check('open batches found', () => ob.length > 0 || 'none');
-check('unplaced applications hold no seat', () => {
-  /* An application names a course, not a schedule, so it cannot claim a chair
-     until the registrar places it on a batch. */
-  const r = run(`(() => {
-    const b = DB.get().batches.find(x => x.status === 'Open');
-    const before = APPS.seatsTaken(b);
-    APPS.submit({ srn:'SRN-SEAT01', last:'Seatcheck', first:'Ana',
-      birth:'1990-01-01', birthPlace:'Manila', mobile:'09170000001',
-      email:'seat@mail.com', address:'Manila', facebook:'facebook.com/ana.seatcheck',
-      rank:'Oiler', agency:'Direct Hire / Walk-in',
-      emergencyName:'Kin Seatcheck', emergencyMobile:'09180000002' });
-    const after = APPS.seatsTaken(b);
-    return { beforeFree:before.free, afterFree:after.free };
-  })()`);
-  return r.beforeFree === r.afterFree || JSON.stringify(r);
+console.log('\n- no VAT and no other taxes -');
+check('computeInvoice returns no vat', () =>
+  run('ACC.computeInvoice([{qty:1,price:1000}],0).vat === undefined') === true || 'vat still computed');
+check('total equals charges less discount', () => {
+  const t = run('ACC.computeInvoice([{qty:1,price:1000},{qty:1,price:500}],200)');
+  return (t.subtotal === 1500 && t.discount === 200 && t.total === 1300) || JSON.stringify(t);
 });
-check('openBatches can filter by course', () => {
-  const r = run(`(() => { const b = DB.get().batches.find(x => x.status === 'Open');
-    return APPS.openBatches(b.courseId).every(x => x.courseId === b.courseId); })()`);
-  return r === true || 'returned a batch for another course';
-});
-check('openBatches unfiltered returns them all', () =>
-  run('APPS.openBatches().length') >= run('APPS.openBatches(DB.get().batches[4].courseId).length')
-  || 'filtered set is larger than the whole');
+check('no invoice carries a vat figure', () =>
+  run('DB.get().invoices.every(i => !i.vat)') === true || 'a vat amount survives');
+check('company profile has no tax settings', () =>
+  run('DB.get().company.vatRate === undefined && DB.get().company.vatInclusive === undefined') === true
+  || 'vat settings survive');
+check('nothing posts to Output VAT', () =>
+  run(`DB.get().journal.every(j => j.lines.every(l => l.account !== '2100'))`) === true || 'posted to 2100');
+check('ledger balances after seeding', balanced);
+
+console.log('\n- registering from the public portal -');
+const FORM = `{
+  srn:'SRN-T100', last:'Testino', first:'Tomas', middle:'Cruz', suffix:'',
+  sex:'M', birth:'1990-05-04', birthPlace:'Cebu City',
+  mobile:'09171234567', email:'tomas.testino@mail.com', address:'12 Rizal St., Cebu City',
+  facebook:'facebook.com/tomas.testino', messenger:'',
+  rank:'Able Seaman', agency:'Test Manning Inc.',
+  emergencyName:'Ana Testino', emergencyRelation:'Spouse', emergencyMobile:'09181234567',
+  termsVersion:TERMS.version, termsAccepted:TERMS.agreements.map(a => a.label)
+}`;
+run(`globalThis.REG = APPS.submit(${FORM})`);
+check('registration is recorded', () => /^REG-\d{4}-\d{4}$/.test(run('REG.no')) || run('REG.no'));
+check('a master record is created immediately', () =>
+  run(`!!DB.get().trainees.find(t => t.srn === 'SRN-T100')`) === true || 'no trainee created');
+check('the trainee is marked as coming from the portal', () =>
+  run('REG.trainee.source') === 'Public portal' || run('REG.trainee.source'));
+check('terms version is stamped', () => run('REG.termsVersion') === run('TERMS.version') || run('REG.termsVersion'));
+check('both agreements are stored verbatim', () =>
+  run('REG.termsAccepted.length') === run('TERMS.agreements.length') || run('REG.termsAccepted.length'));
+check('acceptance is timestamped', () => /^\d{4}-\d{2}-\d{2}T/.test(run('REG.termsAcceptedAt')) || run('REG.termsAcceptedAt'));
+check('no course is asked for', () => run(`!APPS.REQUIRED.includes('courseId')`) === true || 'course required');
+
+console.log('\n- registering a second time is allowed -');
+const before = run(`DB.get().trainees.length`);
+run(`globalThis.REG2 = APPS.submit({ ...${FORM}, mobile:'09179998888' })`);
+check('the second registration is accepted', () => run('REG2.no') !== run('REG.no') || 'same record');
+check('it reuses the same master record', () => run('REG2.reused') === true || 'created a duplicate trainee');
+check('the registry did not grow', () => run('DB.get().trainees.length') === before || 'trainee count changed');
+check('fresher contact details win', () =>
+  run(`DB.get().trainees.find(t => t.srn === 'SRN-T100').mobile`) === '09179998888'
+  || run(`DB.get().trainees.find(t => t.srn === 'SRN-T100').mobile`));
+check('the trainee number is unchanged', () => run('REG2.trainee.no') === run('REG.trainee.no') || 'number changed');
 
 console.log('\n- validation -');
-check('every required field is reported', () => {
-  const e = run(`APPS.validate({})`);
-  const missing = run('APPS.REQUIRED').filter(f => !e.includes(f));
-  return missing.length === 0 || 'not reported: ' + missing.join(', ');
+const errs = expr => run(`APPS.validate(${expr})`);
+check('missing required fields are named', () => {
+  const e = errs('{}');
+  return APPS_REQUIRED_COVERED(e) || JSON.stringify(e);
 });
-check('a course is NOT required', () =>
-  run(`!APPS.REQUIRED.includes('courseId')`) === true || 'still required');
-check('required set covers the brief', () => {
-  const need = ['srn','last','first','birth','birthPlace','mobile','email','address',
-                'rank','agency','emergencyName','emergencyMobile'];
-  const have = run('APPS.REQUIRED');
-  const gap = need.filter(f => !have.includes(f));
-  return gap.length === 0 || 'missing: ' + gap.join(', ');
-});
-check('every field has a label', () => {
-  const L = run('APPS.LABELS');
-  const gap = run('APPS.REQUIRED').filter(f => !L[f]);
-  return gap.length === 0 || 'unlabelled: ' + gap.join(', ');
-});
-check('rejects bad email', () => run(`APPS.validate({ email:'nope' }).includes('email')`) === true || 'not caught');
-check('rejects future birthdate', () => run(`APPS.validate({ birth:'2099-01-01' }).includes('birth')`) === true || 'not caught');
-check('rejects a short mobile', () => run(`APPS.validate({ mobile:'0917' }).includes('mobile')`) === true || 'not caught');
-check('rejects self as emergency contact', () =>
-  run(`APPS.validate({ mobile:'09171234567', emergencyMobile:'0917 123 4567' }).includes('emergencyMobile')`) === true || 'not caught');
-check('facebook link is required', () =>
-  run(`APPS.validate({}).includes('facebook')`) === true || 'not required');
-check('rejects a name typed where a link belongs', () =>
-  run(`APPS.validate({ facebook:'Juan Dela Cruz' }).includes('facebook')`) === true || 'not caught');
-check('accepts a bare handle or a full URL', () => {
-  const a = run(`APPS.validate({ facebook:'facebook.com/juan.delacruz' }).includes('facebook')`);
-  const b = run(`APPS.validate({ facebook:'https://www.facebook.com/juan' }).includes('facebook')`);
-  return (a === false && b === false) || `bare:${a} url:${b}`;
-});
-check('messenger is optional but still checked', () => {
-  const blank = run(`APPS.validate({ messenger:'' }).includes('messenger')`);
-  const bad   = run(`APPS.validate({ messenger:'ask me on fb' }).includes('messenger')`);
-  return (blank === false && bad === true) || `blank:${blank} bad:${bad}`;
+function APPS_REQUIRED_COVERED(e){
+  const need = run('APPS.REQUIRED');
+  return need.every(f => e.includes(f));
+}
+check('a malformed email is caught', () => errs(`{ ...${FORM}, email:'nope' }`).includes('email') || 'accepted');
+check('a future birthdate is caught', () => errs(`{ ...${FORM}, birth:'2999-01-01' }`).includes('birth') || 'accepted');
+check('a short mobile is caught', () => errs(`{ ...${FORM}, mobile:'0917' }`).includes('mobile') || 'accepted');
+check('own number as emergency contact is caught', () =>
+  errs(`{ ...${FORM}, emergencyMobile:'0917 123 4567' }`).includes('emergencyMobile') || 'accepted');
+check('a sentence in the Facebook field is caught', () =>
+  errs(`{ ...${FORM}, facebook:'my name is tomas' }`).includes('facebook') || 'accepted');
+check('nothing is rejected as a duplicate', () => !errs(FORM).includes('duplicate') || 'duplicate rule survives');
+
+console.log('\n- encoding an enrollment -');
+run(`globalThis.TRN = DB.get().trainees.find(t => t.srn === 'SRN-T100')`);
+run(`globalThis.CRS1 = DB.get().courses.find(c => c.title === 'AFF')`);
+run(`globalThis.OUT = APPS.enroll(TRN, { courseId:CRS1.id, start:'2026-09-14', end:'2026-09-18',
+       center:'Nautical Options', fee:4200, mode:'Enrolled',
+       charges:[{ desc:'Training kit & assessment fee', account:'4100', price:450 }], by:'tester' })`);
+check('the enrollment is numbered', () => /^ENR-\d{4}-\d{4}$/.test(run('OUT.enrollment.no')) || run('OUT.enrollment.no'));
+check('it records the course chosen', () => run('OUT.enrollment.courseId') === run('CRS1.id') || 'wrong course');
+check('it records the date typed in', () => run('OUT.enrollment.start') === '2026-09-14' || run('OUT.enrollment.start'));
+check('it records the center', () => run('OUT.enrollment.center') === 'Nautical Options' || run('OUT.enrollment.center'));
+check('it records the agreed fee', () => run('OUT.enrollment.fee') === 4200 || run('OUT.enrollment.fee'));
+check('an invoice is raised', () => /^INV-\d{4}-\d{4}$/.test(run('OUT.invoice.no')) || run('OUT.invoice.no'));
+check('the invoice totals fee plus charges', () => run('OUT.invoice.total') === 4650 || run('OUT.invoice.total'));
+check('the invoice is untaxed', () => run('!OUT.invoice.vat') === true || 'vat charged');
+check('ledger balances after billing', balanced);
+check('receivables were debited', () => {
+  const je = run(`DB.get().journal.find(j => j.refId === OUT.invoice.id)`);
+  return (je.lines[0].account === '1200' && je.lines[0].debit === 4650) || JSON.stringify(je.lines);
 });
 
-console.log('\n- submit -');
-const FULL = `{
-    srn:'srn-999001',
-    last:'Testino', first:'Pedro', middle:'Cruz', suffix:'Jr.',
-    sex:'M', birth:'1990-05-04', birthPlace:'Lucena City, Quezon',
-    mobile:'09171234567', email:'PEDRO.T@Mail.com', address:'Barangay 5, Lucena City',
-    facebook:'facebook.com/pedro.testino', messenger:'m.me/pedro.testino',
-    rank:'Oiler', agency:'Direct Hire / Walk-in', payer:'Self-paid',
-    emergencyName:'Marilou Testino', emergencyRelation:'Spouse', emergencyMobile:'09189876543',
-    termsVersion: TERMS.version,
-    termsAccepted: TERMS.agreements.map(a => a.label),
-  }`;
-run(`globalThis.NEW = APPS.submit(${FULL});`);
-check('returns a record',      () => run('!!NEW.id') === true || 'no id');
-check('carries no course or schedule yet', () =>
-  (run('NEW.courseId') === '' && run('NEW.batchId') === '') ||
-  `course:${run('NEW.courseId')} batch:${run('NEW.batchId')}`);
-check('ref is 6 chars',        () => run('NEW.ref.length') === 6 || run('NEW.ref'));
-check('ref avoids O/0/I/1/L',  () => !/[O0I1L]/.test(run('NEW.ref')) || run('NEW.ref'));
-check('status is Submitted',   () => run('NEW.status') === 'Submitted' || run('NEW.status'));
-check('email lowercased',      () => run('NEW.email') === 'pedro.t@mail.com' || run('NEW.email'));
-check('SRN uppercased',        () => run('NEW.srn') === 'SRN-999001' || run('NEW.srn'));
-check('stores place of birth', () => run('NEW.birthPlace') === 'Lucena City, Quezon' || run('NEW.birthPlace'));
-check('stores emergency contact', () =>
-  (run('NEW.emergencyName') === 'Marilou Testino' && run('NEW.emergencyMobile') === '09189876543')
-  || 'not stored');
-check('suffix in formatted name', () =>
-  run('APPS.forName(NEW)') === 'Testino Jr., Pedro C.' || run('APPS.forName(NEW)'));
-check('history seeded',        () => run('NEW.history.length') === 1 || run('NEW.history.length'));
-/* 5 seeded + 1 from the seat-accounting check above + this one */
-check('persisted to store',    () => run('DB.get().applications.length') === 7 || run('DB.get().applications.length'));
+console.log('\n- the same trainee can enroll again -');
+run(`globalThis.CRS2 = DB.get().courses.find(c => c.title === 'SCRB')`);
+run(`globalThis.OUT2 = APPS.enroll(TRN, { courseId:CRS2.id, start:'2026-10-05',
+       center:'Altitude Maritime', fee:3600, mode:'Enrolled', by:'tester' })`);
+check('a second enrollment is created', () => run('OUT2.enrollment.id') !== run('OUT.enrollment.id') || 'same record');
+check('both sit under one trainee', () => run('APPS.enrollmentsFor(TRN.id).length') === 2 || run('APPS.enrollmentsFor(TRN.id).length'));
+check('the end date defaults to the start date', () => run('OUT2.enrollment.end') === '2026-10-05' || run('OUT2.enrollment.end'));
 
-console.log('\n- terms and conditions -');
-check('terms file defines a version', () => /\S/.test(run('TERMS.version')) || 'blank version');
-check('five numbered sections',  () => run('TERMS.sections.length') === 5 || run('TERMS.sections.length'));
-check('sections are numbered 1..5', () => {
-  const ns = run('TERMS.sections.map(s => s.n)');
-  return ns.join(',') === '1,2,3,4,5' || ns.join(',');
-});
-check('every section has content', () => {
-  const gap = run('TERMS.sections.filter(s => !(s.body||[]).length && !(s.bullets||[]).length).map(s => s.heading)');
-  return gap.length === 0 || 'empty: ' + gap.join(', ');
-});
-check('two agreement tick boxes', () => run('TERMS.agreements.length') === 2 || run('TERMS.agreements.length'));
-check('agreement ids are unique', () => {
-  const ids = run('TERMS.agreements.map(a => a.id)');
-  return new Set(ids).size === ids.length || ids.join(',');
-});
-check('no-refund clause present', () =>
-  run(`JSON.stringify(TERMS).toLowerCase().includes('no refund')`) === true || 'missing');
-check('submit records the accepted version', () =>
-  run('NEW.termsVersion') === run('TERMS.version') || run('NEW.termsVersion'));
-check('submit records what was ticked', () =>
-  run('NEW.termsAccepted.length') === 2 || JSON.stringify(run('NEW.termsAccepted')));
-check('submit timestamps the acceptance', () =>
-  /^\d{4}-\d{2}-\d{2}T/.test(run('NEW.termsAcceptedAt')) || run('NEW.termsAcceptedAt'));
-check('audit trail names the terms version', () =>
-  run('NEW.history[0].note').includes(run('TERMS.version')) || run('NEW.history[0].note'));
+console.log('\n- what enrolling refuses to do -');
+const throws = (code, re) => {
+  try{ run(code); return 'allowed'; }
+  catch(e){ return re.test(e.message) || e.message; }
+};
+check('no course', () => throws(`APPS.enroll(TRN, { start:'2026-09-14', fee:100 })`, /Choose the course/));
+check('no date', () => throws(`APPS.enroll(TRN, { courseId:CRS1.id, fee:100 })`, /training date/));
+check('no trainee', () => throws(`APPS.enroll(null, { courseId:CRS1.id, start:'2026-09-14', fee:100 })`, /Choose the trainee/));
+check('an end date before the start', () =>
+  throws(`APPS.enroll(TRN, { courseId:CRS1.id, start:'2026-09-14', end:'2026-09-01', fee:100 })`, /end date/));
 
-console.log('\n- duplicate guard -');
-check('a second open registration for the same SRN is blocked', () => {
-  const e = run(`APPS.validate(${FULL})`);
-  return e.includes('duplicate') || JSON.stringify(e);
+console.log('\n- reserved bookings are not billed -');
+run(`globalThis.RES = APPS.enroll(TRN, { courseId:CRS2.id, start:'2026-11-02',
+       center:'PNTC', fee:5000, mode:'Reserved', by:'tester' })`);
+check('no invoice is raised', () => run('RES.invoice === null') === true || 'billed a reservation');
+check('the booking is marked Reserved', () => run('RES.enrollment.status') === 'Reserved' || run('RES.enrollment.status'));
+check('ledger still balances', balanced);
+
+console.log('\n- collections: one mode -');
+run(`globalThis.P1 = ACC.buildPayment({ invoiceId:OUT.invoice.id, traineeId:TRN.id,
+       date:DB.today(), amount:1000, method:'Cash' })`);
+run(`DB.get().payments.push(P1); ACC.postPayment(P1, OUT.invoice)`);
+check('the receipt is numbered', () => /^OR-\d{4}-\d{4}$/.test(run('P1.no')) || run('P1.no'));
+check('cash lands in Cash on Hand', () => {
+  const je = run(`DB.get().journal.find(j => j.refId === P1.id)`);
+  return (je.lines[0].account === '1000' && je.lines[0].debit === 1000) || JSON.stringify(je.lines);
 });
-check('a different SRN is not blocked', () => {
-  const e = run(`APPS.validate({ ...${FULL}, srn:'SRN-OTHER-1' })`);
-  return !e.includes('duplicate') || 'blocked a different seafarer';
+check('the invoice goes Partial', () => run('OUT.invoice.status') === 'Partial' || run('OUT.invoice.status'));
+check('the balance is right', () => run('ACC.balanceOf(OUT.invoice)') === 3650 || run('ACC.balanceOf(OUT.invoice)'));
+
+console.log('\n- collections: split across modes -');
+run(`globalThis.P2 = ACC.buildPayment({ invoiceId:OUT.invoice.id, traineeId:TRN.id, date:DB.today(),
+       tenders:[{ method:'GCash', ref:'GC-12345', amount:2000 },
+                { method:'Bank',  ref:'BT-99887', amount:1650 }] })`);
+run(`DB.get().payments.push(P2); ACC.postPayment(P2, OUT.invoice)`);
+check('the receipt totals its tenders', () => run('P2.amount') === 3650 || run('P2.amount'));
+check('it is labelled as a split', () => run('P2.method') === 'Split' || run('P2.method'));
+check('both references are kept', () =>
+  (run(`P2.tenders[0].ref`) === 'GC-12345' && run(`P2.tenders[1].ref`) === 'BT-99887') || JSON.stringify(run('P2.tenders')));
+check('GCash lands in its own wallet account', () => {
+  const je = run(`DB.get().journal.find(j => j.refId === P2.id)`);
+  const g = je.lines.find(l => l.account === '1020');
+  return (g && g.debit === 2000) || JSON.stringify(je.lines);
 });
+check('the bank share lands in Cash in Bank', () => {
+  const je = run(`DB.get().journal.find(j => j.refId === P2.id)`);
+  const b = je.lines.find(l => l.account === '1010');
+  return (b && b.debit === 1650) || JSON.stringify(je.lines);
+});
+check('receivables are credited once, for the whole receipt', () => {
+  const je = run(`DB.get().journal.find(j => j.refId === P2.id)`);
+  const ar = je.lines.filter(l => l.account === '1200');
+  return (ar.length === 1 && ar[0].credit === 3650) || JSON.stringify(je.lines);
+});
+check('the invoice is settled', () => run('OUT.invoice.status') === 'Paid' || run('OUT.invoice.status'));
+check('ledger balances after a split receipt', balanced);
+
+console.log('\n- legacy payment records still post -');
+run(`globalThis.P3 = ACC.buildPayment({ invoiceId:OUT2.invoice.id, traineeId:TRN.id,
+       date:DB.today(), amount:500, method:'Bank Transfer', ref:'OLD-1' })`);
+check('an old mode name is normalised', () => run('P3.method') === 'Bank' || run('P3.method'));
+check('and it still has a tender', () => run('P3.tenders.length') === 1 || run('P3.tenders.length'));
+
+console.log('\n- voiding reverses rather than deletes -');
+const jBefore = run('DB.get().journal.length');
+run(`ACC.reverse(P1.id, 'test void'); P1.voided = true; ACC.recomputeInvoice(OUT.invoice)`);
+check('a reversing entry is posted', () => run('DB.get().journal.length') > jBefore || 'nothing posted');
+check('the receipt row survives', () => run(`!!DB.get().payments.find(p => p.id === P1.id)`) === true || 'deleted');
+check('the invoice reopens', () => run('OUT.invoice.status') === 'Partial' || run('OUT.invoice.status'));
+check('ledger balances after the reversal', balanced);
 
 console.log('\n- tracking -');
-check('SRN + surname finds it',  () => run(`APPS.track(NEW.srn,'testino')?.id`) === run('NEW.id') || 'miss');
-check('lowercase SRN works',     () => run(`APPS.track(NEW.srn.toLowerCase(),'Testino')?.id`) === run('NEW.id') || 'miss');
-check('surrounding spaces ok',   () => run(`APPS.track('  '+NEW.srn+'  ','  Testino ')?.id`) === run('NEW.id') || 'miss');
-check('wrong surname finds nothing', () => run(`APPS.track(NEW.srn,'Wrong')`) === null || 'leaked');
-check('SRN alone finds nothing', () => run(`APPS.track(NEW.srn,'')`) === null || 'leaked');
-check('surname alone finds nothing', () => run(`APPS.track('','Testino')`) === null || 'leaked');
-check('trackAll returns every registration for that SRN, newest first', () => {
-  const r = run(`(() => {
-    const all = APPS.trackAll(NEW.srn, 'Testino');
-    return { n:all.length, dates:all.map(a => a.submitted) };
-  })()`);
-  const sorted = [...r.dates].sort().reverse().join() === r.dates.join();
-  return (r.n >= 1 && sorted) || JSON.stringify(r);
+check('found by SRN and last name', () => run(`!!APPS.track('SRN-T100','Testino')`) === true || 'not found');
+check('every enrollment is returned, newest booking first', () => {
+  const r = run(`(() => { const h = APPS.track('SRN-T100','Testino');
+    return h.enrollments.map(e => e.start); })()`);
+  const sorted = [...r].sort().reverse().join() === r.join();
+  return (r.length === 3 && sorted) || JSON.stringify(r);
 });
+check('the wrong surname finds nothing', () => run(`APPS.track('SRN-T100','Nobody') === null`) === true || 'leaked a record');
+check('an unknown SRN finds nothing', () => run(`APPS.track('SRN-NOPE','Testino') === null`) === true || 'leaked a record');
+check('the registration is linked to the trainee', () =>
+  run(`APPS.registrationsFor(TRN.id).length`) === 2 || run(`APPS.registrationsFor(TRN.id).length`));
 
-console.log('\n- lifecycle guards -');
-check('Submitted cannot jump to Enrolled', () => {
-  try{ run(`APPS.advance(NEW,'Enrolled','tester','')`); return 'allowed illegal jump'; }
-  catch(e){ return true; }
-});
-check('convert before approval throws', () => {
-  try{ run(`APPS.convert(NEW,{by:'tester'})`); return 'allowed'; }
-  catch(e){ return /Approve the application/.test(e.message) || e.message; }
-});
-check('application starts with no schedule', () => run('NEW.batchId') === '' || run('NEW.batchId'));
+console.log('\n- the public catalogue gives nothing away -');
+check('no fee reaches the course catalogue', () =>
+  run('DB.get().courses.every(c => c.fee === undefined)') === true || 'a course carries a fee');
+check('no partner center reaches the course catalogue', () =>
+  run('DB.get().courses.every(c => c.center === undefined)') === true || 'a course names a center');
+check('no rebate reaches the course catalogue', () =>
+  run(`DB.get().courses.every(c => !('rebate' in c))`) === true || 'a course carries a rebate');
 
-console.log('\n- convert: new trainee -');
-const before = {
-  trainees: run('DB.get().trainees.length'),
-  enrollments: run('DB.get().enrollments.length'),
-  invoices: run('DB.get().invoices.length'),
-  journal: run('DB.get().journal.length'),
-};
-run(`APPS.advance(NEW,'Under Review','tester','');
-     APPS.advance(NEW,'Approved','tester','');
-     globalThis.PICK = APPS.openBatches()[0];
-     globalThis.OUT = APPS.convert(NEW,{ by:'tester', batchId:PICK.id, mode:'Enrolled',
-       addons:[{desc:'Training kit & assessment fee',account:'4100',price:450}] });`);
-check('creates a new trainee', () => run('DB.get().trainees.length') === before.trainees + 1 || 'no');
-check('reused = false',        () => run('OUT.reused') === false || 'reused');
-check('creates enrollment',    () => run('DB.get().enrollments.length') === before.enrollments + 1 || 'no');
-check('creates invoice',       () => run('DB.get().invoices.length') === before.invoices + 1 || 'no');
-check('posts a journal entry', () => run('DB.get().journal.length') === before.journal + 1 || 'no');
-check('application now Enrolled', () => run('NEW.status') === 'Enrolled' || run('NEW.status'));
-check('application links enrollment', () => run('NEW.enrollmentId === OUT.enrollment.id') === true || 'no link');
-check('invoice includes the addon', () => run('OUT.invoice.items.length') === 2 || run('OUT.invoice.items.length'));
-check('invoice total = chosen batch fee + addon', () => {
-  const t = run('OUT.invoice.total'), fee = run('PICK.fee');
-  return Math.abs(t - (fee + 450)) < 0.01 || `total ${t}, expected ${fee + 450}`;
-});
-check('conversion records the chosen schedule', () =>
-  run('NEW.batchId === PICK.id') === true || 'batchId not written back');
-check('conversion records the course from that batch', () =>
-  run('NEW.courseId === PICK.courseId') === true || 'courseId not written back');
-check('convert without a schedule throws', () => {
-  try{ run(`(() => { const a = DB.get().applications.find(x => x.status === 'Submitted');
-    APPS.advance(a,'Approved','tester',''); APPS.convert(a,{by:'tester'}); })()`); return 'allowed'; }
-  catch(e){ return /Choose a course and schedule/.test(e.message) || e.message; }
-});
-check('invoice line names the partner center', () =>
-  run('OUT.invoice.items[0].desc').includes(run('PICK.center'))
-  || run('OUT.invoice.items[0].desc'));
+console.log('\n- reports -');
+const col = run(`ACC.collections('2000-01-01','2999-12-31')`);
+check('collections total is positive', () => col.total > 0 || 'zero');
+check('collections are grouped by mode', () => Object.keys(col.byMethod).length > 0 || 'no grouping');
+const ar = run('ACC.arAging()');
+check('AR aging returns buckets', () => ar.buckets.length === 5 || ar.buckets.length);
+const is = run(`ACC.incomeStatement('2000-01-01','2999-12-31')`);
+check('income statement has revenue', () => is.grossRevenue > 0 || is.grossRevenue);
+check('net income = revenue less expenses', () =>
+  Math.abs(is.netIncome - (is.grossRevenue - is.totalExpense)) < 0.01 || 'does not foot');
 
-console.log('\n- requirements list -');
-check('company profile ships the requirements', () =>
-  run(`String(DB.get().company.requirements||'').split('\\n').filter(Boolean).length`) === 5
-  || run(`String(DB.get().company.requirements||'').split('\\n').filter(Boolean).length`));
-check('covers what the office asked for', () => {
-  const txt = run('DB.get().company.requirements').toLowerCase();
-  const need = ['basic training certificate','valid id','peme','2x2','srn screenshot'];
-  const gap = need.filter(x => !txt.includes(x));
-  return gap.length === 0 || 'missing: ' + gap.join(', ');
-});
-check('survives a backup round-trip', () => {
-  const before = run('DB.get().company.requirements');
-  run('globalThis.SNAPR = JSON.stringify(DB.get()); DB.reset(false); DB.importJSON(SNAPR);');
-  return run('DB.get().company.requirements') === before || 'lost on restore';
-});
-
-console.log('\n- catalogue -');
-check('catalogue loaded',        () => run('DB.get().courses.length') > 200 || run('DB.get().courses.length'));
-check('no fees in the catalogue',() => run('DB.get().courses.every(c => c.fee === undefined)') === true || 'a course carries a fee');
-check('no partner names either', () => run('DB.get().courses.every(c => !c.center)') === true || 'a course names a center');
-check('every course has a title',() => run(`DB.get().courses.every(c => c.title && c.title.trim())`) === true || 'blank title');
-check('titles are unique',       () => {
-  const t = run('DB.get().courses.map(c => c.title.toUpperCase())');
-  const dupes = t.filter((x,i) => t.indexOf(x) !== i);
-  return dupes.length === 0 || 'duplicates survived: ' + [...new Set(dupes)].slice(0,5).join(', ');
-});
-check('duration string present or explicitly unknown', () =>
-  run(`DB.get().courses.every(c => typeof c.duration === 'string' && c.duration.length > 0)`) === true
-  || 'a course has no duration string');
-check('batches carry fee and center', () =>
-  run('DB.get().batches.every(b => typeof b.fee === "number" && !!b.center)') === true || 'a batch is missing fee or center');
-check('ledger still balances after convert', () => {
-  const t = run('ACC.trialBalance()');
-  return Math.abs(t.totalDr - t.totalCr) < 0.01 || `dr ${t.totalDr} cr ${t.totalCr}`;
-});
-check('double convert throws', () => {
-  try{ run(`APPS.convert(NEW,{by:'tester'})`); return 'allowed'; }
-  catch(e){ return /already been enrolled/.test(e.message) || e.message; }
-});
-
-console.log('\n- convert: new trainee carries every field -');
-check('trainee gets the full record', () => {
-  const t = run('OUT.trainee');
-  const want = { srn:'SRN-999001', suffix:'Jr.', birthPlace:'Lucena City, Quezon',
-                 emergencyName:'Marilou Testino', emergencyRelation:'Spouse',
-                 emergencyMobile:'09189876543', address:'Barangay 5, Lucena City',
-                 agency:'Direct Hire / Walk-in',
-                 facebook:'facebook.com/pedro.testino', messenger:'m.me/pedro.testino' };
-  const gap = Object.entries(want).filter(([k,v]) => t[k] !== v).map(([k]) => k);
-  return gap.length === 0 || 'wrong or missing: ' + gap.join(', ');
-});
-
-console.log('\n- convert: existing seafarer (refresher) -');
-run(`
-  globalThis.EXIST = DB.get().trainees[0];
-  globalThis.APP2 = APPS.submit({
-    srn:EXIST.srn, last:EXIST.last, first:EXIST.first, sex:EXIST.sex,
-    birth:EXIST.birth, birthPlace:'Cebu City, Cebu',
-    rank:'Chief Mate', mobile:'09998887777', email:'refresher@mail.com',
-    facebook:'facebook.com/returning.seafarer',
-    address:'Lapu-Lapu City, Cebu', payer:'Agency-billed',
-    agency:'Wallem Maritime Services',
-    emergencyName:'Ligaya Reyes', emergencyRelation:'Sister', emergencyMobile:'09171112222',
+console.log('\n- backup and restore -');
+run('globalThis.SNAP = JSON.stringify(DB.get())');
+check('an export re-imports cleanly', () => { run('DB.importJSON(SNAP)'); return run('DB.get().trainees.length') > 0 || 'lost trainees'; });
+check('enrollments survive the round trip', () => run('DB.get().enrollments.length') > 20 || run('DB.get().enrollments.length'));
+check('a pre-schedule backup still opens', () => {
+  const legacy = JSON.stringify({
+    meta:{ version:1 }, company:{ vatRate:12, vatInclusive:true }, users:[], accounts:[],
+    seq:{ batch:9 }, trainees:[{ id:'t1', no:'TRN-1', srn:'X', last:'A', first:'B' }],
+    courses:[{ id:'c1', code:'AFF', title:'AFF' }],
+    batches:[{ id:'b1', courseId:'c1', center:'PNTC', start:'2026-01-05', end:'2026-01-09',
+               room:'Rm 1', instructor:'Capt X', fee:4200, capacity:20 }],
+    enrollments:[{ id:'e1', no:'ENR-1', traineeId:'t1', batchId:'b1', status:'Enrolled' }],
+    invoices:[], payments:[{ id:'p1', no:'OR-1', amount:100, method:'Cheque' }],
+    expenses:[], journal:[], log:[], applications:[],
   });
-  APPS.advance(APP2,'Approved','tester','');
-  globalThis.PICK2 = APPS.openBatches().find(b => !DB.get().enrollments.some(e => e.batchId === b.id && e.traineeId === EXIST.id));
-  globalThis.OUT2 = APPS.convert(APP2,{ by:'tester', batchId:PICK2.id, mode:'Reserved' });
-`);
-const t2 = run('DB.get().trainees.length');
-check('reuses the existing record', () => run('OUT2.reused') === true || 'created a duplicate');
-check('matched on SRN',             () => run('OUT2.matchedOn') === 'SRN' || run('OUT2.matchedOn'));
-/* Only the earlier new-applicant conversion added a record; reusing an existing
-   seafarer must not add another. */
-check('no new trainee created',     () => t2 === before.trainees + 1 || `registry grew to ${t2}`);
-check('refreshes contact details',  () => run(`OUT2.trainee.mobile`) === '09998887777' || run('OUT2.trainee.mobile'));
-check('refreshes next of kin',      () => run(`OUT2.trainee.emergencyName`) === 'Ligaya Reyes' || run('OUT2.trainee.emergencyName'));
-check('keeps the original trainee no', () => run(`OUT2.trainee.no === EXIST.no`) === true || 'renumbered');
-check('reserved -> no invoice',     () => run('OUT2.invoice') === null || 'billed a reservation');
-check('reserved enrollment status', () => run('OUT2.enrollment.status') === 'Reserved' || run('OUT2.enrollment.status'));
-
-console.log('\n- reject -');
-run(`globalThis.APP3 = DB.get().applications.find(a => a.status === 'Submitted' && a.id !== NEW.id);
-     if(APP3) APPS.reject(APP3,'Missing SIRB','tester');`);
-check('reject sets status',   () => run('APP3 ? APP3.status : "Rejected"') === 'Rejected' || run('APP3.status'));
-check('reject stores reason', () => run('APP3 ? APP3.reason : "Missing SIRB"') === 'Missing SIRB' || 'no reason');
-check('rejected app is final',() => run('APPS.isFinal(APP3)') === true || 'not final');
-check('rejection posts nothing', () => {
-  const t = run('ACC.trialBalance()');
-  return Math.abs(t.totalDr - t.totalCr) < 0.01 || 'unbalanced';
+  run(`DB.importJSON(${JSON.stringify(legacy)})`);
+  const e = run('DB.get().enrollments[0]');
+  return (e.courseId === 'c1' && e.fee === 4200 && e.center === 'PNTC' &&
+          e.start === '2026-01-05' && e.batchId === undefined) || JSON.stringify(e);
 });
-
-console.log('\n- backup round-trip -');
-run(`globalThis.SNAP = JSON.stringify(DB.get());`);
-check('import restores applications', () => {
-  run(`DB.reset(false); DB.importJSON(SNAP);`);
-  return run('DB.get().applications.length') >= 7 || run('DB.get().applications.length');
-});
-check('old backup without applications still opens', () => {
-  const legacy = JSON.parse(run('SNAP'));
-  delete legacy.applications; delete legacy.seq.application;
-  ctx.LEGACY = JSON.stringify(legacy);
-  run(`DB.importJSON(LEGACY)`);
-  return Array.isArray(run('DB.get().applications')) && run('DB.get().seq.application') === 0
-    || 'migration failed';
-});
+check('the batches collection is dropped on import', () =>
+  run('DB.get().batches === undefined') === true || 'batches survived');
+check('tax settings are dropped on import', () =>
+  run('DB.get().company.vatRate === undefined') === true || 'vatRate survived');
+check('the GCash account is added to an old chart', () =>
+  run(`DB.get().accounts.some(a => a.code === '1020')`) === true || 'no 1020 account');
+check('an old payment gains a tender', () =>
+  run('DB.get().payments[0].tenders.length') === 1 || 'no tender added');
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

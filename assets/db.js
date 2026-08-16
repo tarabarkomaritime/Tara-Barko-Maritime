@@ -10,8 +10,8 @@ const DB = (() => {
   const COA = [
     { code:'1000', name:'Cash on Hand',            type:'Asset',     nature:'debit'  },
     { code:'1010', name:'Cash in Bank',            type:'Asset',     nature:'debit'  },
+    { code:'1020', name:'GCash Wallet',             type:'Asset',     nature:'debit'  },
     { code:'1200', name:'Accounts Receivable',     type:'Asset',     nature:'debit'  },
-    { code:'2100', name:'Output VAT Payable',      type:'Liability', nature:'credit' },
     { code:'2200', name:'Unearned Training Fees',  type:'Liability', nature:'credit' },
     { code:'3000', name:"Owner's Equity",          type:'Equity',    nature:'credit' },
     { code:'4000', name:'Training Fees Revenue',   type:'Revenue',   nature:'credit' },
@@ -34,8 +34,8 @@ const DB = (() => {
 
   /* Which modules each role may open. Admin sees everything. */
   const PERMS = {
-    admin:      ['dashboard','admissions','trainees','courses','batches','enrollments','invoices','payments','expenses','ledger','reports','settings'],
-    registrar:  ['dashboard','admissions','trainees','courses','batches','enrollments','invoices','reports'],
+    admin:      ['dashboard','trainees','courses','enrollments','invoices','payments','expenses','ledger','reports','settings'],
+    registrar:  ['dashboard','trainees','courses','enrollments','invoices','reports'],
     cashier:    ['dashboard','trainees','enrollments','invoices','payments','reports'],
     accounting: ['dashboard','invoices','payments','expenses','ledger','reports','settings'],
   };
@@ -62,8 +62,6 @@ const DB = (() => {
       '2x2 Photo',
       'SRN Screenshot',
     ].join('\n'),
-    vatRate:12,
-    vatInclusive:true,
     fiscalYear:new Date().getFullYear(),
   };
 
@@ -78,9 +76,9 @@ const DB = (() => {
       company:{ ...DEFAULT_COMPANY },
       users:USERS.map(u => ({...u})),
       accounts:COA.map(a => ({...a})),
-      seq:{ trainee:0, course:0, batch:0, enrollment:0, invoice:0, receipt:0, voucher:0, journal:0, application:0 },
+      seq:{ trainee:0, course:0, enrollment:0, invoice:0, receipt:0, voucher:0, journal:0, application:0 },
       applications:[],
-      trainees:[], courses:[], batches:[], enrollments:[],
+      trainees:[], courses:[], enrollments:[],
       invoices:[], payments:[], expenses:[], journal:[],
       log:[],
     };
@@ -113,6 +111,53 @@ const DB = (() => {
     /* The company endorses seafarers to accredited partner centers; it does not
        hold an accreditation of its own, so the field is retired outright. */
     delete d.company.accreditation;
+
+    /* ---- schedules folded into enrollments ----
+       A batch used to hold the course, the dates, the partner center and the
+       fee, and an enrollment pointed at one. Enrollments now carry those four
+       fields themselves, booked per trainee. Copy them across before the
+       batches go, or every historical enrollment loses its course and price. */
+    if(Array.isArray(d.batches)){
+      const byId = Object.fromEntries(d.batches.map(b => [b.id, b]));
+      (d.enrollments || []).forEach(e => {
+        const b = byId[e.batchId];
+        if(!b) return;
+        if(!e.courseId) e.courseId = b.courseId;
+        if(e.center == null) e.center = b.center;
+        if(e.start  == null) e.start  = b.start;
+        if(e.end    == null) e.end    = b.end;
+        if(e.room   == null) e.room   = b.room;
+        if(e.instructor == null) e.instructor = b.instructor;
+        if(e.fee == null) e.fee = b.fee;
+        delete e.batchId;
+      });
+      delete d.batches;
+    }
+    (d.applications || []).forEach(a => { delete a.batchId; });
+    delete d.seq.batch;
+
+    /* ---- no VAT, no other taxes ---- */
+    delete d.company.vatRate;
+    delete d.company.vatInclusive;
+
+    /* GCash is reconciled against a GCash statement, so it needs its own
+       account. Stores created before that will have posted GCash into Cash in
+       Bank; those entries stay where they are — rewriting posted journal lines
+       would falsify a closed period. New collections land in 1020. */
+    d.accounts = d.accounts || [];
+    if(!d.accounts.some(a => a.code === '1020')){
+      const at = d.accounts.findIndex(a => a.code === '1200');
+      const row = { code:'1020', name:'GCash Wallet', type:'Asset', nature:'debit' };
+      at >= 0 ? d.accounts.splice(at, 0, row) : d.accounts.push(row);
+    }
+
+    /* A receipt may now be settled in several tenders. One-mode receipts get a
+       single tender so every reader can assume the array is there. */
+    (d.payments || []).forEach(p => {
+      if(!Array.isArray(p.tenders) || !p.tenders.length){
+        p.tenders = [{ method:p.method || 'Cash', ref:p.ref || '', amount:p.amount }];
+      }
+    });
     return d;
   }
 
@@ -193,32 +238,28 @@ const DB = (() => {
     const before = (date,n) => { const d = new Date(date); d.setDate(d.getDate()-n); const s = d.toISOString().slice(0,10); return s > today() ? today() : s; };
     const after  = (date,n) => { const d = new Date(date); d.setDate(d.getDate()+n); const s = d.toISOString().slice(0,10); return s > today() ? today() : s; };
 
-    /* A batch is a booking of seats on a dated run at a named partner center, so
-       it carries the fee and the capacity. Two centers running the same course in
-       the same week are two batches at two prices — which is the business. */
-    let bseq = 0;
-    const B = (title, startOffset, center, room, instr, fee, cap, status) => {
+    /* A booking is a dated run of one course at one partner center, at the price
+       agreed for it. There is no seat inventory and no shared schedule: the
+       registrar books each trainee individually, so these rows exist only to
+       give the seeded enrollments somewhere realistic to have been booked. */
+    const RUNS = [
+      ['BASIC TRAINING',              -30, 'Nautical Options',  'Pool / Rm 201', 'Capt. R. Villanueva',  5500],
+      ['SSO - SHIP SECURITY OFFICER', -18, 'PNTC',              'Rm 305',        'Capt. M. Delos Reyes', 2700],
+      ['MEFA - MEDICAL FIRST AID',     -6, 'Altitude Maritime', 'Rm 202',        'Dr. L. Sarmiento',     1600],
+      ['BASIC TRAINING',               -2, 'Fareast',           'Pool / Rm 201', 'Capt. R. Villanueva',  6500],
+      ['AFF',                           1, 'Nautical Options',  'Fire Ground',   'CE J. Bautista',       4200],
+      ['SCRB',                          2, 'Altitude Maritime', 'Pool / Rm 204', 'Capt. R. Villanueva',  3600],
+      ['DECK WATCHKEEPING',            15, 'PNTC',              'Simulator A',   'Capt. A. Ocampo',      3700],
+      ['SATSDSD',                      21, 'Great Seas',        'Rm 305',        'Capt. M. Delos Reyes',  700],
+      ['MECA - MEDICAL CARE',          28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400],
+    ].map(([title, off, center, room, instr, fee]) => {
       const c = crs(title);
       /* The seed names real catalogue entries. If one stops matching, the import
          renamed it — fail loudly rather than seeding a half-empty demo. */
       if(!c) throw new Error(`seed: no catalogue entry titled "${title}" — check tools/import-courses.js output`);
-      const s = dOff(startOffset), days = c.days || 1;
-      data.seq.batch++; bseq++;
-      return { id:uid('bat'), no:`${c.code}-${String(data.seq.batch).padStart(3,'0')}`,
-               courseId:c.id, start:s, end:end(s, Math.ceil(days)),
-               center, room, instructor:instr, fee, capacity:cap, status };
-    };
-    data.batches = [
-      B('BASIC TRAINING',              -30, 'Nautical Options',  'Pool / Rm 201', 'Capt. R. Villanueva',  5500, 30, 'Completed'),
-      B('SSO - SHIP SECURITY OFFICER', -18, 'PNTC',              'Rm 305',        'Capt. M. Delos Reyes', 2700, 30, 'Completed'),
-      B('MEFA - MEDICAL FIRST AID',     -6, 'Altitude Maritime', 'Rm 202',        'Dr. L. Sarmiento',     1600, 25, 'Ongoing'),
-      B('BASIC TRAINING',               -2, 'Fareast',           'Pool / Rm 201', 'Capt. R. Villanueva',  6500, 30, 'Ongoing'),
-      B('AFF',                           4, 'Nautical Options',  'Fire Ground',   'CE J. Bautista',       4200, 24, 'Open'),
-      B('SCRB',                          9, 'Altitude Maritime', 'Pool / Rm 204', 'Capt. R. Villanueva',  3600, 20, 'Open'),
-      B('DECK WATCHKEEPING',            15, 'PNTC',              'Simulator A',   'Capt. A. Ocampo',      3700, 16, 'Open'),
-      B('SATSDSD',                      21, 'Great Seas',        'Rm 305',        'Capt. M. Delos Reyes',  700, 40, 'Open'),
-      B('MECA - MEDICAL CARE',          28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400, 16, 'Open'),
-    ].filter(Boolean);
+      const start = dOff(off);
+      return { course:c, start, end:end(start, Math.ceil(c.days || 1)), center, room, instructor:instr, fee };
+    });
 
     const names = [
       ['Juan Miguel','Dela Cruz','M','Able Seaman'], ['Ramon','Bautista','M','Oiler'],
@@ -277,14 +318,15 @@ const DB = (() => {
     ];
 
     enrollPlan.forEach(([bi,ti,status,result],i) => {
-      const b = data.batches[bi], t = data.trainees[ti], c = data.courses.find(x=>x.id===b.courseId);
+      const b = RUNS[bi], t = data.trainees[ti], c = b.course;
       const discount = (i % 7 === 0) ? r2(b.fee * 0.10) : 0;   // occasional company discount
       const regDate = before(b.start, 4 + (i % 9));
       data.seq.enrollment++;
       const enr = {
         id:uid('enr'),
         no:`ENR-${new Date().getFullYear()}-${String(data.seq.enrollment).padStart(4,'0')}`,
-        traineeId:t.id, batchId:b.id, courseId:c.id,
+        traineeId:t.id, courseId:c.id,
+        center:b.center, start:b.start, end:b.end, room:b.room, instructor:b.instructor,
         date: regDate, status, result,
         fee:b.fee, discount, discountNote: discount ? 'Company package rate' : '',
         certificateNo: result === 'Passed' ? `TBM-${c.code}-${String(9000+i)}` : '',
@@ -308,7 +350,8 @@ const DB = (() => {
       if(mode !== 4){
         const amt = mode === 3 ? r2(inv.total * 0.5) : inv.total;
         const p = ACC.buildPayment({ invoiceId:inv.id, traineeId:t.id, date:after(enr.date, i % 5),
-          amount:amt, method:['Cash','GCash','Bank Transfer','Cash'][i%4], ref:'' });
+          amount:amt, method:['Cash','GCash','Bank','Cash'][i%4],
+          ref:['','GC-' + (700000+i*37),'BT-' + (880000+i*53),''][i%4] });
         data.payments.push(p);
         ACC.postPayment(p, inv);
       }
@@ -322,58 +365,53 @@ const DB = (() => {
       data.expenses.push(v);
       ACC.postExpense(v);
     };
-    EX(dOff(-28),'Capt. R. Villanueva','5000',12000,'Instructor honorarium — BT batch','Bank Transfer');
+    EX(dOff(-28),'Capt. R. Villanueva','5000',12000,'Instructor honorarium — BASIC TRAINING run','Bank');
     EX(dOff(-26),'Seatech Supplies Inc.','5100',5450,'Lifejackets, flares and training consumables','Cash');
-    EX(dOff(-25),'Kalaw Realty Corp.','5200',22000,'Office and training room rent','Bank Transfer');
-    EX(dOff(-20),'Payroll','5300',18000,'Administrative staff salaries','Bank Transfer');
+    EX(dOff(-25),'Kalaw Realty Corp.','5200',22000,'Office and training room rent','Bank');
+    EX(dOff(-20),'Payroll','5300',18000,'Administrative staff salaries','Bank');
     EX(dOff(-15),'City of Manila','5400',6500,'Business permit and licence renewal','Cash');
-    EX(dOff(-9), 'Dr. L. Sarmiento','5000',8000,'Instructor honorarium — MEFA batch','Bank Transfer');
-    EX(dOff(-4), 'Meralco / Maynilad','5200',4800,'Electricity and water','Bank Transfer');
+    EX(dOff(-9), 'Dr. L. Sarmiento','5000',8000,'Instructor honorarium — MEFA run','Bank');
+    EX(dOff(-4), 'Meralco / Maynilad','5200',4800,'Electricity and water','Bank');
 
-    /* Applications waiting at the registrar's desk — these arrive from the public
-       portal, so the seed puts a few in the queue at different stages. */
+    /* People who registered on the public portal and have not been booked on
+       anything yet. There is no approval queue any more: a public registration
+       creates the seafarer's master record straight away, and the registrar
+       finds them by searching Trainees and encodes an enrollment. */
     const PLACES = ['Navotas, Metro Manila','Lucena City, Quezon','Dumaguete City, Negros Oriental',
                     'Tacloban City, Leyte','Iloilo City, Iloilo'];
     const KIN = [['Marilou','Spouse'],['Rosario','Mother'],['Editha','Spouse'],
                  ['Ligaya','Sister'],['Corazon','Mother']];
 
-    const AP = (_unused, [fn,ln,mn,sfx,sex,rank,agency], daysAgo, status, extra) => {
-      data.seq.application++;
-      const i = data.seq.application - 1;
+    const WALKUP = (i, [fn,ln,mn,sfx,sex,rank,agency], daysAgo) => {
       const [kin, rel] = KIN[i % KIN.length];
-      const app = {
-        id:uid('app'),
-        no:`APP-${new Date().getFullYear()}-${String(data.seq.application).padStart(4,'0')}`,
-        ref:['K7QX2M','R4HB9T','P2LN6V','W8DC3Y','M5TG7J'][i] || uid('R').slice(2,8).toUpperCase(),
-        submitted:dOff(-daysAgo), channel:'Public Portal', status,
-        /* Applicants register their details only. The Registrar settles the
-           course with them, then picks the batch — which fixes both. */
-        courseId:'', batchId:'',
+      const handle = `${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase().replace(/s+/g,'')}`;
+      data.seq.trainee++;
+      data.trainees.push({
+        id:uid('trn'),
+        no:`TRN-${new Date().getFullYear()}-${String(data.seq.trainee).padStart(4,'0')}`,
         srn:`SRN-${400000 + daysAgo*311}`,
         last:ln, first:fn, middle:mn, suffix:sfx,
         sex, birth:`199${daysAgo%10}-0${(daysAgo%9)+1}-1${daysAgo%9}`,
         birthPlace:PLACES[i % PLACES.length],
-        mobile:`0917${String(2000000 + daysAgo*13579).slice(0,7)}`,
-        email:`${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase().replace(/\s+/g,'')}@mail.com`,
-        facebook:`facebook.com/${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase().replace(/\s+/g,'')}`,
-        messenger:i % 2 ? `m.me/${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase().replace(/\s+/g,'')}` : '',
-        address:PLACES[i % PLACES.length],
+        sirb:'', passport:'',
         rank, agency,
+        mobile:`0917${String(2000000 + daysAgo*13579).slice(0,7)}`,
+        email:`${handle}@mail.com`,
+        facebook:`facebook.com/${handle}`,
+        messenger:i % 2 ? `m.me/${handle}` : '',
+        address:PLACES[i % PLACES.length],
         emergencyName:`${kin} ${ln}`, emergencyRelation:rel,
         emergencyMobile:`0918${String(3000000 + daysAgo*24680).slice(0,7)}`,
-        traineeId:'', enrollmentId:'', decidedBy:'', decidedOn:'', reason:'',
-        history:[{ ts:dOff(-daysAgo)+'T09:00:00.000Z', status:'Submitted', by:'Public Portal', note:'Application received online' }],
-        ...(extra||{}),
-      };
-      data.applications.push(app);
-      return app;
+        registered:dOff(-daysAgo),
+        source:'Public portal',
+        remarks:'',
+      });
     };
-    AP(4, ['Dante','Herrera','Cruz','Jr.','M','Able Seaman','Magsaysay Maritime Corp.'],    2, 'Submitted');
-    AP(6, ['Melchor','Bagtas','Reyes','','M','2nd Officer','Anglo-Eastern Crew Mgmt'],      3, 'Submitted');
-    AP(7, ['Ivy Rose','Del Rosario','Santos','','F','Messman','Direct Hire / Walk-in'],     5, 'Under Review');
-    AP(5, ['Warren','Ocampo','Lim','III','M','Bosun','Wallem Maritime Services'],           6, 'Under Review');
-    AP(8, ['Elmer','Bacani','Torres','','M','Radio Officer','Scanmar Maritime Services'],   8, 'Rejected',
-       { reason:'Incomplete SIRB details — applicant asked to re-submit.', decidedBy:'Registrar Desk', decidedOn:dOff(-7) });
+    WALKUP(0, ['Dante','Herrera','Cruz','Jr.','M','Able Seaman','Magsaysay Maritime Corp.'],   2);
+    WALKUP(1, ['Melchor','Bagtas','Reyes','','M','2nd Officer','Anglo-Eastern Crew Mgmt'],     3);
+    WALKUP(2, ['Ivy Rose','Del Rosario','Santos','','F','Messman','Direct Hire / Walk-in'],    5);
+    WALKUP(3, ['Warren','Ocampo','Lim','III','M','Bosun','Wallem Maritime Services'],          6);
+    WALKUP(4, ['Elmer','Bacani','Torres','','M','Radio Officer','Scanmar Maritime Services'],  8);
 
     activity('Seeded demo data','');
   }
