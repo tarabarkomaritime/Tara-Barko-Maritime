@@ -8,14 +8,14 @@ const state = { view:'dashboard', sub:'', q:{} };
    out of the terms and conditions: a reschedule, a make-up class and a
    cancellation all cost the trainee money, so they have to be billable rather
    than settled in a chat thread. Editable under Settings. */
+/* Fallback only — the real list is maintained by the admin under Settings and
+   lives on the company profile. These three come out of the terms and
+   conditions: a reschedule, a make-up class and a cancellation all cost the
+   trainee money, so they have to be billable rather than settled in a chat. */
 const DEFAULT_ADDONS = [
-  { desc:'Training kit & assessment fee', account:'4100', price:450 },
-  { desc:'ID & certificate processing',   account:'4100', price:250 },
-  { desc:'Accident insurance coverage',   account:'4100', price:150 },
-  { desc:'Course manual / workbook',      account:'4100', price:350 },
-  { desc:'Rescheduling fee',              account:'4100', price:500 },
-  { desc:'Make-up class fee',             account:'4100', price:800 },
-  { desc:'Cancellation fee',              account:'4100', price:500 },
+  { desc:'Rescheduling fee',  account:'4100', price:500 },
+  { desc:'Make-up class fee', account:'4100', price:800 },
+  { desc:'Cancellation fee',  account:'4100', price:500 },
 ];
 
 const NAV = [
@@ -88,9 +88,19 @@ function traineeBalance(tid){
 }
 
 /* ================= LOGIN ================= */
+/* The sign-in list is rebuilt rather than written once: an account added in
+   Settings has to be usable without reloading the page. */
+function fillLoginList(){
+  const sel = document.getElementById('loginUser');
+  if(!sel) return;
+  const keep = sel.value;
+  sel.innerHTML = D().users.map(u => `<option value="${u.id}">${UI.esc(u.name)} — ${u.role}</option>`).join('');
+  if(keep && D().users.some(u => u.id === keep)) sel.value = keep;
+}
+
 function initLogin(){
   const sel = document.getElementById('loginUser');
-  sel.innerHTML = D().users.map(u => `<option value="${u.id}">${UI.esc(u.name)} — ${u.role}</option>`).join('');
+  fillLoginList();
   const go = () => {
     const u = D().users.find(x => x.id === sel.value);
     const pass = document.getElementById('loginPass').value.trim();
@@ -183,13 +193,13 @@ VIEWS.dashboard = () => {
     .sort((x,y) => String(x.center||'').localeCompare(String(y.center||'')));
 
   /* --- money in and money out, by the channel it moved through --- */
-  const CHANNELS = ['Cash','GCash','Bank'];
+  const CHANNELS = ACC.methodNames();
   const received = {}; CHANNELS.forEach(m => received[m] = 0);
   let receivedTotal = 0, receiptCount = 0;
   d.payments.filter(p => !p.voided && p.date === on).forEach(p => {
     receiptCount++;
     (p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, amount:p.amount }]).forEach(t => {
-      const m = CHANNELS.includes(t.method) ? t.method : 'Bank';
+      const m = CHANNELS.includes(t.method) ? t.method : CHANNELS[CHANNELS.length-1];
       received[m] = ACC.r2(received[m] + t.amount);
       receivedTotal = ACC.r2(receivedTotal + t.amount);
     });
@@ -199,7 +209,7 @@ VIEWS.dashboard = () => {
   let paidTotal = 0, voucherCount = 0;
   d.expenses.filter(v => v.date === on).forEach(v => {
     voucherCount++;
-    const m = CHANNELS.includes(v.method) ? v.method : 'Bank';
+    const m = CHANNELS.includes(v.method) ? v.method : CHANNELS[CHANNELS.length-1];
     paidOut[m] = ACC.r2(paidOut[m] + v.amount);
     paidTotal = ACC.r2(paidTotal + v.amount);
   });
@@ -207,7 +217,12 @@ VIEWS.dashboard = () => {
   /* --- what is in the drawer, as of the day being viewed --- */
   const tb = ACC.trialBalance(on);
   const bal = code => { const r = tb.rows.find(x => x.code === code); return r ? r.balance : 0; };
-  const cashOnHand = bal('1000'), inBank = bal('1010'), inGCash = bal('1020');
+  /* Cash on hand is whatever the first mode's account holds — the drawer — and
+     the rest are shown beside it so the till is never read in isolation. */
+  const drawer = ACC.methods()[0] || { account:'1000' };
+  const cashOnHand = bal(drawer.account);
+  const otherPots = ACC.methods().slice(1)
+    .map(m => `${m.name} ${UI.shortMoney(bal(m.account))}`).join(' · ');
 
   const channelRows = CHANNELS.map(m => ({
     label:m, inAmt:received[m], outAmt:paidOut[m], net:ACC.r2(received[m] - paidOut[m]),
@@ -231,7 +246,7 @@ VIEWS.dashboard = () => {
       ${UI.kpi('Amount Received', UI.peso(receivedTotal),
                `${receiptCount} official receipt(s)`, 'ok')}
       ${UI.kpi('Cash on Hand', UI.peso(cashOnHand),
-               `bank ${UI.shortMoney(inBank)} · GCash ${UI.shortMoney(inGCash)}`,
+               otherPots,
                cashOnHand < 0 ? 'bad' : '')}
     </div>
 
@@ -744,26 +759,42 @@ VIEWS.settings = () => {
           ${UI.f.area('hours','Office hours', c.hours, { ph:'One line per row — shown in the public portal footer' })}
           ${UI.f.text('page','Page for screenshots', c.page, { hint:'where applicants send proof of submission', ph:'e.g. fb.com/tarabarkomaritime — blank shows “our page”' })}
           ${UI.f.area('requirements','Requirements to send in', c.requirements, { ph:'One per line — listed on the applicant’s acknowledgement' })}
-          ${UI.row(
-            UI.f.select('_taxNote','Taxes', '0',
-              [{ v:'0', l:'No VAT or other tax is applied to fees' }]))}
+          <div class="note">No VAT or other tax is applied to fees. The amount agreed
+            with the trainee is the amount billed, collected and reported.</div>
           <button class="btn btn-primary" type="submit">Save company profile</button>
         </form>`)}
       <div>
-        ${UI.card('Optional fees', `
-          <p class="muted" style="font-size:12.5px;margin-top:0">Offered as tick-boxes when billing an enrollment.</p>
-          ${UI.table([
-            { h:'Description', k:'desc' },
-            { h:'Account', k:a => `<span class="mono">${UI.esc(a.account)}</span>` },
-            { h:'Amount', k:a => UI.peso(a.price), cls:'num' },
-          ], addons())}
-          <button class="btn btn-ghost btn-sm btn-block" data-act="edit-addons">Edit optional fees</button>`, { flush:false })}
-
-        ${UI.card('Users & access', UI.table([
-          { h:'User', k:'name' },
+        ${UI.card('User accounts', UI.table([
+          { h:'Name', k:u => `<b>${UI.esc(u.name)}</b><br><span class="muted" style="font-size:11.5px">${UI.esc(u.email || 'no email on file')}</span>` },
           { h:'Role', k:u => UI.tag(u.role, 'info') },
           { h:'Modules', k:u => `<span class="muted">${DB.PERMS[u.role].length} of ${Object.keys(TITLES).length}</span>` },
-        ], d.users), { flush:true })}
+          { h:'', k:u => `<button class="btn btn-ghost btn-xs" data-act="edit-user" data-id="${u.id}">Edit</button>`, w:'70px' },
+        ], d.users, { empty:'No accounts.' }), { flush:true,
+            actions:'<button class="btn btn-primary btn-xs" data-act="new-user">+ Add user</button>',
+            sub:'Name, email, password and role' })}
+
+        ${UI.card('Modes of payment', UI.table([
+          { h:'Mode', k:m => `<b>${UI.esc(m.name)}</b>` },
+          { h:'Posts to', k:m => { const a = ACC.acct(m.account);
+              return `<span class="mono">${UI.esc(m.account)}</span> ${UI.esc(a.name || '')}`; } },
+          { h:'Reference', k:m => m.ref ? UI.tag('required','warn') : '<span class="muted">not asked</span>' },
+        ], ACC.methods(), { empty:'No modes configured.' }), { flush:true,
+            actions:'<button class="btn btn-ghost btn-xs" data-act="edit-methods">Edit modes</button>',
+            sub:'Offered at the collection window' })}
+
+        ${UI.card('Charges', UI.table([
+          { h:'Description', k:'desc' },
+          { h:'Amount', k:a => UI.peso(a.price), cls:'num' },
+        ], addons(), { empty:'No charges configured.' }), { flush:true,
+            actions:'<button class="btn btn-ghost btn-xs" data-act="edit-addons">Edit charges</button>',
+            sub:'Tick-boxes when billing a booking' })}
+
+        ${UI.card('Courses', `
+          <dl class="def">
+            <dt>In the catalogue</dt><dd>${UI.int(d.courses.length)}</dd>
+            <dt>Active</dt><dd>${UI.int(d.courses.filter(x => x.active).length)}</dd>
+          </dl>
+          <a class="btn btn-ghost btn-sm btn-block" href="#/courses">Open the course list</a>`)}
 
         ${UI.card('Data', `
           <dl class="def">
@@ -1255,7 +1286,7 @@ function paymentForm(inv){
   if(!inv && !open.length){ UI.toast('Nothing outstanding — every invoice is settled.', 'bad'); return; }
 
   const bal = inv ? ACC.balanceOf(inv) : 0;
-  const MODES = ['Cash','GCash','Bank'];
+  const MODES = ACC.methodNames();
   const line = i => `
     <div class="tender-row" data-row="${i}">
       <select name="m${i}" class="t-mode">${MODES.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
@@ -1299,7 +1330,7 @@ function paymentForm(inv){
         if(!amt) continue;
         const method = fd['m'+i] || 'Cash';
         const ref = String(fd['r'+i] || '').trim();
-        if(method !== 'Cash' && !ref){
+        if(ACC.needsRef(method) && !ref){
           UI.toast(`${method} needs its reference number.`, 'bad'); return false;
         }
         tenders.push({ method, ref, amount:amt });
@@ -1339,10 +1370,10 @@ function paymentForm(inv){
     [...form.querySelectorAll('.tender-row')].forEach(row => {
       const mode = row.querySelector('.t-mode').value;
       const ref = row.querySelector('.t-ref');
-      ref.disabled = mode === 'Cash';
-      ref.placeholder = mode === 'Cash' ? 'not required for cash'
-        : mode === 'GCash' ? 'GCash reference no.' : 'Bank transaction no.';
-      if(mode === 'Cash') ref.value = '';
+      const wanted = ACC.needsRef(mode);
+      ref.disabled = !wanted;
+      ref.placeholder = wanted ? `${mode} reference no.` : 'no reference for ' + mode.toLowerCase();
+      if(!wanted) ref.value = '';
     });
   };
 
@@ -1461,7 +1492,7 @@ function expenseForm(){
       ${UI.f.select('account','Expense account','5100', exp.map(a => ({ v:a.code, l:`${a.code} — ${a.name}` })), { req:true })}
       ${UI.f.text('particulars','Particulars','',{ req:true, ph:'What was this for?' })}
       ${UI.row(UI.f.num('amount','Amount (₱)','',{ req:true, min:0.01 }),
-               UI.f.select('method','Paid from','Cash',['Cash','GCash','Bank']))}
+               UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()))}
       <div class="note">Posts as: <b>debit</b> the expense account, <b>credit</b> ${'Cash on Hand or Cash in Bank'} depending on the mode.</div>`,
     submitLabel:'Post voucher',
     onSubmit: fd => {
@@ -1514,23 +1545,151 @@ function journalForm(){
   });
 }
 
+/* ----- the three lists the admin maintains ----- */
+
+/* A staff account. The password is stored as typed — see the note on USERS in
+   db.js — so the field says so rather than pretending otherwise. */
+function userForm(u){
+  const isNew = !u;
+  u = u || { name:'', email:'', code:'', role:'registrar', initials:'' };
+  const roles = Object.keys(DB.PERMS).map(r => ({ v:r, l:`${r} — ${DB.PERMS[r].length} module(s)` }));
+
+  UI.modal({
+    title: isNew ? 'Add user account' : 'Edit account — ' + u.name,
+    wide:true,
+    body:`
+      ${UI.row(UI.f.text('name','Full name', u.name, { req:true, ph:'e.g. Maria Santos' }),
+               UI.f.text('email','Email address', u.email, { type:'email', ph:'name@tarabarkomaritime.com' }))}
+      ${UI.row(UI.f.text('code','Password', u.code, { req:true, hint:'used to sign in' }),
+               UI.f.select('role','Role', u.role, roles, { req:true }))}
+      ${UI.f.text('initials','Initials', u.initials, { hint:'shown on the avatar — blank fills itself in', ph:'MS' })}
+      <div class="note">
+        <b>${UI.esc(u.role || 'registrar')}</b> can open:
+        <span id="roleMods">${DB.PERMS[u.role] ? DB.PERMS[u.role].map(m => (TITLES[m]||[m])[0]).join(' · ') : ''}</span>
+      </div>
+      <div class="note warn">Passwords are kept in clear text in this browser's storage.
+        Anyone who can open this machine can read them, so do not reuse a password
+        that protects anything else.</div>
+      ${isNew ? '' : `<div class="hr"></div>
+        <button type="button" class="btn btn-danger btn-sm" id="delUser">Remove this account</button>`}`,
+    submitLabel: isNew ? 'Create account' : 'Save changes',
+    onSubmit: fd => {
+      const name = (fd.name || '').trim();
+      const code = (fd.code || '').trim();
+      if(!name || !code){ UI.toast('A name and a password are both required.', 'bad'); return false; }
+      if(fd.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fd.email)){
+        UI.toast('That email address does not look right.', 'bad'); return false;
+      }
+      /* Two accounts with the same password cannot be told apart at sign-in,
+         because the password is all the sign-in checks. */
+      const clash = D().users.find(x => x.code === code && (isNew || x.id !== u.id));
+      if(clash){ UI.toast(`That password is already used by ${clash.name}.`, 'bad'); return false; }
+
+      const initials = (fd.initials || '').trim().toUpperCase()
+        || name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
+      const rec = { name, email:(fd.email||'').trim(), code, role:fd.role, initials };
+
+      if(isNew){
+        D().users.push({ id:DB.uid('usr'), ...rec });
+        DB.activity('Added user account', name);
+        UI.toast('Account created — ' + name);
+        fillLoginList();
+      }else{
+        Object.assign(u, rec);
+        DB.activity('Updated user account', name);
+        UI.toast('Account updated.');
+        fillLoginList();
+        /* Editing yourself should not leave the header showing the old name. */
+        if(SESSION && SESSION.id === u.id){
+          document.getElementById('userName').textContent = u.name;
+          document.getElementById('userRole').textContent = u.role;
+          document.getElementById('userAvatar').textContent = u.initials;
+        }
+      }
+      refresh();
+    }
+  });
+
+  /* Show what the chosen role can actually reach, as it is chosen. */
+  const form = document.getElementById('mForm');
+  form.role.onchange = () => {
+    document.getElementById('roleMods').textContent =
+      (DB.PERMS[form.role.value] || []).map(m => (TITLES[m]||[m])[0]).join(' · ');
+  };
+
+  const del = document.getElementById('delUser');
+  if(del) del.onclick = () => {
+    if(SESSION && SESSION.id === u.id) return UI.toast('You cannot remove the account you are signed in with.', 'bad');
+    if(u.role === 'admin' && D().users.filter(x => x.role === 'admin').length === 1)
+      return UI.toast('This is the only admin account — make another one first.', 'bad');
+    UI.confirm(`Remove ${u.name}?`, () => {
+      D().users = D().users.filter(x => x.id !== u.id);
+      DB.activity('Removed user account', u.name);
+      UI.close(); UI.toast('Account removed.'); fillLoginList(); refresh();
+    }, { danger:true, yes:'Remove account',
+         detail:'Their receipts and entries stay in the ledger — only the sign-in goes.' });
+  };
+}
+
+/* Modes of payment. Each one needs an account to post to, or the cash figures
+   stop meaning anything, so the account is a dropdown of real asset accounts
+   rather than a free-text box. */
+function methodsForm(){
+  const list = ACC.methods();
+  const assets = D().accounts.filter(a => a.type === 'Asset')
+    .map(a => ({ v:a.code, l:`${a.code} — ${a.name}` }));
+  const rows = [0,1,2,3,4,5];
+  const line = i => {
+    const m = list[i] || { name:'', account:'', ref:false };
+    return `<div class="grid g3" style="margin-bottom:8px">
+      ${UI.f.text('name'+i, i===0 ? 'Mode' : '', m.name, { ph:'e.g. Maya' })}
+      ${UI.f.select('acct'+i, i===0 ? 'Posts to' : '', m.account, assets, { blank:'— account —' })}
+      ${UI.f.select('ref'+i, i===0 ? 'Reference no.' : '', m.ref ? '1' : '0',
+        [{ v:'0', l:'Not asked' }, { v:'1', l:'Required' }])}
+    </div>`;
+  };
+  UI.modal({
+    title:'Modes of payment', sub:'Offered at the collection window', wide:true,
+    body: rows.map(line).join('') +
+      `<div class="note">Leave the mode blank to remove it. The first mode is treated
+        as the cash drawer on the dashboard. Receipts already issued keep the mode
+        they were taken with.</div>`,
+    submitLabel:'Save modes',
+    onSubmit: fd => {
+      const next = rows
+        .map(i => ({ name:(fd['name'+i]||'').trim(), account:fd['acct'+i], ref:fd['ref'+i] === '1' }))
+        .filter(m => m.name);
+      if(!next.length){ UI.toast('Keep at least one mode of payment.', 'bad'); return false; }
+      const missing = next.find(m => !m.account);
+      if(missing){ UI.toast(`Choose the account ${missing.name} posts to.`, 'bad'); return false; }
+      const dupe = next.find((m,i) => next.findIndex(x => x.name.toLowerCase() === m.name.toLowerCase()) !== i);
+      if(dupe){ UI.toast(`${dupe.name} is listed twice.`, 'bad'); return false; }
+      D().company.methods = next;
+      DB.activity('Updated modes of payment');
+      UI.toast('Modes of payment updated.');
+      refresh();
+    }
+  });
+}
+
 function addonsForm(){
   const a = addons();
+  const rows = [0,1,2,3,4,5,6,7];
   const line = i => `<div class="split" style="margin-bottom:8px">
       ${UI.f.text('desc'+i, i===0?'Description':'', a[i]?.desc || '')}
       ${UI.f.num('price'+i, i===0?'Amount':'', a[i]?.price ?? '')}
     </div>`;
   UI.modal({
-    title:'Optional fees', sub:'Shown as tick-boxes when billing an enrollment', wide:true,
-    body:[0,1,2,3,4,5].map(line).join('') +
-      '<div class="note">Leave a row blank to remove it. All optional fees post to account 4100 — Assessment & Other Fees.</div>',
-    submitLabel:'Save fees',
+    title:'Charges', sub:'Shown as tick-boxes when billing a booking', wide:true,
+    body: rows.map(line).join('') +
+      '<div class="note">Leave a row blank to remove it. Every charge posts to account 4100 — Assessment &amp; Other Fees.</div>',
+    submitLabel:'Save charges',
     onSubmit: fd => {
-      D().company.addons = [0,1,2,3,4,5]
+      D().company.addons = rows
         .map(i => ({ desc:(fd['desc'+i]||'').trim(), account:'4100', price:ACC.r2(fd['price'+i]) }))
         .filter(x => x.desc && x.price > 0);
-      DB.activity('Updated optional fees');
-      UI.toast('Optional fees updated.');
+      DB.activity('Updated charges');
+      UI.toast('Charges updated.');
       refresh();
     }
   });
@@ -1579,6 +1738,9 @@ document.addEventListener('click', ev => {
     'new-expense':   () => expenseForm(),
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
+    'edit-methods':  () => methodsForm(),
+    'new-user':      () => userForm(),
+    'edit-user':     () => userForm(D().users.find(u => u.id === id)),
     'ledger-tab':    () => { location.hash = '#/ledger/' + id; },
     'rep-tab':       () => { location.hash = '#/reports/' + id; },
     'acct-ledger':   () => { state.q.acct = id; location.hash = '#/ledger/account'; },

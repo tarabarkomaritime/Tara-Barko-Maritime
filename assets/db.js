@@ -25,11 +25,21 @@ const DB = (() => {
     { code:'5900', name:'Miscellaneous Expense',   type:'Expense',   nature:'debit'  },
   ];
 
+  /* Accounts are maintained by the admin in Settings. `code` is the sign-in
+     password. It is stored in clear text because this build has no server to
+     hash against and no session to protect — anyone who can open the browser's
+     local storage can read every record anyway. Moving the store to a backend
+     is what makes these worth hashing; until then the password is a way of
+     keeping the wrong desk out of the wrong screen, not a security boundary. */
   const USERS = [
-    { id:'u1', name:'Kate Esguerra',   role:'admin',      code:'admin',      initials:'KE' },
-    { id:'u2', name:'Registrar Desk',  role:'registrar',  code:'registrar',  initials:'RD' },
-    { id:'u3', name:'Cashier Window',  role:'cashier',    code:'cashier',    initials:'CW' },
-    { id:'u4', name:'Accounting Dept', role:'accounting', code:'accounting', initials:'AD' },
+    { id:'u1', name:'Kate Esguerra',   role:'admin',      code:'admin',      initials:'KE',
+      email:'admin@tarabarkomaritime.com' },
+    { id:'u2', name:'Registrar Desk',  role:'registrar',  code:'registrar',  initials:'RD',
+      email:'registrar@tarabarkomaritime.com' },
+    { id:'u3', name:'Cashier Window',  role:'cashier',    code:'cashier',    initials:'CW',
+      email:'cashier@tarabarkomaritime.com' },
+    { id:'u4', name:'Accounting Dept', role:'accounting', code:'accounting', initials:'AD',
+      email:'accounting@tarabarkomaritime.com' },
   ];
 
   /* Which modules each role may open. Admin sees everything. */
@@ -62,6 +72,20 @@ const DB = (() => {
       '2x2 Photo',
       'SRN Screenshot',
     ].join('\n'),
+    /* Modes of payment the cashier may accept, and where each one's money
+       lands. Maintained by the admin in Settings. */
+    methods:[
+      { name:'Cash',  account:'1000', ref:false },
+      { name:'GCash', account:'1020', ref:true  },
+      { name:'Bank',  account:'1010', ref:true  },
+    ],
+    /* Chargeable items offered as tick-boxes when billing a booking. The three
+       here come out of the terms and conditions. */
+    addons:[
+      { desc:'Rescheduling fee',  account:'4100', price:500 },
+      { desc:'Make-up class fee', account:'4100', price:800 },
+      { desc:'Cancellation fee',  account:'4100', price:500 },
+    ],
     fiscalYear:new Date().getFullYear(),
   };
 
@@ -135,6 +159,21 @@ const DB = (() => {
     }
     (d.applications || []).forEach(a => { delete a.batchId; });
     delete d.seq.batch;
+
+    /* Modes of payment and charges became editable lists; a store written
+       before that has neither, and the cashier would open an empty dropdown. */
+    if(!Array.isArray(d.company.methods) || !d.company.methods.length){
+      d.company.methods = DEFAULT_COMPANY.methods.map(m => ({ ...m }));
+    }
+    if(!Array.isArray(d.company.addons) || !d.company.addons.length){
+      d.company.addons = DEFAULT_COMPANY.addons.map(a => ({ ...a }));
+    }
+    /* Every account needs an email and a password to be maintainable. */
+    (d.users || []).forEach(u => {
+      if(u.email == null) u.email = '';
+      if(!u.code) u.code = u.role || 'staff';
+      if(!u.initials) u.initials = String(u.name||'?').split(/s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
+    });
 
     /* ---- no VAT, no other taxes ---- */
     delete d.company.vatRate;
@@ -338,7 +377,7 @@ const DB = (() => {
       if(status === 'Reserved') return;
 
       const items = [{ desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee }];
-      if(i % 3 === 0) items.push({ desc:'Training kit & assessment fee', account:'4100', qty:1, price:450 });
+      if(i % 3 === 0) items.push({ desc:'Course manual / workbook', account:'4100', qty:1, price:350 });
 
       const inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:t.id, date:enr.date, items, discount });
       data.invoices.push(inv);

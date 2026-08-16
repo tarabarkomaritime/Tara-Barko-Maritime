@@ -99,16 +99,43 @@ const ACC = (() => {
     return post({ date:inv.date, memo:`Billing — ${inv.no}`, refType:'Invoice', refNo:inv.no, refId:inv.id, lines });
   }
 
-  /* Three modes of payment, three places the money lands. GCash gets its own
-     account rather than sharing Cash in Bank: the wallet is reconciled against
-     a GCash statement, the bank against a bank statement, and a cashier who has
-     to unpick one from the other at month end will not bother. */
-  const METHODS = ['Cash','GCash','Bank'];
-  const CASH_ACCOUNT = { Cash:'1000', GCash:'1020', Bank:'1010' };
-  /* Older records used these names; they still have to post somewhere. */
+  /* Modes of payment are configurable — the admin maintains the list in
+     Settings — but each one has to say where its money lands, or the cash
+     accounts stop meaning anything. GCash gets its own account rather than
+     sharing Cash in Bank: the wallet reconciles against a GCash statement, the
+     bank against a bank statement, and a cashier who has to unpick one from the
+     other at month end will not bother.
+
+     `ref:true` means the mode leaves a reference number on a statement, so the
+     cashier is made to key it in. Cash leaves none and is not asked. */
+  const DEFAULT_METHODS = [
+    { name:'Cash',  account:'1000', ref:false },
+    { name:'GCash', account:'1020', ref:true  },
+    { name:'Bank',  account:'1010', ref:true  },
+  ];
+  function methods(){
+    const m = (co() || {}).methods;
+    return Array.isArray(m) && m.length ? m : DEFAULT_METHODS;
+  }
+  const methodNames = () => methods().map(m => m.name);
+  /* Older records used names that are no longer offered; they still have to
+     post somewhere sensible rather than silently landing in the cash drawer. */
   const LEGACY = { 'Bank Transfer':'Bank', Cheque:'Bank', Card:'Bank' };
-  const normalMethod = m => METHODS.includes(m) ? m : (LEGACY[m] || 'Cash');
-  const cashAccount  = m => CASH_ACCOUNT[normalMethod(m)];
+  function normalMethod(m){
+    const names = methodNames();
+    if(names.includes(m)) return m;
+    const mapped = LEGACY[m];
+    if(mapped && names.includes(mapped)) return mapped;
+    return names[0] || 'Cash';
+  }
+  function cashAccount(m){
+    const hit = methods().find(x => x.name === normalMethod(m));
+    return (hit && hit.account) || '1000';
+  }
+  const needsRef = m => {
+    const hit = methods().find(x => x.name === m);
+    return !!(hit && hit.ref);
+  };
 
   /* A receipt may be settled in more than one way at the window — half in cash,
      half by GCash. `tenders` is the truth; `method` is the one-word summary the
@@ -275,7 +302,8 @@ const ACC = (() => {
   }
 
   return {
-    r2, computeInvoice, post, reverse, acct, METHODS,
+    r2, computeInvoice, post, reverse, acct,
+    methods, methodNames, needsRef, DEFAULT_METHODS,
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
     recomputeInvoice, balanceOf, cashAccount, paymentLines,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
