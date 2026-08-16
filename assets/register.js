@@ -18,7 +18,9 @@
    system, so an application submitted here is the same record the registrar
    opens in Admissions — no import step, no re-keying. */
 
-const esc  = UI.esc, peso = UI.peso;
+/* No peso formatter here on purpose: the public portal prints no amounts.
+   Importing one is how that quietly stops being true. */
+const esc = UI.esc;
 const CO   = () => DB.get().company;
 
 const P = {

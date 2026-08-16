@@ -250,13 +250,75 @@ check('an unknown SRN finds nothing', () => run(`APPS.track('SRN-NOPE','Testino'
 check('the registration is linked to the trainee', () =>
   run(`APPS.registrationsFor(TRN.id).length`) === 2 || run(`APPS.registrationsFor(TRN.id).length`));
 
-console.log('\n- the public catalogue gives nothing away -');
-check('no fee reaches the course catalogue', () =>
-  run('DB.get().courses.every(c => c.fee === undefined)') === true || 'a course carries a fee');
-check('no partner center reaches the course catalogue', () =>
-  run('DB.get().courses.every(c => c.center === undefined)') === true || 'a course names a center');
-check('no rebate reaches the course catalogue', () =>
-  run(`DB.get().courses.every(c => !('rebate' in c))`) === true || 'a course carries a rebate');
+console.log('\n- delivery is one of four values -');
+const DELIVERY = ['Face-to-Face','Module','Distance Learning','Non-Appearance'];
+check('the list is exactly those four', () =>
+  run('DB.DELIVERY').join('|') === DELIVERY.join('|') || run('DB.DELIVERY').join('|'));
+check('every seeded course uses only those', () => {
+  const bad = run('DB.get().courses.filter(c => (c.modes||[]).some(m => !' + JSON.stringify(DELIVERY) + '.includes(m)))'
+    + '.map(c => c.title + ":" + c.modes.join(","))');
+  return bad.length === 0 || bad.slice(0,3).join(' | ');
+});
+check('every course has at least one delivery', () =>
+  run('DB.get().courses.every(c => (c.modes||[]).length > 0)') === true || 'a course has none');
+check('a course with nothing recorded defaults to face to face', () => {
+  const c = run('DB.get().courses.find(c => c.title === "AB DECK")');
+  return c.modes.join() === 'Face-to-Face' || c.modes.join();
+});
+check('the Module note became a delivery', () => {
+  const c = run('DB.get().courses.find(c => c.title === "ABC - AWARENESS ON BASIC COMPUTER")');
+  return c.modes.join() === 'Module' || c.modes.join();
+});
+check('Blended maps to the two deliveries it is made of', () => {
+  const c = run('DB.get().courses.find(c => c.title === "BASIC TRAINING")');
+  return (c.modes.includes('Face-to-Face') && c.modes.includes('Distance Learning')) || c.modes.join();
+});
+check('distance learning survives', () => {
+  const c = run('DB.get().courses.find(c => c.title === "BT - PSSR")');
+  return c.modes.includes('Distance Learning') || c.modes.join();
+});
+check('accommodation is not a delivery', () => {
+  const c = run('DB.get().courses.find(c => c.title === "ETO")');
+  return (!c.modes.some(m => /accommodation/i.test(m)) && (c.options||[]).length === 2) ||
+         JSON.stringify({ modes:c.modes, options:c.options });
+});
+check('the note field is retired', () =>
+  run('DB.get().courses.every(c => c.note === undefined)') === true || 'a note survives');
+check('legacy spellings normalise', () => {
+  const r = run('DB.normalizeDelivery(["face to face","Blended","Distance learning","With accommodation","nonsense"])');
+  return (r.modes.join('|') === 'Face-to-Face|Distance Learning' && r.options.length === 1) || JSON.stringify(r);
+});
+
+console.log('\n- commercial terms stay inside -');
+check('a course may carry its center and price', () => {
+  const c = run('DB.get().courses.find(c => c.amount > 0)');
+  return (c && c.center && c.amount > 0) || 'no priced course seeded';
+});
+check('rebates default to zero rather than being invented', () =>
+  run('DB.get().courses.every(c => (c.rebate || 0) === 0)') === true || 'a rebate was seeded');
+check('a deducted rebate lowers what the trainee pays', () => {
+  run('globalThis.PRICED = DB.get().courses.find(c => c.amount > 0)');
+  run('PRICED.rebate = 500; PRICED.deduct = true');
+  const charged = run('PRICED.deduct ? PRICED.amount - PRICED.rebate : PRICED.amount');
+  const ok = charged === run('PRICED.amount') - 500;
+  run('PRICED.rebate = 0; PRICED.deduct = false');
+  return ok || 'deduct had no effect';
+});
+
+/* The public portal is a separate file with no catalogue in it any more. This
+   reads its source rather than its behaviour, because the cheapest way to leak
+   a price is for someone to add a course listing back to it. */
+const publicSrc = fs.readFileSync(path.join(ASSETS, 'register.js'), 'utf8');
+check('the public portal never reads a course amount', () =>
+  !/\.amount\b/.test(publicSrc) || 'register.js reads .amount');
+check('the public portal never reads a rebate', () =>
+  !/rebate/i.test(publicSrc) || 'register.js mentions a rebate');
+check('the public portal never lists the catalogue', () =>
+  !/courses\.filter|catTable|p-cat-tbl/.test(publicSrc) || 'register.js renders a catalogue');
+/* The word "fee" appears in the portal's prose — "we will settle the fee with
+   you" — so the guard is against formatting an amount, not against the word. */
+check('the public portal formats no money', () =>
+  !/UI\.peso|\bpeso\s*\(/.test(publicSrc) || 'register.js formats an amount');
 
 console.log('\n- reports -');
 const col = run(`ACC.collections('2000-01-01','2999-12-31')`);

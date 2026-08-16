@@ -37,7 +37,7 @@ const NAV = [
 const TITLES = {
   dashboard:['Dashboard','Operational and financial position at a glance'],
   trainees:['Trainee Registry','Seafarer master records — search, register and enroll'],
-  courses:['Course Catalogue','Accredited courses and published rates'],
+  courses:['Course Catalogue','Courses, centers, amounts and rebates'],
   enrollments:['Enrollments','Bookings encoded per trainee, with billing status and results'],
   invoices:['Billing','Statements of account issued to trainees'],
   payments:['Collections','Official receipts and cash position'],
@@ -312,28 +312,47 @@ VIEWS.trainees = () => {
   `;
 };
 
-/* ---------- Courses ---------- */
+/* ---------- Courses ----------
+   The admin's price list, not a brochure. One row is a course as it is sold:
+   the code the office uses for it, how long it runs, how it is delivered, which
+   partner center runs it, what it costs and what the rebate on it is.
+
+   "Deduct" decides what the trainee is charged. A rebate that is deducted comes
+   off the price they pay; one that is not is the endorsement margin, recorded
+   against the booking but never shown to them. Getting that switch wrong
+   overcharges or undercharges a seafarer, so it is a column, not a footnote. */
 VIEWS.courses = () => {
-  /* 239 courses — the list is only usable with a filter in front of it. */
   const q = (state.q.crs || '').toLowerCase();
   const all = D().courses;
-  const rows = all.filter(c => !q || [c.code, c.title, ...(c.modes||[]), c.duration].join(' ').toLowerCase().includes(q));
+  const rows = all.filter(c => !q ||
+    [c.code, c.title, c.center, c.duration, ...(c.modes||[])].join(' ').toLowerCase().includes(q));
+  const admin = can('settings');
+
   return `
     <div class="toolbar">
       <input type="search" data-q="crs" value="${UI.esc(state.q.crs||'')}"
-             placeholder="Search course title, code or duration…" style="min-width:300px">
+             placeholder="Search course, code, center or delivery…" style="min-width:300px">
       <span class="muted">${rows.length} of ${all.filter(c=>c.active).length} active course(s)</span>
       <span class="spacer"></span>
-      ${can('settings') ? `<button class="btn btn-primary btn-sm" data-act="new-course">+ Add course</button>` : ''}
+      ${admin ? `<button class="btn btn-primary btn-sm" data-act="new-course">+ Add course</button>` : ''}
     </div>
     ${UI.card('', UI.table([
-      { h:'Code', k:c => `<b class="mono">${UI.esc(c.code)}</b>`, w:'90px' },
+      { h:'Course ID', k:c => `<b class="mono">${UI.esc(c.code)}</b>`, w:'100px' },
       { h:'Course Title', k:'title' },
-      { h:'Duration', k:c => UI.esc(c.duration || '—') },
-      { h:'Delivery', k:c => (c.modes||[]).length ? UI.esc(c.modes.join(', ')) : '<span class="muted">—</span>' },
-      { h:'Enrolled', k:c => UI.int(D().enrollments.filter(e => e.courseId === c.id).length), cls:'num' },
+      { h:'Duration', k:c => UI.esc(c.duration || '—'), w:'110px' },
+      { h:'Mode of Learning', k:c => (c.modes||[]).length
+          ? (c.modes||[]).map(m => UI.tag(m, 'info')).join(' ')
+          : '<span class="muted">—</span>' },
+      { h:'Training Center', k:c => UI.esc(c.center || '—') },
+      { h:'Amount', k:c => c.amount ? UI.num(c.amount) : '<span class="muted">—</span>', cls:'num' },
+      { h:'Rebate', k:c => c.rebate ? UI.num(c.rebate) : '<span class="muted">—</span>', cls:'num' },
+      { h:'Rebate treatment', k:c => c.rebate
+          ? (c.deduct ? UI.tag('Deduct','warn') : UI.tag('Do not deduct','ok'))
+          : '<span class="muted">—</span>' },
       { h:'Status', k:c => UI.statusTag(c.active ? 'Open' : 'Closed') },
-      { h:'', k:c => can('settings') ? `<button class="btn btn-ghost btn-xs" data-act="edit-course" data-id="${c.id}">Edit</button>` : '' },
+      { h:'', k:c => admin
+          ? `<button class="btn btn-ghost btn-xs" data-act="edit-course" data-id="${c.id}">Edit</button>`
+          : '', w:'70px' },
     ], rows, { empty:'No course matches that search.' }), { flush:true })}
   `;
 };
@@ -938,25 +957,102 @@ function traineeProfile(t){
 
 function courseForm(c){
   const isNew = !c;
-  c = c || { code:'', title:'', regulation:'', category:'Basic Safety', days:3, active:true };
+  c = c || { code:'', title:'', duration:'', days:null, center:'', amount:0, rebate:0,
+             deduct:false, active:true, modes:['Face-to-Face'] };
+  const centers = [...new Set([
+    ...D().courses.map(x => x.center),
+    ...D().enrollments.map(x => x.center),
+  ].filter(Boolean))].sort();
+
   UI.modal({
     title: isNew ? 'Add course' : 'Edit course — ' + c.code,
+    wide:true,
     body: `
-      ${UI.row(UI.f.text('code','Course code', c.code, { req:true, ph:'e.g. SCRB' }),
-               UI.f.text('modes','Delivery modes', (c.modes||[]).join(', '), { ph:'e.g. Blended, Face to face' }))}
-      ${UI.f.text('title','Course title', c.title, { req:true })}
+      ${UI.row(UI.f.text('code','Course ID', c.code, { req:true, ph:'e.g. SCRB' }),
+               UI.f.text('title','Course title', c.title, { req:true }))}
       ${UI.row(UI.f.num('days','Duration (days)', c.days, { step:'0.5', min:0 }),
-               UI.f.text('duration','Duration shown to applicants', c.duration, { ph:'e.g. 5 days' }),
-               UI.f.select('active','Status', c.active ? '1' : '0', [{v:'1',l:'Open for enrollment'},{v:'0',l:'Not offered'}]))}`,
+               UI.f.text('duration','Duration as written', c.duration, { ph:'e.g. 5 days' }),
+               UI.f.select('active','Status', c.active ? '1' : '0',
+                 [{v:'1',l:'Open for enrollment'},{v:'0',l:'Not offered'}]))}
+
+      <label class="fld"><span>Mode of learning</span></label>
+      <div class="chips" style="margin:-8px 0 14px">
+        ${DB.DELIVERY.map((m,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
+            <input type="checkbox" name="mode${i}" style="width:auto;margin:0"
+                   ${(c.modes||[]).includes(m) ? 'checked' : ''}> ${UI.esc(m)}</label>`).join('')}
+      </div>
+
+      <div class="hr"></div>
+      <h4 style="margin:0 0 8px;font-size:13px">Where it runs, and what it costs</h4>
+      ${UI.row(UI.f.text('center','Training center', c.center, { attr:'list="courseCenters"',
+                          hint:'partner running this course' }),
+               UI.f.num('amount','Amount (₱)', c.amount, { min:0, hint:'price at this center' }))}
+      <datalist id="courseCenters">${centers.map(x => `<option value="${UI.esc(x)}">`).join('')}</datalist>
+      ${UI.row(UI.f.num('rebate','Rebate (₱)', c.rebate, { min:0, hint:'what the center gives back' }),
+               UI.f.select('deduct','Rebate treatment', c.deduct ? '1' : '0',
+                 [{ v:'0', l:'Do not deduct — margin kept, trainee pays the full amount' },
+                  { v:'1', l:'Deduct — comes off what the trainee pays' }]))}
+      <div class="note" id="rebateNote"></div>`,
     submitLabel: isNew ? 'Add course' : 'Save changes',
+    footExtra: isNew ? '' :
+      `<button type="button" class="btn btn-danger" id="delCourse">Delete course</button>`,
     onSubmit: fd => {
-      const rec = { ...fd, days:fd.days ? +fd.days : null, active:fd.active === '1',
-                    modes:String(fd.modes||'').split(',').map(s => s.trim()).filter(Boolean) };
+      const picked = DB.DELIVERY.filter((m,i) => fd['mode'+i]);
+      DB.DELIVERY.forEach((m,i) => { delete fd['mode'+i]; });
+      const rec = {
+        code:(fd.code||'').trim(), title:(fd.title||'').trim(),
+        days: fd.days ? +fd.days : null,
+        duration:(fd.duration||'').trim(),
+        /* Nothing ticked means face to face — the same default the catalogue
+           import applies. A course with no delivery at all is not a thing. */
+        modes: picked.length ? picked : ['Face-to-Face'],
+        center:(fd.center||'').trim(),
+        amount:ACC.r2(fd.amount), rebate:ACC.r2(fd.rebate),
+        deduct: fd.deduct === '1',
+        active: fd.active === '1',
+      };
+      if(rec.rebate > rec.amount){ UI.toast('The rebate cannot exceed the amount.', 'bad'); return false; }
       if(isNew){ D().courses.push({ id:DB.uid('crs'), ...rec }); DB.activity('Added course', rec.code); UI.toast('Course added.'); }
       else { Object.assign(c, rec); DB.activity('Updated course', c.code); UI.toast('Course updated.'); }
       refresh();
     }
   });
+
+  /* Spell out what the trainee actually pays, because the rebate switch is the
+     one field on this form that can quietly change a price. */
+  const form = document.getElementById('mForm');
+  const showRebate = () => {
+    const amount = ACC.r2(form.amount.value), rebate = ACC.r2(form.rebate.value);
+    const box = document.getElementById('rebateNote');
+    if(!amount && !rebate){ box.innerHTML = 'Leave the amount blank if this course is priced per booking.'; return; }
+    box.innerHTML = form.deduct.value === '1'
+      ? `Trainee pays <b>${UI.peso(ACC.r2(amount - rebate))}</b> — the ${UI.peso(rebate)} rebate is deducted.`
+      : `Trainee pays <b>${UI.peso(amount)}</b>. The ${UI.peso(rebate)} rebate stays with TB Maritime and is not shown to them.`;
+  };
+  form.addEventListener('input', showRebate);
+  form.addEventListener('change', showRebate);
+  showRebate();
+
+  const del = document.getElementById('delCourse');
+  if(del) del.onclick = () => {
+    /* A course with bookings against it cannot be deleted without orphaning
+       invoices and certificates that name it. Closing it hides it from the
+       encode form and keeps the history readable. */
+    const used = D().enrollments.filter(e => e.courseId === c.id).length;
+    if(used){
+      return UI.confirm(`${c.code} has ${used} enrollment(s) against it.`, () => {
+        c.active = false;
+        DB.activity('Closed course', c.code);
+        UI.close(); UI.toast(`${c.code} closed — it can no longer be booked.`); refresh();
+      }, { yes:'Close the course instead', title:'This course cannot be deleted',
+           detail:'Deleting it would leave invoices, receipts and certificates naming a course that no longer exists. Closing it removes it from the encode form and keeps the history intact.' });
+    }
+    UI.confirm(`Delete ${c.code} — ${c.title}?`, () => {
+      D().courses = D().courses.filter(x => x.id !== c.id);
+      DB.activity('Deleted course', c.code);
+      UI.close(); UI.toast('Course deleted.'); refresh();
+    }, { danger:true, yes:'Delete course', detail:'Nothing is booked against it, so nothing else changes.' });
+  };
 }
 
 /* Encode an enrollment: who, which course, which dates, at what price.
@@ -1034,6 +1130,22 @@ function enrollmentForm(existing, presetTrainee){
   });
 
   const form = document.getElementById('mForm');
+
+  /* Picking the course fills in what the price list says about it — the center
+     it runs at and the amount, less the rebate when the rebate is one that gets
+     deducted. Both stay editable: the list is the usual price, not the only one. */
+  form.courseId.onchange = () => {
+    const c = CRS(form.courseId.value);
+    if(!c) return;
+    if(c.center && !form.center.dataset.touched) form.center.value = c.center;
+    if(c.amount && !form.fee.dataset.touched){
+      form.fee.value = ACC.r2(c.deduct ? c.amount - (c.rebate || 0) : c.amount).toFixed(2);
+    }
+    fillEnd();
+    recalc();
+  };
+  form.center.onchange = () => { form.center.dataset.touched = '1'; };
+  form.fee.onchange = () => { form.fee.dataset.touched = '1'; };
 
   /* Typing the start date is the common case, so fill the end date from the
      course length and let the desk overrule it. */

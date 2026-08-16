@@ -32,19 +32,17 @@ const DB = (() => {
      is what makes these worth hashing; until then the password is a way of
      keeping the wrong desk out of the wrong screen, not a security boundary. */
   const USERS = [
-    { id:'u1', name:'Kate Esguerra',   role:'admin',      code:'admin',      initials:'KE',
-      email:'admin@tarabarkomaritime.com' },
-    { id:'u2', name:'Registrar Desk',  role:'registrar',  code:'registrar',  initials:'RD',
-      email:'registrar@tarabarkomaritime.com' },
-    { id:'u3', name:'Cashier Window',  role:'cashier',    code:'cashier',    initials:'CW',
-      email:'cashier@tarabarkomaritime.com' },
-    { id:'u4', name:'Accounting Dept', role:'accounting', code:'accounting', initials:'AD',
-      email:'accounting@tarabarkomaritime.com' },
+    { id:'u1', name:'Kyla Esguerra',   role:'admin',      code:'admin',      initials:'KE', email:'' },
+    { id:'u2', name:'Jocelyn Eala',    role:'frontdesk',  code:'registrar',  initials:'JE', email:'' },
+    { id:'u3', name:'Accounting',      role:'accounting', code:'accounting', initials:'AC', email:'' },
   ];
 
   /* Which modules each role may open. Admin sees everything. */
   const PERMS = {
     admin:      ['dashboard','trainees','courses','enrollments','invoices','payments','expenses','ledger','reports','settings'],
+    /* One person covers registration and the cash window at this office, so the
+       two jobs are one role rather than two accounts to sign in and out of. */
+    frontdesk:  ['dashboard','trainees','courses','enrollments','invoices','payments','reports'],
     registrar:  ['dashboard','trainees','courses','enrollments','invoices','reports'],
     cashier:    ['dashboard','trainees','enrollments','invoices','payments','reports'],
     accounting: ['dashboard','invoices','payments','expenses','ledger','reports','settings'],
@@ -88,6 +86,45 @@ const DB = (() => {
     ],
     fiscalYear:new Date().getFullYear(),
   };
+
+  /* ---------- delivery ----------
+     Four ways a course is delivered, and no others. The price matrix the
+     catalogue was imported from used its own spellings and mixed in things that
+     are not a delivery at all, so everything is folded into this list on the way
+     in — once at seed time, once on migration — and the course form only offers
+     these four.
+
+     "Blended" is not one of them. It means part in a classroom and part not, so
+     it maps to both of the deliveries it is made of rather than being dropped.
+     "With/without accommodation" is a boarding arrangement, not a delivery, and
+     moves to the course's options. */
+  const DELIVERY = ['Face-to-Face','Module','Distance Learning','Non-Appearance'];
+
+  const DELIVERY_ALIAS = {
+    'face to face':['Face-to-Face'], 'face-to-face':['Face-to-Face'], 'f2f':['Face-to-Face'],
+    'module':['Module'], 'modular':['Module'],
+    'distance learning':['Distance Learning'], 'distance-learning':['Distance Learning'],
+    'online':['Distance Learning'], 'distance':['Distance Learning'],
+    'non-appearance':['Non-Appearance'], 'non appearance':['Non-Appearance'],
+    'nonappearance':['Non-Appearance'], 'no appearance':['Non-Appearance'],
+    'blended':['Face-to-Face','Distance Learning'],
+  };
+  const isBoarding = v => /accommodation/i.test(String(v));
+
+  /* Returns { modes, options } — never an empty modes list, because a course
+     with no recorded delivery is delivered face to face, the house default. */
+  function normalizeDelivery(raw){
+    const out = [], options = [];
+    (raw || []).forEach(v => {
+      const t = String(v || '').trim();
+      if(!t) return;
+      if(isBoarding(t)){ options.push(t); return; }
+      const mapped = DELIVERY_ALIAS[t.toLowerCase()] || (DELIVERY.includes(t) ? [t] : null);
+      if(mapped) mapped.forEach(m => { if(!out.includes(m)) out.push(m); });
+    });
+    return { modes: out.length ? out : ['Face-to-Face'],
+             options: [...new Set(options)] };
+  }
 
   /* ---------- helpers ---------- */
   const today = () => new Date().toISOString().slice(0,10);
@@ -175,6 +212,15 @@ const DB = (() => {
       if(!u.initials) u.initials = String(u.name||'?').split(/s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
     });
 
+    /* Delivery was free text and carried values that are not a delivery. Fold
+       every stored course onto the four allowed ones. */
+    (d.courses || []).forEach(c => {
+      const { modes, options } = normalizeDelivery([...(c.modes || []), c.note].filter(Boolean));
+      c.modes = modes;
+      if(options.length) c.options = options;
+      delete c.note;
+    });
+
     /* ---- no VAT, no other taxes ---- */
     delete d.company.vatRate;
     delete d.company.vatInclusive;
@@ -260,13 +306,23 @@ const DB = (() => {
       throw new Error('assets/courses.js must be loaded before db.js — the seed builds the ' +
                       'catalogue from it. Regenerate with tools/import-courses.js if it is missing.');
     }
-    data.courses = COURSE_CATALOGUE.map(c => ({
-      id:uid('crs'),
-      code:c.code, title:c.title,
-      days:c.days ?? null, daysTo:c.daysTo, duration:c.duration,
-      modes:c.modes || [], note:c.note || '',
-      active:true,
-    }));
+    data.courses = COURSE_CATALOGUE.map(c => {
+      /* The import writes the delivery across two fields — `modes` for what the
+         matrix listed, `note` for "Module" / "Blended" — and both are folded
+         into one canonical list here. */
+      const { modes, options } = normalizeDelivery([...(c.modes || []), c.note].filter(Boolean));
+      return {
+        id:uid('crs'),
+        code:c.code, title:c.title,
+        days:c.days ?? null, daysTo:c.daysTo, duration:c.duration,
+        modes, options,
+        /* Where it runs and what it costs. Blank for most of the catalogue: the
+           admin fills these in from the price matrix, course by course. The
+           seeded demo fills the handful that have bookings against them, below. */
+        center:'', amount:0, rebate:0, deduct:false,
+        active:true,
+      };
+    });
     data.seq.course = data.courses.length;
 
     const crs = t => data.courses.find(c => c.title.toUpperCase() === t.toUpperCase());
@@ -298,6 +354,16 @@ const DB = (() => {
       if(!c) throw new Error(`seed: no catalogue entry titled "${title}" — check tools/import-courses.js output`);
       const start = dOff(off);
       return { course:c, start, end:end(start, Math.ceil(c.days || 1)), center, room, instructor:instr, fee };
+    });
+
+    /* Give the courses that actually have bookings a center and a price, so the
+       price list is not entirely blank on a fresh install. Rebates are left at
+       zero on purpose — those are commercial terms only the office knows, and a
+       made-up rebate in a demo is a number someone will eventually quote. */
+    RUNS.forEach(r => {
+      if(r.course.center) return;
+      r.course.center = r.center;
+      r.course.amount = r.fee;
     });
 
     const names = [
@@ -455,5 +521,6 @@ const DB = (() => {
     activity('Seeded demo data','');
   }
 
-  return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today, PERMS, blank };
+  return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
+           PERMS, blank, DELIVERY, normalizeDelivery };
 })();
