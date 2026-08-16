@@ -62,15 +62,21 @@ const CRS  = id => D().courses.find(x => x.id === id);
 const ENR  = id => D().enrollments.find(x => x.id === id);
 const INV  = id => D().invoices.find(x => x.id === id);
 const PAY  = id => D().payments.find(x => x.id === id);
+/* Names are shown in capitals throughout the staff screens, the way they are
+   written on an SRN record, a PEME form and a certificate. The stored record
+   keeps whatever case it was typed in — this is a display choice, so editing a
+   trainee still shows what was actually entered. */
+const caps = s => String(s || '').toUpperCase();
+
 /* Trainees and applications carry the same name fields, so one formatter serves both. */
-const name = t => APPS.forName(t);
+const name = t => caps(APPS.forName(t));
 
 /* The same person, spelled out. APPS.forName initials the middle name, which
    is right for a table and wrong for anything a training center will type onto
    a certificate — a name that does not match their documents is a reprint the
    trainee pays for. */
 const fullName = t => t
-  ? `${t.last}${t.suffix ? ' ' + t.suffix : ''}, ${t.first}${t.middle ? ' ' + t.middle : ''}`.trim()
+  ? caps(`${t.last}${t.suffix ? ' ' + t.suffix : ''}, ${t.first}${t.middle ? ' ' + t.middle : ''}`.trim())
   : '—';
 
 /* ---------- handing a trainee to a training center ----------
@@ -1833,11 +1839,6 @@ function enrollmentForm(existing, presetTrainee){
   const roster = D().trainees.slice().sort((a,b) => a.last.localeCompare(b.last));
   if(!roster.length){ UI.toast('Register the trainee first — the registry is empty.', 'bad'); return; }
   const active = D().courses;
-  /* Trainees who share a name with somebody else on the roster. */
-  const seenName = {}, sameName = new Set();
-  roster.forEach(t => { const k = fullName(t).toUpperCase();
-    if(seenName[k]) sameName.add(k); else seenName[k] = 1; });
-
   /* Which course-at-center pairs appear more than once, so only those labels
      have to carry the delivery. */
   const seenPair = {}, sameTwice = new Set();
@@ -1846,12 +1847,12 @@ function enrollmentForm(existing, presetTrainee){
 
   const body = `
     ${UI.f.select('traineeId','Trainee', presetTrainee || '', roster
-        .map(t => ({ v:t.id, l:fullName(t)
-          /* Names alone, as asked — except where two people share one. Then
-             the trainee number is the only thing telling them apart, and
-             booking the wrong seafarer is not a mistake anyone catches until
-             the center turns them away. */
-          + (sameName.has(fullName(t).toUpperCase()) ? ` — ${t.no}` : '') })),
+        /* Name and SRN. The SRN is what the seafarer quotes and what every
+           center asks for, and it settles the case of two people sharing a
+           name — booking the wrong one is not a mistake anybody catches until
+           the center turns them away. A record with no SRN yet falls back to
+           its trainee number so the line is never ambiguous. */
+        .map(t => ({ v:t.id, l:`${fullName(t)} — ${t.srn || t.no}` })),
         { req:true, blank:'— search or select trainee —' })}
     <p class="p-note-inline muted" style="margin:-6px 0 12px;font-size:12px">
       Not on the list? <a href="#" data-act="new-trainee-here">Register a new trainee</a> first.</p>
