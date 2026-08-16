@@ -1833,6 +1833,11 @@ function enrollmentForm(existing, presetTrainee){
   const roster = D().trainees.slice().sort((a,b) => a.last.localeCompare(b.last));
   if(!roster.length){ UI.toast('Register the trainee first — the registry is empty.', 'bad'); return; }
   const active = D().courses;
+  /* Trainees who share a name with somebody else on the roster. */
+  const seenName = {}, sameName = new Set();
+  roster.forEach(t => { const k = fullName(t).toUpperCase();
+    if(seenName[k]) sameName.add(k); else seenName[k] = 1; });
+
   /* Which course-at-center pairs appear more than once, so only those labels
      have to carry the delivery. */
   const seenPair = {}, sameTwice = new Set();
@@ -1841,7 +1846,12 @@ function enrollmentForm(existing, presetTrainee){
 
   const body = `
     ${UI.f.select('traineeId','Trainee', presetTrainee || '', roster
-        .map(t => ({ v:t.id, l:`${name(t)} — ${t.no}${t.srn ? ' · ' + t.srn : ''}${t.agency ? ' · ' + t.agency : ''}` })),
+        .map(t => ({ v:t.id, l:fullName(t)
+          /* Names alone, as asked — except where two people share one. Then
+             the trainee number is the only thing telling them apart, and
+             booking the wrong seafarer is not a mistake anyone catches until
+             the center turns them away. */
+          + (sameName.has(fullName(t).toUpperCase()) ? ` — ${t.no}` : '') })),
         { req:true, blank:'— search or select trainee —' })}
     <p class="p-note-inline muted" style="margin:-6px 0 12px;font-size:12px">
       Not on the list? <a href="#" data-act="new-trainee-here">Register a new trainee</a> first.</p>
