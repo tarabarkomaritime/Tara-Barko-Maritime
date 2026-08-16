@@ -878,8 +878,6 @@ function centerVoucherForm(center){
         <span>${UI.esc(name(T(r.e.traineeId)))}
           <span class="muted">· ${UI.esc((CRS(r.e.courseId)||{}).title || '')}</span></span></label></td>
       <td class="muted" style="padding:4px 0">${r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—'}</td>
-      <td style="padding:4px 0">${r.deduct
-        ? UI.tag('rebate deducted','warn') : UI.tag('full fee','ok')}</td>
       <td class="num" style="padding:4px 0">${UI.num(r.payable)}</td>
     </tr>`;
 
@@ -895,7 +893,7 @@ function centerVoucherForm(center){
       <table style="width:100%;font-size:12.5px;margin-bottom:12px">
         <thead><tr>
           <th style="text-align:left">Booking</th><th style="text-align:left">Training</th>
-          <th style="text-align:left">Rebate</th><th class="num">Owed</th>
+          <th class="num">Fee</th>
         </tr></thead>
         <tbody>${group.rows.map(row).join('')}</tbody>
       </table>
