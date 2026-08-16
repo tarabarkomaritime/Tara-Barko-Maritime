@@ -754,22 +754,22 @@ function payablesByCenter(from, to){
 }
 
 /* The filter as the rest of the module reads it. centerVoucherForm uses the
-   same values, so a voucher covers the bookings actually on screen. */
+   same values, so a voucher covers the bookings actually on screen. One date,
+   read as "on or after" — a debt has no far end worth filtering to. */
 const payablesFilter = () => ({
   from:state.q.payaFrom || '',
-  to:state.q.payaTo || '',
   center:state.q.payaCenter || '',
 });
 
 VIEWS.payables = () => {
-  const { from, to, center:pick } = payablesFilter();
-  const inWindow = d => (!from || d >= from) && (!to || d <= to);
+  const { from, center:pick } = payablesFilter();
+  const inWindow = d => !from || d >= from;
 
   /* The picker lists every center with something outstanding whatever the
      dates say. A filter that empties its own control cannot be undone. */
   const everyCenter = payablesByCenter().map(c => c.key).sort();
 
-  const centers = payablesByCenter(from, to).filter(c => !pick || c.key === pick);
+  const centers = payablesByCenter(from).filter(c => !pick || c.key === pick);
   const totalDue  = ACC.r2(centers.reduce((s,c) => s + c.payable, 0));
   const totalRecv = ACC.r2(centers.reduce((s,c) => s + c.receivable, 0));
   const totalKept = ACC.r2(centers.reduce((s,c) => s + c.rebateDeducted, 0));
@@ -780,11 +780,8 @@ VIEWS.payables = () => {
     .filter(v => inWindow(v.date))
     .sort((a,b) => b.date.localeCompare(a.date)).slice(0, 24);
 
-  const filtered = !!(from || to || pick);
-  const span = from && to ? `${UI.date(from)} to ${UI.date(to)}`
-             : from ? `from ${UI.date(from)}`
-             : to ? `up to ${UI.date(to)}`
-             : 'all dates';
+  const filtered = !!(from || pick);
+  const span = from ? `from ${UI.date(from)}` : 'all dates';
 
   /* One card per training center, with its own bookings and its own voucher
      button. The summary above is for deciding who to pay; these are for seeing
@@ -794,10 +791,8 @@ VIEWS.payables = () => {
       { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || '—') },
       { h:'Training', k:r => r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—' },
       { h:'Booking', k:r => `<span class="mono muted">${UI.esc(r.e.no)}</span>`, w:'135px' },
-      { h:'Rebate', k:r => r.deduct ? UI.tag('deducted','warn')
-          : (r.rebate ? UI.tag('to collect','sea') : '<span class="muted">—</span>') },
-      { h:'Owed', k:r => `<b>${UI.num(r.payable)}</b>`, cls:'num' },
-    ], c.rows, { foot:['SUBTOTAL', '', '', '', '', UI.num(c.payable)] }), {
+      { h:'Fee', k:r => `<b>${UI.num(r.payable)}</b>`, cls:'num' },
+    ], c.rows, { foot:['SUBTOTAL', '', '', '', UI.num(c.payable)] }), {
       flush:true,
       sub:`${c.rows.length} booking(s) · oldest training ${c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest)}`
           + (c.receivable ? ` · ${UI.peso(c.receivable)} rebate still to collect` : ''),
@@ -821,14 +816,12 @@ VIEWS.payables = () => {
       </select>
       <label class="muted" style="font-size:12px">Training from</label>
       <input type="date" data-q="payaFrom" value="${from}">
-      <label class="muted" style="font-size:12px">to</label>
-      <input type="date" data-q="payaTo" value="${to}">
       ${filtered ? '<button class="btn btn-ghost btn-sm" data-act="payables-all">Show everything</button>' : ''}
       <span class="spacer"></span>
       <span class="muted" style="font-size:12px">${UI.int(bookings)} booking(s) · ${span}</span>
     </div>
 
-    ${centers.length > 1 ? UI.card('What We Owe Each Training Center', UI.table([
+    ${centers.length > 1 ? UI.card('Payables', UI.table([
       { h:'Training center', k:c => `<b>${UI.esc(c.key)}</b>` },
       { h:'Bookings', k:c => UI.int(c.rows.length), cls:'num' },
       { h:'Oldest', k:c => c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest) },
@@ -869,8 +862,8 @@ VIEWS.payables = () => {
    office can leave some off when it is settling only part of a statement. */
 function centerVoucherForm(center){
   const key = String(center || '').toUpperCase();
-  const { from, to } = payablesFilter();
-  const group = payablesByCenter(from, to).find(c => c.center.toUpperCase() === key);
+  const { from } = payablesFilter();
+  const group = payablesByCenter(from).find(c => c.center.toUpperCase() === key);
   if(!group){ UI.toast('Nothing outstanding for that center.', 'bad'); return; }
   /* What the date filter is holding back. The office is looking at a
      filtered screen; it should not have to guess that the voucher is
@@ -2822,7 +2815,7 @@ document.addEventListener('click', ev => {
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'pay-center':    () => centerVoucherForm(id),
     'paya-only':     () => { state.q.payaCenter = id; render(); },
-    'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = state.q.payaTo = ''; render(); },
+    'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
