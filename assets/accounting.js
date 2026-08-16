@@ -99,6 +99,47 @@ const ACC = (() => {
     return post({ date:inv.date, memo:`Billing — ${inv.no}`, refType:'Invoice', refNo:inv.no, refId:inv.id, lines });
   }
 
+  /* ---------- what we owe the training center ----------
+     TB Maritime endorses a seafarer to a partner center; the center runs the
+     course and is owed its fee. The rebate is what the center gives back, and
+     the course's `deduct` flag says how it is settled:
+
+       Deduct        — the rebate comes off the payable. We remit the fee less
+                       the rebate, and the margin is realised the moment the
+                       booking is made, whether or not the trainee has paid.
+       Do not deduct — the payable is the full fee. The rebate is owed to us
+                       separately, so it is carried as a receivable from the
+                       center until they settle it.
+
+     Either way the trainee is charged the same amount: this decides what moves
+     between us and the center, not what the seafarer pays. Both are posted when
+     the booking is billed, because the debt to the center exists from that
+     moment regardless of how much of the fee has been collected. */
+  function centerSettlement({ fee, rebate, deduct }){
+    const f = r2(fee), rb = r2(rebate || 0);
+    return deduct
+      ? { payable:r2(f - rb), receivable:0, rebate:rb }
+      : { payable:f,          receivable:rb, rebate:rb };
+  }
+
+  function postCenterPayable({ date, memo, refNo, refId, fee, rebate, deduct }){
+    const s = centerSettlement({ fee, rebate, deduct });
+    const lines = [
+      { account:'5050', debit:s.payable, credit:0 },   // cost of the seat
+      { account:'2000', debit:0, credit:s.payable },   // owed to the center
+    ];
+    if(s.receivable){
+      lines.push({ account:'1250', debit:s.receivable, credit:0 });  // rebate due to us
+      lines.push({ account:'4200', debit:0, credit:s.receivable });  // and earned
+    }
+    if(deduct && s.rebate){
+      /* Netted off the payable, so the margin is already in the numbers above;
+         name it in the memo so the ledger reads as what happened. */
+      memo += ` · rebate ${s.rebate} deducted`;
+    }
+    return { entry:post({ date, memo, refType:'Booking', refNo, refId, lines }), ...s };
+  }
+
   /* Modes of payment are configurable — the admin maintains the list in
      Settings — but each one has to say where its money lands, or the cash
      accounts stop meaning anything. GCash gets its own account rather than
@@ -306,6 +347,7 @@ const ACC = (() => {
     methods, methodNames, needsRef, DEFAULT_METHODS,
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
     recomputeInvoice, balanceOf, cashAccount, paymentLines,
+    centerSettlement, postCenterPayable,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
   };
 })();

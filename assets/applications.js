@@ -203,13 +203,23 @@ const APPS = (() => {
       id:DB.uid('enr'), no:DB.nextNo('enrollment','ENR'),
       traineeId:trainee.id, courseId:c.id,
       /* The booking itself: where, when and for how much. */
-      center:t(opts.center), room:t(opts.room), instructor:t(opts.instructor),
+      /* The center belongs to the course entry — the price list is one row per
+         course at one center — so it only has to be passed in to override it. */
+      center:t(opts.center) || t(c.center), room:t(opts.room), instructor:t(opts.instructor),
       start:opts.start, end:opts.end || opts.start,
       date:DB.today(), status:mode, result:'',
       fee, discount, discountNote:t(opts.discountNote),
       certificateNo:'', remarks:t(opts.remarks),
     };
     D().enrollments.push(enr);
+
+    /* What the center is owed for this seat, and how the rebate is settled.
+       Taken from the course entry the booking names — that entry is the price
+       list row for this course at this center. */
+    const rebate = opts.rebate != null ? ACC.r2(opts.rebate) : ACC.r2(c.rebate || 0);
+    const deduct = opts.deduct != null ? !!opts.deduct : !!c.deduct;
+    enr.rebate = rebate;
+    enr.deduct = deduct;
 
     /* Billing, only when the booking is confirmed. A reservation is not receivable. */
     let inv = null;
@@ -222,6 +232,18 @@ const APPS = (() => {
       D().invoices.push(inv);
       ACC.postInvoice(inv);
       enr.invoiceId = inv.id;
+
+      /* The debt to the center exists from the moment the seat is booked, not
+         when the trainee finishes paying — so it posts here, alongside the bill. */
+      if(fee > 0){
+        const s = ACC.postCenterPayable({
+          date:enr.date,
+          memo:`${c.title}${enr.center ? ' — ' + enr.center : ''} · ${enr.no}`,
+          refNo:enr.no, refId:enr.id, fee, rebate, deduct,
+        });
+        enr.centerPayable = s.payable;
+        enr.rebateReceivable = s.receivable;
+      }
     }
 
     DB.activity('Enrolled trainee', `${trainee.no} → ${enr.no}`);

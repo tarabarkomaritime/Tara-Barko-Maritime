@@ -12,12 +12,16 @@ const DB = (() => {
     { code:'1010', name:'Cash in Bank',            type:'Asset',     nature:'debit'  },
     { code:'1020', name:'GCash Wallet',             type:'Asset',     nature:'debit'  },
     { code:'1200', name:'Accounts Receivable',     type:'Asset',     nature:'debit'  },
+    { code:'1250', name:'Rebates Receivable',      type:'Asset',     nature:'debit'  },
+    { code:'2000', name:'Payable to Training Centers', type:'Liability', nature:'credit' },
     { code:'2200', name:'Unearned Training Fees',  type:'Liability', nature:'credit' },
     { code:'3000', name:"Owner's Equity",          type:'Equity',    nature:'credit' },
     { code:'4000', name:'Training Fees Revenue',   type:'Revenue',   nature:'credit' },
     { code:'4100', name:'Assessment & Other Fees', type:'Revenue',   nature:'credit' },
+    { code:'4200', name:'Rebate Income',           type:'Revenue',   nature:'credit' },
     { code:'4900', name:'Discounts Given',         type:'Revenue',   nature:'debit'  }, // contra-revenue
     { code:'5000', name:'Instructor Fees',         type:'Expense',   nature:'debit'  },
+    { code:'5050', name:'Training Center Fees',    type:'Expense',   nature:'debit'  },
     { code:'5100', name:'Training Materials',      type:'Expense',   nature:'debit'  },
     { code:'5200', name:'Rent & Utilities',        type:'Expense',   nature:'debit'  },
     { code:'5300', name:'Salaries & Wages',        type:'Expense',   nature:'debit'  },
@@ -242,6 +246,13 @@ const DB = (() => {
       const row = { code:'1020', name:'GCash Wallet', type:'Asset', nature:'debit' };
       at >= 0 ? d.accounts.splice(at, 0, row) : d.accounts.push(row);
     }
+    /* Endorsing a trainee creates a debt to the training center, and a rebate
+       the center either nets off that debt or settles separately. Older stores
+       have nowhere to post either. */
+    COA.filter(a => ['1250','2000','4200','5050'].includes(a.code)).forEach(a => {
+      if(!d.accounts.some(x => x.code === a.code)) d.accounts.push({ ...a });
+    });
+    d.accounts.sort((a,b) => a.code.localeCompare(b.code));
 
     /* A receipt may now be settled in several tenders. One-mode receipts get a
        single tender so every reader can assume the array is there. */

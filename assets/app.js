@@ -988,8 +988,8 @@ function courseForm(c){
       <datalist id="courseCenters">${centers.map(x => `<option value="${UI.esc(x)}">`).join('')}</datalist>
       ${UI.row(UI.f.num('rebate','Rebate (₱)', c.rebate, { min:0, hint:'what the center gives back' }),
                UI.f.select('deduct','Rebate treatment', c.deduct ? '1' : '0',
-                 [{ v:'0', l:'Do not deduct — margin kept, trainee pays the full amount' },
-                  { v:'1', l:'Deduct — comes off what the trainee pays' }]))}
+                 [{ v:'0', l:'Do not deduct — we remit the full fee; the center settles the rebate separately' },
+                  { v:'1', l:'Deduct — the rebate comes off what we remit to the center' }]))}
       <div class="note" id="rebateNote"></div>`,
     submitLabel: isNew ? 'Add course' : 'Save changes',
     footExtra: isNew ? '' :
@@ -1008,7 +1008,10 @@ function courseForm(c){
         amount:ACC.r2(fd.amount), rebate:ACC.r2(fd.rebate),
         deduct: fd.deduct === '1',
       };
-      if(rec.rebate > rec.amount){ UI.toast('The rebate cannot exceed the amount.', 'bad'); return false; }
+      if(rec.rebate > rec.amount){
+        UI.toast('The rebate cannot exceed the fee — we would be remitting a negative amount.', 'bad');
+        return false;
+      }
       if(isNew){ D().courses.push({ id:DB.uid('crs'), ...rec }); DB.activity('Added course', rec.code); UI.toast('Course added.'); }
       else { Object.assign(c, rec); DB.activity('Updated course', c.code); UI.toast('Course updated.'); }
       refresh();
@@ -1022,9 +1025,11 @@ function courseForm(c){
     const amount = ACC.r2(form.amount.value), rebate = ACC.r2(form.rebate.value);
     const box = document.getElementById('rebateNote');
     if(!amount && !rebate){ box.innerHTML = 'Leave the amount blank if this course is priced per booking.'; return; }
-    box.innerHTML = form.deduct.value === '1'
-      ? `Trainee pays <b>${UI.peso(ACC.r2(amount - rebate))}</b> — the ${UI.peso(rebate)} rebate is deducted.`
-      : `Trainee pays <b>${UI.peso(amount)}</b>. The ${UI.peso(rebate)} rebate stays with TB Maritime and is not shown to them.`;
+    const s = ACC.centerSettlement({ fee:amount, rebate, deduct:form.deduct.value === '1' });
+    box.innerHTML = `Trainee is billed <b>${UI.peso(amount)}</b> either way. `
+      + (form.deduct.value === '1'
+        ? `We remit <b>${UI.peso(s.payable)}</b> to the center — the ${UI.peso(rebate)} rebate is deducted from the payable.`
+        : `We remit the full <b>${UI.peso(s.payable)}</b>; the ${UI.peso(rebate)} rebate stays receivable from the center.`);
   };
   form.addEventListener('input', showRebate);
   form.addEventListener('change', showRebate);
@@ -1056,7 +1061,11 @@ function enrollmentForm(existing, presetTrainee){
   const roster = D().trainees.slice().sort((a,b) => a.last.localeCompare(b.last));
   if(!roster.length){ UI.toast('Register the trainee first — the registry is empty.', 'bad'); return; }
   const active = D().courses;
-  const centers = [...new Set(D().enrollments.map(x => x.center).filter(Boolean))].sort();
+  /* Which course-at-center pairs appear more than once, so only those labels
+     have to carry the delivery. */
+  const seenPair = {}, sameTwice = new Set();
+  active.forEach(c => { const k = c.title + '@' + c.center;
+    if(seenPair[k]) sameTwice.add(k); else seenPair[k] = 1; });
 
   const body = `
     ${UI.f.select('traineeId','Trainee', presetTrainee || '', roster
@@ -1067,17 +1076,16 @@ function enrollmentForm(existing, presetTrainee){
 
     <h4 style="margin:0 0 8px;font-size:13px">Course and training date</h4>
     ${UI.f.select('courseId','Course', '', active
-        .map(c => ({ v:c.id, l:`${c.title}${c.duration ? ' (' + c.duration + ')' : ''}` })),
+        .map(c => ({ v:c.id, l:`${c.title}${c.center ? ' — ' + c.center : ''}`
+          /* A center can run the same course two ways — face to face and
+             blended, at different prices. Without the delivery those two read
+             as the same line and the desk picks whichever comes first. */
+          + (sameTwice.has(c.title + '@' + c.center) ? ` · ${c.modes.join(' + ')}` : '') })),
         { req:true, blank:'— select course —' })}
-    ${UI.row(UI.f.date('start','Training starts', DB.today(), { req:true }),
-             UI.f.date('end','Training ends', '', { hint:'blank = from course duration' }))}
-    ${UI.row(UI.f.text('center','Training center', '', { req:true, attr:'list="centerList"',
-                                                         hint:'partner running it' }),
-             UI.f.num('fee','Agreed fee (₱)', '0', { req:true, min:0, hint:'this center, this booking' }))}
-    <datalist id="centerList">${centers.map(x => `<option value="${UI.esc(x)}">`).join('')}</datalist>
-    ${UI.row(UI.f.select('status','Booking status','Enrolled',
-               [{v:'Enrolled',l:'Enrolled — bill now'},{v:'Reserved',l:'Reserved — bill later'}]),
-             UI.f.date('date','Date encoded', DB.today(), { req:true }))}
+    ${UI.f.date('start','Training starts', DB.today(), { req:true })}
+    <div class="note" id="endsNote" style="margin:-4px 0 14px"></div>
+    ${UI.f.num('fee','Agreed fee (₱)', '0', { req:true, min:0,
+         hint:'from the price list — change it only if this booking was agreed at another figure' })}
 
     <div class="hr"></div>
     <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
@@ -1100,16 +1108,13 @@ function enrollmentForm(existing, presetTrainee){
       const chosen = addons().filter((a,i) => fd['addon'+i]);
       try{
         const out = APPS.enroll(trainee, {
-          courseId:fd.courseId, start:fd.start, end:fd.end, center:fd.center,
-          fee:fd.fee, mode:fd.status, charges:chosen,
+          /* The center comes from the course entry — one course at one center
+             is one row on the price list. */
+          courseId:fd.courseId, start:fd.start, end:endsOn,
+          fee:fd.fee, mode:'Enrolled', charges:chosen,
           discount:fd.discount, discountNote:fd.discountNote, remarks:fd.remarks,
           by:SESSION.name,
         });
-        /* APPS.enroll stamps today; honour the date the desk actually typed. */
-        if(fd.date && fd.date !== out.enrollment.date){
-          out.enrollment.date = fd.date;
-          if(out.invoice) out.invoice.date = fd.date;
-        }
         UI.toast(out.invoice
           ? `Enrolled ${out.enrollment.no} — invoice ${out.invoice.no} for ${UI.peso(out.invoice.total)}`
           : `Booking reserved as ${out.enrollment.no} — not yet billed.`);
@@ -1129,33 +1134,35 @@ function enrollmentForm(existing, presetTrainee){
   form.courseId.onchange = () => {
     const c = CRS(form.courseId.value);
     if(!c) return;
-    if(c.center && !form.center.dataset.touched) form.center.value = c.center;
-    if(c.amount && !form.fee.dataset.touched){
-      form.fee.value = ACC.r2(c.deduct ? c.amount - (c.rebate || 0) : c.amount).toFixed(2);
-    }
+    /* The trainee pays the course amount. The rebate is settled between us
+       and the center and never reaches this figure. */
+    if(c.amount && !form.fee.dataset.touched) form.fee.value = ACC.r2(c.amount).toFixed(2);
     fillEnd();
     recalc();
   };
-  form.center.onchange = () => { form.center.dataset.touched = '1'; };
   form.fee.onchange = () => { form.fee.dataset.touched = '1'; };
 
   /* Typing the start date is the common case, so fill the end date from the
      course length and let the desk overrule it. */
+  /* The end date is not asked for. It follows from the course length, so it is
+     worked out and shown — one date to type instead of two to keep consistent. */
+  let endsOn = '';
   const fillEnd = () => {
     const c = CRS(form.courseId.value);
-    if(!c || !form.start.value || form.end.dataset.touched) return;
+    const box = document.getElementById('endsNote');
+    if(!c || !form.start.value){ endsOn = ''; box.textContent = 'Pick the course and the start date.'; return; }
     const days = Math.ceil(c.days || 1);
     const x = new Date(form.start.value); x.setDate(x.getDate() + days - 1);
-    form.end.value = x.toISOString().slice(0,10);
+    endsOn = x.toISOString().slice(0,10);
+    box.innerHTML = `Runs <b>${UI.dateRange(form.start.value, endsOn)}</b> — ${days} training day(s)`
+      + (c.duration ? ` from the course length on the price list.` : `. This course has no length on the price list, so one day is assumed.`);
   };
-  form.end.onchange = () => { form.end.dataset.touched = '1'; };
 
   const recalc = () => {
     fillEnd();
     const items = [{ qty:1, price:form.fee.value }];
     addons().forEach((a,i) => { if(form['addon'+i] && form['addon'+i].checked) items.push({ qty:1, price:a.price }); });
     const t = ACC.computeInvoice(items, form.discount.value);
-    const reserved = form.status.value === 'Reserved';
     document.getElementById('summary').innerHTML = `
       <div style="display:flex;justify-content:flex-end">
         <table style="width:320px">
@@ -1165,7 +1172,7 @@ function enrollmentForm(existing, presetTrainee){
               <td class="num" style="font-weight:700;font-size:15px;border-top:2px solid var(--border-strong)">${UI.peso(t.total)}</td></tr>
         </table>
       </div>
-      ${reserved ? '<div class="note warn">Reserved bookings are <b>not billed</b>. No invoice or journal entry is created until the booking is confirmed.</div>' : ''}`;
+      `;
   };
   form.addEventListener('input', recalc);
   form.addEventListener('change', recalc);
@@ -1204,6 +1211,17 @@ function enrollmentModal(e){
       </div>
       ${e.remarks ? `<div class="note">${UI.esc(e.remarks)}</div>` : ''}
       <div class="hr"></div>
+      ${e.fee ? `
+        <h4 style="margin:0 0 8px;font-size:13px">Settlement with ${UI.esc(e.center || 'the training center')}</h4>
+        <div class="grid g3" style="margin-bottom:14px">
+          ${UI.kpi('Payable to the center', UI.peso(e.centerPayable != null ? e.centerPayable : e.fee),
+                   e.deduct ? 'rebate deducted' : 'full fee', '')}
+          ${UI.kpi('Rebate', UI.peso(e.rebate || 0),
+                   e.deduct ? 'taken off the payable' : 'receivable from the center', 'sea')}
+          ${UI.kpi('Margin on this booking', UI.peso(e.rebate || 0),
+                   'earned when the seat was booked', (e.rebate || 0) > 0 ? 'ok' : '')}
+        </div>` : ''}
+
       <h4 style="margin:0 0 8px;font-size:13px">Billing</h4>
       ${inv ? `
         <div class="grid g3" style="margin-bottom:12px">
@@ -1408,8 +1426,9 @@ function paymentForm(inv){
             : UI.f.select('invoiceId','Apply to invoice','', open.map(i =>
                 ({ v:i.id, l:`${i.no} · ${name(T(i.traineeId))} · balance ${UI.peso(ACC.balanceOf(i))}` })), { req:true, blank:'— select invoice —' })}
 
-      ${UI.row(UI.f.date('date','Date received', DB.today(), { req:true }),
-               UI.f.text('note','Notes',''))}
+      ${UI.f.text('note','Notes','')}
+      <p class="muted" style="margin:-6px 0 4px;font-size:12px">Received today,
+         ${UI.date(DB.today())} — an official receipt carries the date it is issued.</p>
 
       <div class="hr"></div>
       <h4 style="margin:0 0 4px;font-size:13px">How it was paid</h4>
@@ -1447,7 +1466,7 @@ function paymentForm(inv){
       if(amt - due > 0.004){ UI.toast(`Amount exceeds the balance of ${UI.peso(due)}.`, 'bad'); return false; }
 
       const p = ACC.buildPayment({ invoiceId:target.id, traineeId:target.traineeId,
-                                   date:fd.date, tenders, note:fd.note });
+                                   date:DB.today(), tenders, note:fd.note });
       D().payments.push(p); ACC.postPayment(p, target);
       DB.activity('Issued official receipt', `${p.no} vs ${target.no}`);
       DB.save();
