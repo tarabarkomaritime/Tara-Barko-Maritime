@@ -990,10 +990,14 @@ function applicationModal(a){
 
 /* Approve → enroll: one confirmation that creates the trainee, the enrollment and
    (unless it is only reserved) the invoice and its journal entry. */
-function convertForm(a){
+function convertForm(a, preferBatchId){
   /* The applicant registered their details only. The Registrar settles the
      course with them off-system, then picks the batch here — that one choice
-     fixes the course, the dates, the partner center and the fee together. */
+     fixes the course, the dates, the partner center and the fee together.
+
+     `preferBatchId` is how the "Schedule a batch" shortcut hands control back:
+     the registrar leaves this modal to create the run they agreed on, and
+     returns to it with that batch already selected. */
   const options = APPS.openBatches();
   if(!options.length){
     UI.confirm('No open schedules with a free seat.', () => { location.hash = '#/batches'; },
@@ -1002,13 +1006,15 @@ function convertForm(a){
     return;
   }
   const match = APPS.matchTrainee(a);
-  const first = options[0];
+  const first = options.find(o => o.id === preferBatchId) || options[0];
 
   UI.modal({
     title:'Enroll applicant — ' + APPS.forName(a),
     sub:`${a.no} · choose the course and schedule`,
     wide:true,
     submitLabel:'Enroll and post',
+    footExtra:`<button type="button" class="btn btn-ghost" id="newBatchHere">
+                 + Schedule a batch</button>`,
     body:`
       <div class="note ${match ? 'warn' : ''}">
         ${match
@@ -1017,7 +1023,7 @@ function convertForm(a){
           : `A new trainee master record will be created for this applicant.`}
       </div>
       <h4 style="margin:0 0 8px;font-size:13px">Course and schedule</h4>
-      ${UI.f.select('batchId','Course and schedule', first.id, options.map(o => {
+      ${UI.f.select('batchId','Open schedules with a free seat', first.id, options.map(o => {
           const s = APPS.seatsTaken(o), oc = CRS(o.courseId);
           return { v:o.id, l:`${oc ? oc.title : '—'} · ${UI.dateRange(o.start,o.end)} · ${o.center} · ${UI.peso(o.fee)} · ${s.free} seat(s) left` };
         }), { req:true })}
@@ -1053,6 +1059,13 @@ function convertForm(a){
       }
     }
   });
+
+  /* The applicant agreed a course on Facebook; the office may not have a run of
+     it scheduled yet. Before this, that meant abandoning the enrollment, going
+     to Schedules, and hunting the applicant down again in Admissions. Now the
+     batch is created in place and the registrar lands back here on top of it. */
+  document.getElementById('newBatchHere').onclick = () =>
+    batchForm(null, nb => convertForm(a, nb.id));
 
   const form = document.getElementById('mForm');
   const recalc = () => {
@@ -1220,7 +1233,10 @@ function courseForm(c){
   });
 }
 
-function batchForm(b){
+/* `onDone` receives the batch that was just created, so a caller can pick up
+   where it left off. Fired on the next tick because UI.modal closes this modal
+   after onSubmit returns — anything the callback opens would be wiped. */
+function batchForm(b, onDone){
   const isNew = !b;
   const active = D().courses.filter(c => c.active);
   b = b || { courseId:active[0]?.id, start:DB.today(), end:'', center:'', room:'', instructor:'',
@@ -1251,8 +1267,10 @@ function batchForm(b){
       if(isNew){
         D().seq.batch++;
         const no = `${c.code}-${String(D().seq.batch).padStart(3,'0')}`;
-        D().batches.push({ id:DB.uid('bat'), no, ...rec });
+        const made = { id:DB.uid('bat'), no, ...rec };
+        D().batches.push(made);
         DB.activity('Scheduled batch', no); UI.toast('Batch scheduled — ' + no);
+        if(onDone) setTimeout(() => onDone(made), 0);
       }else{
         Object.assign(b, rec); DB.activity('Updated batch', b.no); UI.toast('Batch updated.');
       }
