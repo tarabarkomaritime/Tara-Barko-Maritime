@@ -707,29 +707,19 @@ VIEWS.expenses = () => {
 
 const PAY_STATES = ['Enrolled','Completed'];
 
-/* One row per booking that still owes a center something.
-
-   A booking can be settled in instalments. centerPaid is what has already been
-   put on a voucher for it; payable is what is left. The booking only drops off
-   this list when the remainder reaches zero, so a part payment can never quietly
-   write off the rest. */
+/* One row per booking that still owes a center something. A booking leaves this
+   list when a voucher names it, and comes back if that voucher is rejected. */
 function openPayables(){
   return D().enrollments
     .filter(e => e.center && !e.remitNo && PAY_STATES.includes(e.status))
-    .map(e => {
-      const fee = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
-      const paid = ACC.r2(e.centerPaid || 0);
-      return {
-        e,
-        center:e.center,
-        fee,
-        paid,
-        payable:ACC.r2(fee - paid),
-        rebate:ACC.r2(e.rebate || 0),
-        receivable:ACC.r2(e.rebateReceivable || 0),
-        deduct:!!e.deduct,
-      };
-    })
+    .map(e => ({
+      e,
+      center:e.center,
+      payable:ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee),
+      rebate:ACC.r2(e.rebate || 0),
+      receivable:ACC.r2(e.rebateReceivable || 0),
+      deduct:!!e.deduct,
+    }))
     .filter(r => r.payable > 0);
 }
 
@@ -818,12 +808,9 @@ VIEWS.payables = () => {
           if(ACC.balanceOf(inv) <= 0.004) return UI.tag('Full','ok');
           return (inv.paid || 0) > 0 ? UI.tag('Partial','warn') : UI.tag('Unpaid','bad');
         }, cls:'center', w:'110px' },
-      /* What is still owed on the seat — that is what the subtotal adds up and
-         what the next voucher would pay. A part payment says so underneath so
-         the smaller number is never a mystery. */
-      { h:'Fee', k:r => `<b>${UI.num(r.payable)}</b>`
-          + (r.paid ? `<br><span class="muted" style="font-size:11px">of ${UI.num(r.fee)} · ${UI.num(r.paid)} remitted</span>` : ''),
-        cls:'num' },
+      /* What the seat owes the center — what the subtotal adds up, and what a
+         voucher pays for it. */
+      { h:'Fee', k:r => `<b>${UI.num(r.payable)}</b>`, cls:'num' },
     ], c.rows, { foot:['SUBTOTAL', '', '', '', '', UI.num(c.payable)] }), {
       flush:true,
       sub:`${c.rows.length} booking(s) · oldest training ${c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest)}`
@@ -903,9 +890,8 @@ function centerVoucherForm(center){
   const whole = payablesByCenter().find(c => c.center.toUpperCase() === key) || group;
   const hidden = whole.rows.length - group.rows.length;
 
-  /* Fee is what the seat costs and cannot be typed over. Paying is what goes on
-     this voucher, and starts at everything still outstanding — type less to pay
-     an instalment and the rest stays on the payables list. */
+  /* A booking is on the voucher or it is not. There is no partial amount to
+     type: what a seat costs is what the center is paid for it. */
   const row = (r,i) => `
     <tr>
       <td style="padding:4px 0"><label style="display:flex;gap:8px;align-items:center;cursor:pointer">
@@ -913,11 +899,7 @@ function centerVoucherForm(center){
         <span>${UI.esc(name(T(r.e.traineeId)))}</span></label></td>
       <td class="muted" style="padding:4px 0">${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
       <td class="muted" style="padding:4px 0">${r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—'}</td>
-      <td class="num" style="padding:4px 0">${UI.num(r.fee)}
-        ${r.paid ? `<br><span class="muted" style="font-size:11px">${UI.num(r.paid)} already remitted</span>` : ''}</td>
-      <td class="num" style="padding:4px 0">
-        <input type="number" name="amt${i}" value="${r.payable}" step="0.01" min="0.01" max="${r.payable}"
-          style="width:110px;text-align:right;padding:3px 6px;font-size:12.5px"></td>
+      <td class="num" style="padding:4px 0">${UI.num(r.payable)}</td>
     </tr>`;
 
   UI.modal({
@@ -933,7 +915,6 @@ function centerVoucherForm(center){
         <thead><tr>
           <th style="text-align:left">Trainee</th><th style="text-align:left">Course</th>
           <th style="text-align:left">Training</th><th class="num">Fee</th>
-          <th class="num">Paying</th>
         </tr></thead>
         <tbody>${group.rows.map(row).join('')}</tbody>
       </table>
@@ -949,20 +930,9 @@ function centerVoucherForm(center){
       <div id="voucherTotal"></div>`,
     submitLabel:'Post voucher',
     onSubmit: fd => {
-      const picked = group.rows
-        .map((r,i) => ({ r, amount:ACC.r2(Number(fd['amt'+i]) || 0) }))
-        .filter((_,i) => fd['pick'+i]);
+      const picked = group.rows.filter((r,i) => fd['pick'+i]);
       if(!picked.length){ UI.toast('Choose at least one booking to pay.', 'bad'); return false; }
-
-      /* An instalment cannot be nothing, and cannot be more than the seat still
-         owes — overpaying a booking here would leave the payable negative and
-         the center's statement impossible to reconcile. */
-      const bad = picked.find(p => p.amount <= 0 || p.amount > p.r.payable);
-      if(bad){
-        UI.toast(`${name(T(bad.r.e.traineeId))}: pay between 0.01 and ${UI.num(bad.r.payable)}.`, 'bad');
-        return false;
-      }
-      const amount = ACC.r2(picked.reduce((s,p) => s + p.amount, 0));
+      const amount = ACC.r2(picked.reduce((s,r) => s + r.payable, 0));
       if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
         UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
       }
@@ -976,25 +946,17 @@ function centerVoucherForm(center){
         account:'2000',
         particulars:(fd.particulars || `Remittance To ${center}`).trim(),
         method:fd.method, ref:String(fd.ref||'').trim(),
-        amount, bookings:picked.map(p => p.r.e.id),
-        /* What each booking is being paid on this voucher. Without it a part
-           payment would print as the whole fee. */
-        lines:picked.map(p => ({ id:p.r.e.id, amount:p.amount })),
-        /* Short-paying a booking is a judgement call, so the approver is told
-           what is being left unpaid rather than being handed a total and asked
-           to trust it. Nothing posts until an admin has seen this. */
-        shortfall:ACC.r2(picked.reduce((s,p) => s + (p.r.payable - p.amount), 0)),
-        partials:picked.filter(p => p.amount < p.r.payable - 0.004).length,
+        amount, bookings:picked.map(r => r.e.id),
+        /* What each booking was paid on this voucher, so the document still
+           prints the right figure if a course price is edited afterwards. */
+        lines:picked.map(r => ({ id:r.e.id, amount:r.payable })),
       };
       D().expenses.push(v);
       /* The money is committed straight away so a second voucher cannot be
          raised for the same amount while this one waits. A booking is only
          closed once nothing is left on it. Nothing has posted: approval does
          that. */
-      picked.forEach(p => {
-        p.r.e.centerPaid = ACC.r2((p.r.e.centerPaid || 0) + p.amount);
-        if(p.r.e.centerPaid >= p.r.fee - 0.004){ p.r.e.remitNo = v.no; p.r.e.remitDate = v.date; }
-      });
+      picked.forEach(r => { r.e.remitNo = v.no; r.e.remitDate = v.date; });
 
       DB.activity('Raised remittance', `${v.no} · ${center} · ${UI.peso(amount)}`);
       DB.save();
@@ -1008,31 +970,18 @@ function centerVoucherForm(center){
   const form = document.getElementById('mForm');
   const ticked = (r,i) => form['pick'+i] && form['pick'+i].checked;
   const total = () => {
-    const sum = group.rows.reduce((s,r,i) =>
-      s + (ticked(r,i) ? (Number(form['amt'+i] && form['amt'+i].value) || 0) : 0), 0);
+    const sum = group.rows.reduce((s,r,i) => s + (ticked(r,i) ? r.payable : 0), 0);
     const n = group.rows.filter(ticked).length;
-    const owed = group.rows.reduce((s,r,i) => s + (ticked(r,i) ? r.payable : 0), 0);
-    const short = ACC.r2(owed - sum);
-    /* An unticked row's amount is not going anywhere; grey it out rather than
-       leave a live-looking field that changes nothing. */
-    group.rows.forEach((r,i) => { if(form['amt'+i]) form['amt'+i].disabled = !ticked(r,i); });
     document.getElementById('voucherTotal').innerHTML = `
       <div style="display:flex;justify-content:flex-end">
-        <table style="width:340px">
+        <table style="width:320px">
           <tr><td>Bookings on this voucher</td><td class="num">${UI.int(n)}</td></tr>
-          ${short > 0.004 ? `<tr><td>Left owing after this</td>
-              <td class="num">${UI.num(short)}</td></tr>` : ''}
           <tr><td style="font-weight:700;border-top:2px solid var(--border-strong)">Amount to remit</td>
               <td class="num" style="font-weight:700;font-size:15px;border-top:2px solid var(--border-strong)">${UI.peso(ACC.r2(sum))}</td></tr>
         </table>
-      </div>
-      ${short > 0.004 ? `<div class="note warn" style="margin-top:10px">This pays
-        <b>${UI.peso(short)}</b> less than these bookings are owed. A part payment goes to an
-        admin for approval before anything leaves the account, and the shortfall stays on the
-        payables list.</div>` : ''}`;
+      </div>`;
   };
   form.addEventListener('change', total);
-  form.addEventListener('input', total);   // the amounts, as they are typed
   total();
 }
 
@@ -1140,18 +1089,14 @@ function approveDoc(kind, id, ok, note){
 
   if(!ok){
     rec.state = 'Rejected';
-    /* Give the bookings back. The amount was committed when the voucher was
-       raised so nobody could raise a second one for it; a rejected voucher
-       never pays anything, so the debt has to reappear on the payables list
-       rather than vanish with the document. */
+    /* Give the bookings back. They are marked as covered when the voucher is
+       raised so nobody can raise a second one for the same seats; a rejected
+       voucher never pays anything, so the debt has to reappear on the payables
+       list rather than vanish with the document. */
     if(kind === 'expenses' && rec.kind === 'remittance'){
       (rec.bookings || []).forEach(id => {
         const e = ENR(id);
-        if(!e) return;
-        const l = (rec.lines || []).find(x => x.id === id);
-        const back = l ? l.amount : (e.centerPayable != null ? e.centerPayable : e.fee);
-        e.centerPaid = ACC.r2(Math.max(0, (e.centerPaid || 0) - back));
-        if(e.remitNo === rec.no){ delete e.remitNo; delete e.remitDate; }
+        if(e && e.remitNo === rec.no){ delete e.remitNo; delete e.remitDate; }
       });
     }
     rec.decidedBy = SESSION.name; rec.decidedOn = DB.today(); rec.decisionNote = note || '';
@@ -1209,12 +1154,7 @@ VIEWS.approvals = () => {
       { h:'Pay to', k:d => UI.esc(d.payee || (d.traineeId ? name(T(d.traineeId)) : '—')) },
       { h:'Particulars', k:d => UI.esc(d.particulars || d.reason || '—') },
       { h:'Mode', k:d => UI.tag(d.method, d.method === 'Cash' ? 'ok' : 'sea') },
-      /* A part payment is the one thing on this screen the amount alone does
-         not tell you about, so it is spelled out beside the figure. */
-      { h:'Amount', k:d => `<b>${UI.num(d.amount)}</b>`
-          + (d.shortfall > 0.004
-              ? `<br><span class="muted" style="font-size:11.5px">part payment · ${UI.num(d.shortfall)} left owing</span>`
-              : ''), cls:'num' },
+      { h:'Amount', k:d => `<b>${UI.num(d.amount)}</b>`, cls:'num' },
       { h:'', k:d => canApprove()
           ? `<button class="btn btn-accent btn-xs" data-act="approve-doc" data-id="${d._kind}:${d.id}">Approve</button>
              <button class="btn btn-ghost btn-xs" data-act="reject-doc" data-id="${d._kind}:${d.id}">Reject</button>`
@@ -2906,17 +2846,9 @@ document.addEventListener('click', ev => {
     'new-refund':    () => refundForm(),
     'refund-trainee':() => { ev.stopPropagation(); refundForm(id); },
     'approve-doc':   () => { const [k,i] = id.split(':');
-                       const rec = (D()[k] || []).find(x => x.id === i);
-                       /* Approving a short-paid voucher is approving the
-                          shortfall as well, so say what it is. */
-                       const part = rec && rec.shortfall > 0.004
-                         ? ` This is a part payment: ${UI.peso(rec.shortfall)} of what `
-                           + `${rec.partials > 1 ? 'these bookings are' : 'this booking is'} owed `
-                           + 'is left unpaid and stays on the payables list.'
-                         : '';
                        UI.confirm('Approve this document?', () => approveDoc(k, i, true),
                          { yes:'Approve and post',
-                           detail:'The journal entry is made now, dated today. This is the point at which the money counts as having left.' + part }); },
+                           detail:'The journal entry is made now, dated today. This is the point at which the money counts as having left.' }); },
     'reject-doc':    () => { const [k,i] = id.split(':');
                        UI.confirm('Reject this document?', fd => approveDoc(k, i, false, fd.reason),
                          { danger:true, reason:true, yes:'Reject',
