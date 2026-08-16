@@ -140,6 +140,23 @@ const ACC = (() => {
     return { entry:post({ date, memo, refType:'Booking', refNo, refId, lines }), ...s };
   }
 
+  /* Paying a training center. The cost went to the books when the seat was
+     booked, so remitting is not an expense — it discharges the debt:
+       debit  2000 Payable to Training Centers
+       credit whichever cash account the money left from
+     The voucher amount is the sum of what each booking owes, which is already
+     net of the rebate on the bookings marked "deduct" and gross on the ones
+     marked "do not deduct". Nothing is netted a second time here. */
+  function postCenterRemittance({ date, memo, refNo, refId, amount, method }){
+    return post({
+      date, memo, refType:'Remittance', refNo, refId,
+      lines:[
+        { account:'2000', debit:r2(amount), credit:0 },
+        { account:cashAccount(method), debit:0, credit:r2(amount) },
+      ],
+    });
+  }
+
   /* Modes of payment are configurable — the admin maintains the list in
      Settings — but each one has to say where its money lands, or the cash
      accounts stop meaning anything. GCash gets its own account rather than
@@ -347,7 +364,7 @@ const ACC = (() => {
     methods, methodNames, needsRef, DEFAULT_METHODS,
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
     recomputeInvoice, balanceOf, cashAccount, paymentLines,
-    centerSettlement, postCenterPayable,
+    centerSettlement, postCenterPayable, postCenterRemittance,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
   };
 })();

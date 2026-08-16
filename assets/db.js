@@ -43,13 +43,13 @@ const DB = (() => {
 
   /* Which modules each role may open. Admin sees everything. */
   const PERMS = {
-    admin:      ['dashboard','trainees','courses','enrollments','invoices','payments','expenses','ledger','reports','settings'],
+    admin:      ['dashboard','trainees','courses','enrollments','invoices','payments','payables','expenses','ledger','reports','settings'],
     /* One person covers registration and the cash window at this office, so the
        two jobs are one role rather than two accounts to sign in and out of. */
     frontdesk:  ['dashboard','trainees','courses','enrollments','invoices','payments','reports'],
     registrar:  ['dashboard','trainees','courses','enrollments','invoices','reports'],
     cashier:    ['dashboard','trainees','enrollments','invoices','payments','reports'],
-    accounting: ['dashboard','invoices','payments','expenses','ledger','reports','settings'],
+    accounting: ['dashboard','invoices','payments','payables','expenses','ledger','reports','settings'],
   };
 
   const DEFAULT_COMPANY = {
@@ -372,11 +372,14 @@ const DB = (() => {
       ['DECK WATCHKEEPING',            15, 'PNTC',              'Simulator A',   'Capt. A. Ocampo',      3700],
       ['SATSDSD',                      21, 'Great Seas',        'Rm 305',        'Capt. M. Delos Reyes',  700],
       ['MECA - MEDICAL CARE',          28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400],
-    ].map(([title, off, center, room, instr, fee]) => {
+    ].map(([title, off, center, room, instr, fee], ri) => {
       const c = crs(title, center);
       /* The seed names real catalogue entries. If one stops matching, the import
          renamed it — fail loudly rather than seeding a half-empty demo. */
       if(!c) throw new Error(`seed: no catalogue entry titled "${title}" — check tools/import-courses.js output`);
+      /* Put a third of the seeded courses on deduct terms. Both settlement paths
+         have to appear on the payables screen or only half of it is ever seen. */
+      if(ri % 3 === 0) c.deduct = true;
       const start = dOff(off);
       return { course:c, start, end:end(start, Math.ceil(c.days || 1)), center, room, instructor:instr, fee };
     });
@@ -464,6 +467,19 @@ const DB = (() => {
       data.invoices.push(inv);
       ACC.postInvoice(inv);
       enr.invoiceId = inv.id;
+
+      /* The seat cost something. Without this the seeded books show fees as
+         pure profit and the payables screen opens empty on a fresh install.
+         The rebate and its treatment come off the course's price-list entry;
+         every other course keeps the do-not-deduct default. */
+      enr.rebate = r2(c.rebate || 0);
+      enr.deduct = !!c.deduct;
+      const st = ACC.postCenterPayable({
+        date:enr.date, memo:`${c.title} — ${b.center} · ${enr.no}`,
+        refNo:enr.no, refId:enr.id, fee:b.fee, rebate:enr.rebate, deduct:enr.deduct,
+      });
+      enr.centerPayable = st.payable;
+      enr.rebateReceivable = st.receivable;
 
       // Payment behaviour: most pay in full, some partially, a few not at all.
       const mode = i % 5;

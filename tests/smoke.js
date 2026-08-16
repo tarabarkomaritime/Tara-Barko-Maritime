@@ -237,6 +237,33 @@ check('no invoice is raised', () => run('RES.invoice === null') === true || 'bil
 check('the booking is marked Reserved', () => run('RES.enrollment.status') === 'Reserved' || run('RES.enrollment.status'));
 check('ledger still balances', balanced);
 
+console.log('\n- paying a training center -');
+check('a remittance discharges the payable rather than booking a new cost', () => {
+  run('globalThis.VOU = { id:"exp-test", no:"DV-TEST", amount:3000, method:"Bank" }');
+  run('globalThis.RJE = ACC.postCenterRemittance({ date:DB.today(), memo:"test", ' +
+      'refNo:VOU.no, refId:VOU.id, amount:VOU.amount, method:VOU.method })');
+  const l = run('RJE.lines');
+  return (l.length === 2 && l[0].account === '2000' && l[0].debit === 3000
+    && l[1].account === '1010' && l[1].credit === 3000) || JSON.stringify(l);
+});
+check('it does not touch the expense account again', () =>
+  run(`RJE.lines.every(l => l.account !== '5050')`) === true || 'posted a second cost');
+check('cash leaves the account the money was paid from', () => {
+  const je = run('ACC.postCenterRemittance({ date:DB.today(), memo:"cash test", ' +
+    'refNo:"DV-TEST2", refId:"exp-test2", amount:500, method:"Cash" })');
+  return je.lines[1].account === '1000' || je.lines[1].account;
+});
+check('ledger balances after remitting', balanced);
+check('what a center is owed is the sum of its bookings', () => {
+  /* Deduct nets the rebate off the payable; do-not-deduct does not. A center
+     with one of each is owed fee-less-rebate plus the full fee. */
+  const a = run('ACC.centerSettlement({ fee:4000, rebate:600, deduct:true }).payable');
+  const b = run('ACC.centerSettlement({ fee:4000, rebate:600, deduct:false }).payable');
+  return (a + b === 7400) || `${a} + ${b}`;
+});
+check('a booking that was never billed owes the center nothing', () =>
+  run('OUT5.enrollment.centerPayable === undefined') === true || 'a reservation owes money');
+
 console.log('\n- collections: one mode -');
 run(`globalThis.P1 = ACC.buildPayment({ invoiceId:OUT.invoice.id, traineeId:TRN.id,
        date:DB.today(), amount:1000, method:'Cash' })`);
@@ -366,8 +393,14 @@ check('rebates come from the matrix', () => {
   const withRebate = run('DB.get().courses.filter(c => c.rebate > 0).length');
   return withRebate > 250 || 'only ' + withRebate + ' courses carry a rebate';
 });
-check('no rebate is deducted until the office says so', () =>
-  run('DB.get().courses.every(c => c.deduct === false)') === true || 'a course deducts by default');
+/* Imported courses arrive on do-not-deduct terms — the matrix does not say
+   which rebates come off a payable, and guessing misstates what a partner is
+   owed. The seed then flips a handful so the payables screen shows both paths. */
+check('imported courses do not deduct by default', () => {
+  const deducting = run('DB.get().courses.filter(c => c.deduct).length');
+  const total = run('DB.get().courses.length');
+  return (deducting < 10 && total > 300) || `${deducting} of ${total} deduct`;
+});
 check('every course entry names the center that quoted it', () =>
   run('DB.get().courses.every(c => !!c.center)') === true || 'an entry has no center');
 check('courses no longer carry a status', () =>

@@ -27,6 +27,7 @@ const NAV = [
   { group:'Finance' },
   { id:'invoices',    label:'Billing',      ico:'₱' },
   { id:'payments',    label:'Collections',  ico:'◉' },
+  { id:'payables',    label:'Center Payables',ico:'⇄' },
   { id:'expenses',    label:'Disbursements',ico:'▼' },
   { id:'ledger',      label:'General Ledger',ico:'≡' },
   { id:'reports',     label:'Reports',      ico:'▲' },
@@ -41,6 +42,7 @@ const TITLES = {
   enrollments:['Enrollments','Bookings encoded per trainee, with billing status and results'],
   invoices:['Billing','Statements of account issued to trainees'],
   payments:['Collections','Official receipts and cash position'],
+  payables:['Payables to Training Centers','What each center is owed, and the vouchers that settle it'],
   expenses:['Disbursements','Vouchers for operating expenses'],
   ledger:['General Ledger','Journal entries and chart of accounts'],
   reports:['Reports','Financial statements and enrollment analytics'],
@@ -130,6 +132,10 @@ function renderNav(){
     let badge = '';
     if(n.id === 'enrollments'){
       const c = D().enrollments.filter(e => e.status === 'Reserved').length;
+      if(c) badge = `<span class="badge">${c}</span>`;
+    }
+    if(n.id === 'payables'){
+      const c = payablesByCenter().length;
       if(c) badge = `<span class="badge">${c}</span>`;
     }
     if(n.id === 'invoices'){
@@ -552,6 +558,234 @@ VIEWS.expenses = () => {
           .sort((a,b) => b.value - a.value), { money:true }))}</div>
     </div>`;
 };
+
+/* ---------- Payables to training centers ----------
+   Every booking creates a debt to the center that runs it. This is where those
+   debts are sorted by center and paid off with one voucher each.
+
+   What goes on the voucher is decided by the course, not here:
+     Deduct        — the booking owes the fee less the rebate. We keep the
+                     rebate by paying the center that much less.
+     Do not deduct — the booking owes the whole fee. The rebate is a separate
+                     debt the centre owes us, shown alongside so nobody forgets
+                     to chase it, and never quietly netted off the voucher.
+
+   A booking is outstanding until a voucher names it. Cancelled bookings drop
+   out: their invoice is reversed, so the seat was never taken. */
+
+const PAY_STATES = ['Enrolled','Completed'];
+
+/* One row per booking that still owes a center something. */
+function openPayables(){
+  return D().enrollments
+    .filter(e => e.center && !e.remitNo && PAY_STATES.includes(e.status))
+    .filter(e => (e.centerPayable != null ? e.centerPayable : e.fee) > 0)
+    .map(e => ({
+      e,
+      center:e.center,
+      payable:ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee),
+      rebate:ACC.r2(e.rebate || 0),
+      receivable:ACC.r2(e.rebateReceivable || 0),
+      deduct:!!e.deduct,
+    }));
+}
+
+function payablesByCenter(){
+  const map = {};
+  openPayables().forEach(r => {
+    const m = map[r.center] || (map[r.center] = {
+      center:r.center, rows:[], payable:0, rebateDeducted:0, receivable:0, oldest:'9999-12-31',
+    });
+    m.rows.push(r);
+    m.payable = ACC.r2(m.payable + r.payable);
+    if(r.deduct) m.rebateDeducted = ACC.r2(m.rebateDeducted + r.rebate);
+    m.receivable = ACC.r2(m.receivable + r.receivable);
+    const when = r.e.start || r.e.date;
+    if(when && when < m.oldest) m.oldest = when;
+  });
+  return Object.values(map).sort((a,b) => b.payable - a.payable);
+}
+
+VIEWS.payables = () => {
+  const centers = payablesByCenter();
+  const totalDue = ACC.r2(centers.reduce((s,c) => s + c.payable, 0));
+  const totalRecv = ACC.r2(centers.reduce((s,c) => s + c.receivable, 0));
+  const totalKept = ACC.r2(centers.reduce((s,c) => s + c.rebateDeducted, 0));
+
+  const paid = D().expenses.filter(v => v.kind === 'remittance')
+    .sort((a,b) => b.date.localeCompare(a.date)).slice(0, 12);
+
+  return `
+    <div class="grid g4" style="margin-bottom:18px">
+      ${UI.kpi('Owed to centers', UI.peso(totalDue), `${centers.length} center(s) to settle`, totalDue > 0 ? 'warn' : 'ok')}
+      ${UI.kpi('Bookings unpaid', UI.int(centers.reduce((s,c) => s + c.rows.length, 0)), 'seats already taken', '')}
+      ${UI.kpi('Rebates kept', UI.peso(totalKept), 'deducted from what we remit', 'ok')}
+      ${UI.kpi('Rebates to collect', UI.peso(totalRecv), 'centers owe us this back', totalRecv > 0 ? 'sea' : '')}
+    </div>
+
+    ${UI.card('What we owe each training center', UI.table([
+      { h:'Training center', k:c => `<b>${UI.esc(c.center.toUpperCase())}</b>` },
+      { h:'Bookings', k:c => UI.int(c.rows.length), cls:'num' },
+      { h:'Oldest', k:c => c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest) },
+      { h:'Rebate deducted', k:c => c.rebateDeducted ? UI.num(c.rebateDeducted) : '<span class="muted">—</span>', cls:'num' },
+      { h:'Rebate to collect', k:c => c.receivable ? UI.num(c.receivable) : '<span class="muted">—</span>', cls:'num' },
+      { h:'To remit', k:c => `<b>${UI.num(c.payable)}</b>`, cls:'num' },
+      { h:'', k:c => `<button class="btn btn-accent btn-xs" data-act="pay-center"
+            data-id="${UI.esc(c.center)}">Generate voucher</button>`, w:'150px' },
+    ], centers, { empty:'Nothing outstanding — every booking has been remitted.',
+        foot:['TOTAL', UI.int(centers.reduce((s,c)=>s+c.rows.length,0)), '',
+              UI.num(totalKept), UI.num(totalRecv), UI.num(totalDue), ''] }), { flush:true })}
+
+    <div style="height:18px"></div>
+    ${UI.card('Vouchers issued to centers', UI.table([
+      { h:'Voucher No.', k:v => `<b class="mono">${UI.esc(v.no)}</b>`, w:'135px' },
+      { h:'Date', k:v => UI.date(v.date), w:'115px' },
+      { h:'Training center', k:v => UI.esc(String(v.payee).toUpperCase()) },
+      { h:'Bookings', k:v => UI.int((v.bookings||[]).length), cls:'num' },
+      { h:'Mode', k:v => UI.tag(v.method, v.method === 'Cash' ? 'ok' : 'sea') },
+      { h:'Reference', k:v => UI.esc(v.ref || '—') },
+      { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
+      { h:'', k:v => `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`, w:'80px' },
+    ], paid, { empty:'No remittance voucher has been issued yet.' }), { flush:true })}
+  `;
+};
+
+/* Pay one center. Every outstanding booking is on the voucher by default; the
+   office can leave some off when it is settling only part of a statement. */
+function centerVoucherForm(center){
+  const group = payablesByCenter().find(c => c.center === center);
+  if(!group){ UI.toast('Nothing outstanding for that center.', 'bad'); return; }
+
+  const row = (r,i) => `
+    <tr>
+      <td style="padding:4px 0"><label style="display:flex;gap:8px;align-items:center;cursor:pointer">
+        <input type="checkbox" name="pick${i}" value="${r.e.id}" checked style="width:auto;margin:0">
+        <span>${UI.esc(name(T(r.e.traineeId)))}
+          <span class="muted">· ${UI.esc((CRS(r.e.courseId)||{}).title || '')}</span></span></label></td>
+      <td class="muted" style="padding:4px 0">${r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—'}</td>
+      <td style="padding:4px 0">${r.deduct
+        ? UI.tag('rebate deducted','warn') : UI.tag('full fee','ok')}</td>
+      <td class="num" style="padding:4px 0">${UI.num(r.payable)}</td>
+    </tr>`;
+
+  UI.modal({
+    title:`Pay ${center.toUpperCase()}`,
+    sub:`${group.rows.length} booking(s) · ${UI.peso(group.payable)} outstanding`,
+    wide:true,
+    body:`
+      <table style="width:100%;font-size:12.5px;margin-bottom:12px">
+        <thead><tr>
+          <th style="text-align:left">Booking</th><th style="text-align:left">Training</th>
+          <th style="text-align:left">Rebate</th><th class="num">Owed</th>
+        </tr></thead>
+        <tbody>${group.rows.map(row).join('')}</tbody>
+      </table>
+      ${group.receivable ? `<div class="note warn">
+        ${UI.peso(group.receivable)} of rebate on these bookings is <b>not deducted</b> —
+        ${UI.esc(center.toUpperCase())} owes it back to us separately. It is deliberately
+        left out of this voucher.</div>` : ''}
+      <div class="hr"></div>
+      ${UI.row(UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()),
+               UI.f.text('ref','Reference no.','',{ ph:'cheque or transaction no.' }))}
+      ${UI.f.text('particulars','Particulars','', { ph:'e.g. August endorsements' })}
+      <div class="hr"></div>
+      <div id="voucherTotal"></div>`,
+    submitLabel:'Post voucher',
+    onSubmit: fd => {
+      const picked = group.rows.filter((r,i) => fd['pick'+i]);
+      if(!picked.length){ UI.toast('Choose at least one booking to pay.', 'bad'); return false; }
+      const amount = ACC.r2(picked.reduce((s,r) => s + r.payable, 0));
+      if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+
+      const v = {
+        id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), kind:'remittance',
+        date:DB.today(), payee:center,
+        /* Booked to the payable, not to an expense: the cost was recognised
+           when the seat was taken. */
+        account:'2000',
+        particulars:(fd.particulars || `Remittance to ${center}`).trim(),
+        method:fd.method, ref:String(fd.ref||'').trim(),
+        amount, bookings:picked.map(r => r.e.id),
+      };
+      D().expenses.push(v);
+      ACC.postCenterRemittance({ date:v.date, memo:`Remittance — ${center} · ${v.no}`,
+                                 refNo:v.no, refId:v.id, amount, method:v.method });
+      picked.forEach(r => { r.e.remitNo = v.no; r.e.remitDate = v.date; });
+
+      DB.activity('Paid training center', `${v.no} · ${center} · ${UI.peso(amount)}`);
+      DB.save();
+      UI.toast(`Voucher ${v.no} posted — ${UI.peso(amount)} to ${center}`);
+      render();
+      voucherModal(v);
+      return false;   // voucherModal has replaced the dialog
+    }
+  });
+
+  const form = document.getElementById('mForm');
+  const total = () => {
+    const sum = group.rows.reduce((s,r,i) => s + (form['pick'+i] && form['pick'+i].checked ? r.payable : 0), 0);
+    const n = group.rows.filter((r,i) => form['pick'+i] && form['pick'+i].checked).length;
+    document.getElementById('voucherTotal').innerHTML = `
+      <div style="display:flex;justify-content:flex-end">
+        <table style="width:320px">
+          <tr><td>Bookings on this voucher</td><td class="num">${UI.int(n)}</td></tr>
+          <tr><td style="font-weight:700;border-top:2px solid var(--border-strong)">Amount to remit</td>
+              <td class="num" style="font-weight:700;font-size:15px;border-top:2px solid var(--border-strong)">${UI.peso(ACC.r2(sum))}</td></tr>
+        </table>
+      </div>`;
+  };
+  form.addEventListener('change', total);
+  total();
+}
+
+/* The voucher itself, printable — a training center is going to want a copy. */
+function voucherModal(v){
+  const bookings = (v.bookings || []).map(id => ENR(id)).filter(Boolean);
+  const co = D().company;
+  UI.modal({
+    title:`Voucher ${v.no}`, sub:`${String(v.payee).toUpperCase()} · ${UI.peso(v.amount)}`, wide:true,
+    hideSubmit:true,
+    footExtra:`<button type="button" class="btn btn-ghost" id="printVoucher">Print</button>`,
+    body:`
+      <div class="p-slip" id="voucherSheet">
+        <div class="p-slip-head">
+          <div class="p-slip-org">
+            <div class="p-slip-name">${UI.esc(co.name)}</div>
+            <div class="muted">${UI.esc(co.address)}</div>
+            <div class="muted">${UI.esc(co.contact)}</div>
+          </div>
+          <div class="p-slip-no">
+            <div class="p-slip-kind">DISBURSEMENT VOUCHER</div>
+            <div class="mono p-slip-num">${UI.esc(v.no)}</div>
+            <div class="muted">${UI.date(v.date)}</div>
+          </div>
+        </div>
+        <dl class="def def-tight" style="margin:14px 0">
+          <dt>Pay to</dt><dd><b>${UI.esc(String(v.payee).toUpperCase())}</b></dd>
+          <dt>Particulars</dt><dd>${UI.esc(v.particulars)}</dd>
+          <dt>Paid from</dt><dd>${UI.esc(v.method)}${v.ref ? ` · Ref ${UI.esc(v.ref)}` : ''}</dd>
+          <dt>Amount</dt><dd><b>${UI.peso(v.amount)}</b> — ${UI.esc(amountInWords(v.amount))}</dd>
+        </dl>
+        ${UI.table([
+          { h:'Trainee', k:e => UI.esc(name(T(e.traineeId))) },
+          { h:'Course', k:e => UI.esc((CRS(e.courseId)||{}).title || '—') },
+          { h:'Training', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
+          { h:'Rebate', k:e => e.deduct ? 'deducted' : 'not deducted' },
+          { h:'Amount', k:e => UI.num(e.centerPayable != null ? e.centerPayable : e.fee), cls:'num' },
+        ], bookings, { empty:'No bookings recorded on this voucher.',
+            foot:['','','','TOTAL', UI.num(v.amount)] })}
+        <div style="display:flex;gap:40px;margin-top:26px">
+          <div style="flex:1;border-top:1px solid var(--border);padding-top:6px;text-align:center"
+            class="muted">Prepared by</div>
+          <div style="flex:1;border-top:1px solid var(--border);padding-top:6px;text-align:center"
+            class="muted">Received by ${UI.esc(String(v.payee).toUpperCase())}</div>
+        </div>
+      </div>`
+  });
+  document.getElementById('printVoucher').onclick = () => UI.print();
+}
 
 /* ---------- General ledger ---------- */
 VIEWS.ledger = () => {
@@ -1866,6 +2100,8 @@ document.addEventListener('click', ev => {
     'new-payment':   () => paymentForm(null),
     'view-receipt':  () => receiptModal(PAY(id)),
     'new-expense':   () => expenseForm(),
+    'pay-center':    () => centerVoucherForm(id),
+    'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
     'edit-methods':  () => methodsForm(),
