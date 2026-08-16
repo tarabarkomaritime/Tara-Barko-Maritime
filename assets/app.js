@@ -614,7 +614,7 @@ VIEWS.payments = () => {
 
   return `
     <div class="toolbar">
-      <input type="search" data-q="pay" value="${UI.esc(state.q.pay||'')}" placeholder="Search OR no. or trainee…" style="min-width:230px">
+      <input type="search" data-q="pay" value="${UI.esc(state.q.pay||'')}" placeholder="Search ref no. or trainee…" style="min-width:230px">
       <label class="muted" style="font-size:12px">From</label><input type="date" data-q="payFrom" value="${from}">
       <label class="muted" style="font-size:12px">To</label><input type="date" data-q="payTo" value="${to}">
       <span class="spacer"></span>
@@ -906,16 +906,16 @@ function voucherModal(v){
         </div>
       </div>
       <dl class="def">
-        <dt>Pay to</dt><dd><b>${UI.esc(String(v.payee).toUpperCase())}</b></dd>
+        <dt>Pay To</dt><dd><b>${UI.esc(String(v.payee).toUpperCase())}</b></dd>
         <dt>Particulars</dt><dd>${UI.esc(v.particulars)}</dd>
-        <dt>Paid from</dt><dd>${UI.esc(v.method)}${v.ref ? ` · Ref ${UI.esc(v.ref)}` : ''}</dd>
-        <dt>Amount in words</dt><dd>${UI.esc(amountInWords(v.amount))}</dd>
+        <dt>Paid From</dt><dd>${UI.esc(v.method)}${v.ref ? ` · Ref ${UI.esc(v.ref)}` : ''}</dd>
+        <dt>Amount In Words</dt><dd>${UI.esc(amountInWords(v.amount))}</dd>
       </dl>
       ${UI.table([
         { h:'Trainee', k:e => UI.esc(name(T(e.traineeId))) },
         { h:'Course', k:e => UI.esc((CRS(e.courseId)||{}).title || '—') },
         { h:'Training', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
-        { h:'Rebate', k:e => e.deduct ? 'deducted' : 'not deducted' },
+        { h:'Rebate', k:e => e.deduct ? 'Deducted' : 'Not Deducted' },
         { h:'Amount', k:e => UI.num(e.centerPayable != null ? e.centerPayable : e.fee), cls:'num' },
       ], bookings, { empty:'No bookings recorded on this voucher.' })}
       <div class="doc-total">
@@ -924,8 +924,8 @@ function voucherModal(v){
         </table>
       </div>
       <div class="doc-sign">
-        <div>Prepared by</div>
-        <div>Received by ${UI.esc(String(v.payee).toUpperCase())}</div>
+        <div>Prepared By</div>
+        <div>Received By ${UI.esc(String(v.payee).toUpperCase())}</div>
       </div>
     </div>`;
 
@@ -2097,15 +2097,15 @@ function invoiceModal(inv){
       </div>
       <div class="grid g2">
         <dl class="def">
-          <dt>Billed to</dt><dd><b>${UI.esc(name(t))}</b></dd>
-          <dt>Trainee no.</dt><dd class="mono">${UI.esc(t?.no||'—')}</dd>
+          <dt>Billed To</dt><dd><b>${UI.esc(name(t))}</b></dd>
+          <dt>Trainee No.</dt><dd class="mono">${UI.esc(t?.no||'—')}</dd>
           <dt>SRN</dt><dd class="mono">${UI.esc(t?.srn||'—')}</dd>
           <dt>Agency</dt><dd>${UI.esc(t?.agency||'—')}</dd>
         </dl>
         <dl class="def">
           <dt>Enrollment</dt><dd class="mono">${UI.esc(e?.no||'—')}</dd>
           <dt>Course</dt><dd>${UI.esc(c?.title||'—')}</dd>
-          <dt>Training date</dt><dd>${e && e.start ? UI.dateRange(e.start, e.end) : '—'}</dd>
+          <dt>Training Date</dt><dd>${e && e.start ? UI.dateRange(e.start, e.end) : '—'}</dd>
           <dt>Terms</dt><dd>${UI.esc(inv.terms||'—')}</dd>
         </dl>
       </div>
@@ -2117,22 +2117,22 @@ function invoiceModal(inv){
         { h:'Amount', k:i => UI.num(i.amount), cls:'num' },
       ], inv.items)}
       <div class="doc-total"><table>
-        <tr><td>Gross charges</td><td class="num">${UI.num(inv.subtotal)}</td></tr>
-        ${inv.discount ? `<tr><td>Less: discount</td><td class="num">(${UI.num(inv.discount)})</td></tr>` : ''}
+        <tr><td>Gross Charges</td><td class="num">${UI.num(inv.subtotal)}</td></tr>
+        ${inv.discount ? `<tr><td>Less: Discount</td><td class="num">(${UI.num(inv.discount)})</td></tr>` : ''}
         <tr class="grand"><td>TOTAL AMOUNT DUE</td><td class="num">${UI.peso(inv.total)}</td></tr>
-        <tr><td>Payments received</td><td class="num">(${UI.num(inv.paid||0)})</td></tr>
+        <tr><td>Payments Received</td><td class="num">(${UI.num(inv.paid||0)})</td></tr>
         <tr class="grand"><td>BALANCE</td><td class="num">${UI.peso(bal)}</td></tr>
       </table></div>
-      ${pays.length ? `<div class="hr"></div><h4 style="margin:0 0 6px;font-size:13px">Official receipts applied</h4>
+      ${pays.length ? `<div class="hr"></div><h4 style="margin:0 0 6px;font-size:13px">Payments Applied</h4>
         ${UI.table([
-          { h:'Ref no.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+          { h:'Ref No.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
           { h:'Date', k:p => UI.date(p.date) },
           { h:'Mode', k:'method' },
           { h:'Reference', k:p => UI.esc(p.ref||'—') },
           { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
         ], pays)}` : ''}
       ${inv.voided ? '<div class="note bad" style="margin-top:14px"><b>This invoice has been voided.</b> A reversing journal entry was posted.</div>' : ''}
-      <div class="doc-sign"><div>Prepared by</div><div>Received by / Trainee</div></div>
+      <div class="doc-sign"><div>Prepared By</div><div>Received By / Trainee</div></div>
       <p class="muted" style="font-size:11px;margin-top:18px">This document is computer-generated. TIN ${UI.esc(co.tin)}.</p>
     </div>`)
   });
@@ -2312,21 +2312,21 @@ function receiptModal(p){
           ${p.voided ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}</div>
       </div>
       <dl class="def" style="margin-bottom:14px">
-        <dt>Received from</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}</dd>
+        <dt>Received From</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}</dd>
         <dt>Address</dt><dd>${UI.esc(t?.address||'—')}</dd>
-        <dt>The sum of</dt><dd><b>${UI.esc(words)}</b></dd>
-        <dt>In payment of</dt><dd>${UI.esc(c ? c.title : 'Training fees')}${inv ? ' · Bill ' + UI.esc(inv.no) : ''}</dd>
-        <dt>Mode of payment</dt><dd>${(p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, ref:p.ref, amount:p.amount }])
+        <dt>The Sum Of</dt><dd><b>${UI.esc(words)}</b></dd>
+        <dt>In Payment Of</dt><dd>${UI.esc(c ? c.title : 'Training Fees')}${inv ? ' · Bill ' + UI.esc(inv.no) : ''}</dd>
+        <dt>Mode Of Payment</dt><dd>${(p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, ref:p.ref, amount:p.amount }])
           .map(t => `${UI.esc(t.method)}${t.ref ? ' · Ref ' + UI.esc(t.ref) : ''} — ${UI.num(t.amount)}`).join('<br>')}</dd>
       </dl>
       <div class="doc-total"><table>
-        <tr><td>Amount received</td><td class="num">${UI.num(p.amount)}</td></tr>
-        ${inv ? `<tr><td>Invoice total</td><td class="num">${UI.num(inv.total)}</td></tr>
-                 <tr><td>Total paid to date</td><td class="num">${UI.num(inv.paid||0)}</td></tr>
+        <tr><td>Amount Received</td><td class="num">${UI.num(p.amount)}</td></tr>
+        ${inv ? `<tr><td>Invoice Total</td><td class="num">${UI.num(inv.total)}</td></tr>
+                 <tr><td>Total Paid To Date</td><td class="num">${UI.num(inv.paid||0)}</td></tr>
                  <tr class="grand"><td>REMAINING BALANCE</td><td class="num">${UI.peso(ACC.balanceOf(ACC.recomputeInvoice(inv)))}</td></tr>` : ''}
       </table></div>
       ${p.note ? `<div class="note" style="margin-top:14px">${UI.esc(p.note)}</div>` : ''}
-      <div class="doc-sign"><div>Cashier</div><div>Received the above amount</div></div>
+      <div class="doc-sign"><div>Cashier</div><div>Received The Above Amount</div></div>
       <p class="muted" style="font-size:11px;margin-top:18px">Valid only when the corresponding
         payment has cleared. Computer-generated. The official receipt for the training
         itself is issued by the training center.</p>
@@ -2344,7 +2344,14 @@ function receiptModal(p){
          detail:'A reversing entry is posted and the amount returns to the trainee\'s outstanding balance.' });
 }
 
-/* Spelled-out amount for the receipt face. */
+/* Capitalises each word and leaves the rest of it alone, so an acronym already
+   in capitals — SRN, TIN — survives. Hyphenated numbers get both halves:
+   Twenty-Five. */
+const titleCase = s => String(s || '')
+  .replace(/[A-Za-z][A-Za-z']*/g, w => w.charAt(0).toUpperCase() + w.slice(1));
+
+/* Spelled-out amount for the face of a document, written in title case the way
+   it is written on a cheque. */
 function amountInWords(n){
   const ones = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
   const tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
@@ -2361,8 +2368,7 @@ function amountInWords(n){
   });
   if(v || !s) s += under1000(v);
   s = s.trim();
-  const cap = s.charAt(0).toUpperCase() + s.slice(1);
-  return `${cap} pesos${cents ? ' and ' + under1000(cents) + ' centavos' : ''} only`;
+  return titleCase(`${s} pesos${cents ? ' and ' + under1000(cents) + ' centavos' : ''} only`);
 }
 
 /* ----- expenses & journal ----- */
