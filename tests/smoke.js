@@ -429,6 +429,45 @@ check('the public portal never lists the catalogue', () =>
 check('the public portal formats no money', () =>
   !/UI\.peso|\bpeso\s*\(/.test(publicSrc) || 'register.js formats an amount');
 
+console.log('\n- money out waits for approval -');
+check('a refund posts against receivables, not against revenue', () => {
+  run('globalThis.RF = { id:"ref-t", no:"RF-TEST", date:DB.today(), amount:1200, method:"Cash", reason:"test" }');
+  const je = run('ACC.postRefund(RF)');
+  return (je.lines[0].account === '1200' && je.lines[0].debit === 1200
+    && je.lines[1].account === '1000' && je.lines[1].credit === 1200) || JSON.stringify(je.lines);
+});
+check('it never touches a revenue account', () =>
+  run(`DB.get().journal.find(j => j.refId === 'ref-t').lines.every(l => !/^4/.test(l.account))`) === true
+  || 'a refund hit revenue');
+check('ledger balances after a refund', balanced);
+check('a cancelled paid booking leaves a credit to refund', () => {
+  run(`(() => {
+    const inv = DB.get().invoices.find(i => !i.voided && i.paid > 0);
+    globalThis.CANC = inv;
+    inv.voided = true; inv.status = 'Void';
+    ACC.reverse(inv.id, 'test');
+  })()`);
+  return run('ACC.creditBalance(CANC.traineeId)') > 0 || 'no credit left behind';
+});
+check('the credit falls away once the refund is approved', () => {
+  const before = run('ACC.creditBalance(CANC.traineeId)');
+  run(`(() => {
+    DB.get().refunds.push({ id:'ref-2', no:'RF-2', date:DB.today(), traineeId:CANC.traineeId,
+      amount:ACC.creditBalance(CANC.traineeId), method:'Cash', state:'Approved' });
+  })()`);
+  const after = run('ACC.creditBalance(CANC.traineeId)');
+  return (before > 0 && after === 0) || `${before} -> ${after}`;
+});
+check('a refund still pending leaves the credit standing', () => {
+  const t = run(`DB.get().invoices.find(i => i.voided && i.paid > 0 && i.traineeId !== CANC.traineeId)`);
+  if(!t) return true;                       // nothing else voided in this run
+  const before = run(`ACC.creditBalance('${t.traineeId}')`);
+  run(`DB.get().refunds.push({ id:'ref-3', no:'RF-3', date:DB.today(), traineeId:'${t.traineeId}',
+    amount:${'' + 1}, method:'Cash', state:'Pending' })`);
+  const after = run(`ACC.creditBalance('${t.traineeId}')`);
+  return before === after || `${before} -> ${after}`;
+});
+
 console.log('\n- reports -');
 const col = run(`ACC.collections('2000-01-01','2999-12-31')`);
 check('collections total is positive', () => col.total > 0 || 'zero');

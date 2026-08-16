@@ -21,6 +21,7 @@ const DEFAULT_ADDONS = [
 const NAV = [
   { group:'Operations' },
   { id:'dashboard',   label:'Dashboard',    ico:'◈' },
+  { id:'daily',       label:'Daily Report', ico:'☀' },
   { id:'trainees',    label:'Trainees',     ico:'☺' },
   { id:'courses',     label:'Courses',      ico:'▤' },
   { id:'enrollments', label:'Enrollments',  ico:'✓' },
@@ -28,7 +29,9 @@ const NAV = [
   { id:'invoices',    label:'Billing',      ico:'₱' },
   { id:'payments',    label:'Collections',  ico:'◉' },
   { id:'payables',    label:'Center Payables',ico:'⇄' },
+  { id:'refunds',     label:'Refunds',      ico:'↩' },
   { id:'expenses',    label:'Disbursements',ico:'▼' },
+  { id:'approvals',   label:'Approvals',    ico:'✔' },
   { id:'ledger',      label:'General Ledger',ico:'≡' },
   { id:'reports',     label:'Reports',      ico:'▲' },
   { group:'System' },
@@ -37,6 +40,9 @@ const NAV = [
 
 const TITLES = {
   dashboard:['Dashboard','Operational and financial position at a glance'],
+  daily:['Daily Report','Everything that moved on one day'],
+  refunds:['Refunds','Money going back to a trainee'],
+  approvals:['Approvals','Money out waits here until an admin signs it off'],
   trainees:['Trainee Registry','Seafarer master records — search, register and enroll'],
   courses:['Course Catalogue','Courses, centers, amounts and rebates'],
   enrollments:['Enrollments','Bookings encoded per trainee, with billing status and results'],
@@ -132,6 +138,10 @@ function renderNav(){
     let badge = '';
     if(n.id === 'enrollments'){
       const c = D().enrollments.filter(e => e.status === 'Reserved').length;
+      if(c) badge = `<span class="badge">${c}</span>`;
+    }
+    if(n.id === 'approvals'){
+      const c = pendingMoneyOut().length;
       if(c) badge = `<span class="badge">${c}</span>`;
     }
     if(n.id === 'payables'){
@@ -531,15 +541,18 @@ VIEWS.expenses = () => {
   const from = state.q.expFrom || startOfYear(), to = state.q.expTo || DB.today();
   const rows = D().expenses.filter(v => v.date >= from && v.date <= to)
     .sort((a,b) => b.date.localeCompare(a.date));
-  const total = ACC.r2(rows.reduce((s,v) => s + v.amount, 0));
+  /* Only approved vouchers have moved money, so only they are totalled — a
+     pending one in the sum would overstate what has been spent. */
+  const posted = rows.filter(v => (v.state || 'Approved') === 'Approved');
+  const total = ACC.r2(posted.reduce((s,v) => s + v.amount, 0));
   const byAcct = {};
-  rows.forEach(v => byAcct[v.account] = ACC.r2((byAcct[v.account]||0) + v.amount));
+  posted.forEach(v => byAcct[v.account] = ACC.r2((byAcct[v.account]||0) + v.amount));
 
   return `
     <div class="toolbar">
       <label class="muted" style="font-size:12px">From</label><input type="date" data-q="expFrom" value="${from}">
       <label class="muted" style="font-size:12px">To</label><input type="date" data-q="expTo" value="${to}">
-      <span class="muted">${rows.length} voucher(s) · ${UI.peso(total)}</span>
+      <span class="muted">${rows.length} voucher(s) · ${UI.peso(total)} posted${rows.length - posted.length ? ` · ${rows.length - posted.length} awaiting approval` : ''}</span>
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-expense">+ New disbursement</button>
     </div>
@@ -551,6 +564,7 @@ VIEWS.expenses = () => {
         { h:'Particulars', k:'particulars' },
         { h:'Account', k:v => `<span class="mono">${UI.esc(v.account)}</span> ${UI.esc(ACC.acct(v.account).name)}` },
         { h:'Mode', k:v => UI.tag(v.method, v.method==='Cash'?'ok':'sea') },
+        { h:'Status', k:v => UI.statusTag(v.state || 'Approved') },
         { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
       ], rows, { empty:'No disbursements in this period.' }), { flush:true })}</div>
       <div>${UI.card('Expenses by account',
@@ -705,6 +719,7 @@ function centerVoucherForm(center){
 
       const v = {
         id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), kind:'remittance',
+        state:'Pending', raisedBy:SESSION.name,
         date:DB.today(), payee:center,
         /* Booked to the payable, not to an expense: the cost was recognised
            when the seat was taken. */
@@ -714,13 +729,14 @@ function centerVoucherForm(center){
         amount, bookings:picked.map(r => r.e.id),
       };
       D().expenses.push(v);
-      ACC.postCenterRemittance({ date:v.date, memo:`Remittance — ${center} · ${v.no}`,
-                                 refNo:v.no, refId:v.id, amount, method:v.method });
+      /* The bookings are marked as covered straight away so a second voucher
+         cannot be raised for the same seats while this one waits. Nothing has
+         posted: approval does that. */
       picked.forEach(r => { r.e.remitNo = v.no; r.e.remitDate = v.date; });
 
-      DB.activity('Paid training center', `${v.no} · ${center} · ${UI.peso(amount)}`);
+      DB.activity('Raised remittance', `${v.no} · ${center} · ${UI.peso(amount)}`);
       DB.save();
-      UI.toast(`Voucher ${v.no} posted — ${UI.peso(amount)} to ${center}`);
+      UI.toast(`Voucher ${v.no} raised — waiting for approval.`);
       render();
       voucherModal(v);
       return false;   // voucherModal has replaced the dialog
@@ -806,6 +822,361 @@ function voucherModal(v){
   });
   document.getElementById('printVoucher').onclick = () => UI.print();
 }
+
+/* ---------- approvals ----------
+   Nothing that takes money out of the business posts itself. A voucher, a
+   remittance to a training center and a refund are all written as pending, and
+   the journal entry is made the moment somebody approves them. That way the
+   books never show cash leaving on the strength of an unapproved document, and
+   the daily report can be trusted as a record of what actually moved.
+
+   Approving is an admin job. Whoever raised it cannot approve it — the point of
+   the step is that a second pair of eyes sees the money before it goes. */
+const canApprove = () => can('approvals');
+
+const MONEY_OUT = [
+  { key:'expenses', label:'Disbursement', post:v => ACC.postExpense(v) },
+  { key:'refunds',  label:'Refund',       post:r => ACC.postRefund(r) },
+];
+
+const pendingMoneyOut = () => [
+  ...D().expenses.filter(v => v.state === 'Pending').map(v => ({ ...v, _kind:'expenses' })),
+  ...D().refunds.filter(r => r.state === 'Pending').map(r => ({ ...r, _kind:'refunds' })),
+].sort((a,b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
+
+function approveDoc(kind, id, ok, note){
+  const rec = D()[kind].find(x => x.id === id);
+  if(!rec) return;
+  if(rec.state !== 'Pending'){ UI.toast('That document has already been decided.', 'bad'); return; }
+  if(!canApprove()){ UI.toast('Only an admin can approve money going out.', 'bad'); return; }
+  /* Two pairs of eyes where there are two pairs to be had. A one-admin office
+     would otherwise be unable to approve anything it raised, so the rule only
+     bites when somebody else could actually do it — and self-approval is
+     stamped as such either way, so the audit trail says what happened. */
+  const approvers = D().users.filter(u => (DB.PERMS[u.role] || []).includes('approvals'));
+  const selfApproving = rec.raisedBy && SESSION && rec.raisedBy === SESSION.name;
+  if(ok && selfApproving && approvers.length > 1){
+    UI.toast('Somebody other than the person who raised it has to approve it.', 'bad');
+    return;
+  }
+
+  if(!ok){
+    rec.state = 'Rejected';
+    rec.decidedBy = SESSION.name; rec.decidedOn = DB.today(); rec.decisionNote = note || '';
+    DB.activity('Rejected ' + rec.no, note || '');
+    UI.toast(`${rec.no} rejected — nothing was posted.`);
+    refresh();
+    return;
+  }
+
+  /* Posting happens here, not when the document was written. The entry carries
+     the approval date, because that is the day the money moved. */
+  rec.date = DB.today();
+  const handler = MONEY_OUT.find(m => m.key === kind);
+  if(kind === 'expenses' && rec.kind === 'remittance'){
+    ACC.postCenterRemittance({ date:rec.date, memo:`Remittance — ${rec.payee} · ${rec.no}`,
+                               refNo:rec.no, refId:rec.id, amount:rec.amount, method:rec.method });
+  }else{
+    handler.post(rec);
+  }
+  rec.state = 'Approved';
+  rec.approvedBy = SESSION.name; rec.approvedOn = DB.today();
+  rec.selfApproved = !!selfApproving;
+  DB.activity('Approved ' + rec.no, UI.peso(rec.amount));
+  UI.toast(`${rec.no} approved and posted — ${UI.peso(rec.amount)}`);
+  refresh();
+}
+
+VIEWS.approvals = () => {
+  const pend = pendingMoneyOut();
+  const decided = [
+    ...D().expenses.filter(v => v.state && v.state !== 'Pending').map(v => ({ ...v, _kind:'expenses' })),
+    ...D().refunds.filter(r => r.state && r.state !== 'Pending').map(r => ({ ...r, _kind:'refunds' })),
+  ].sort((a,b) => String(b.approvedOn || b.decidedOn || b.date).localeCompare(String(a.approvedOn || a.decidedOn || a.date)))
+   .slice(0, 15);
+
+  const kindOf = d => d._kind === 'refunds' ? 'Refund'
+    : d.kind === 'remittance' ? 'Center remittance' : 'Disbursement';
+
+  return `
+    <div class="grid g3" style="margin-bottom:18px">
+      ${UI.kpi('Waiting for approval', UI.int(pend.length),
+               pend.length ? 'nothing has posted yet' : 'nothing outstanding', pend.length ? 'warn' : 'ok')}
+      ${UI.kpi('Value held up', UI.peso(ACC.r2(pend.reduce((s,d) => s + d.amount, 0))),
+               'not on the books until approved', '')}
+      ${UI.kpi('Approved today', UI.peso(ACC.r2([...D().expenses, ...D().refunds]
+                 .filter(d => d.state === 'Approved' && d.approvedOn === DB.today())
+                 .reduce((s,d) => s + d.amount, 0))), 'posted to the ledger', 'ok')}
+    </div>
+
+    ${UI.card('Waiting for approval', UI.table([
+      { h:'Document', k:d => `<b class="mono">${UI.esc(d.no)}</b><br>
+          <span class="muted" style="font-size:11.5px">${UI.esc(kindOf(d))}</span>` },
+      { h:'Raised', k:d => `${UI.date(d.date)}<br>
+          <span class="muted" style="font-size:11.5px">${UI.esc(d.raisedBy || '—')}</span>` },
+      { h:'Pay to', k:d => UI.esc(d.payee || (d.traineeId ? name(T(d.traineeId)) : '—')) },
+      { h:'Particulars', k:d => UI.esc(d.particulars || d.reason || '—') },
+      { h:'Mode', k:d => UI.tag(d.method, d.method === 'Cash' ? 'ok' : 'sea') },
+      { h:'Amount', k:d => `<b>${UI.num(d.amount)}</b>`, cls:'num' },
+      { h:'', k:d => canApprove()
+          ? `<button class="btn btn-accent btn-xs" data-act="approve-doc" data-id="${d._kind}:${d.id}">Approve</button>
+             <button class="btn btn-ghost btn-xs" data-act="reject-doc" data-id="${d._kind}:${d.id}">Reject</button>`
+          : '<span class="muted">admin only</span>', w:'170px' },
+    ], pend, { empty:'Nothing is waiting — every voucher and refund has been decided.' }), { flush:true })}
+
+    <div style="height:18px"></div>
+    ${UI.card('Recently decided', UI.table([
+      { h:'Document', k:d => `<span class="mono">${UI.esc(d.no)}</span>` },
+      { h:'Type', k:d => UI.esc(kindOf(d)) },
+      { h:'Pay to', k:d => UI.esc(d.payee || (d.traineeId ? name(T(d.traineeId)) : '—')) },
+      { h:'Decided', k:d => UI.date(d.approvedOn || d.decidedOn || d.date) },
+      { h:'By', k:d => `${UI.esc(d.approvedBy || d.decidedBy || '—')}` +
+          (d.selfApproved ? ' <span class="muted" style="font-size:11px">(raised it too)</span>' : '') },
+      { h:'Result', k:d => UI.statusTag(d.state) },
+      { h:'Amount', k:d => UI.num(d.amount), cls:'num' },
+    ], decided, { empty:'Nothing decided yet.' }), { flush:true })}
+  `;
+};
+
+/* ---------- refunds ---------- */
+VIEWS.refunds = () => {
+  const rows = D().refunds.slice().sort((a,b) => b.date.localeCompare(a.date));
+  const held = D().trainees
+    .map(t => ({ t, credit:ACC.creditBalance(t.id) }))
+    .filter(x => x.credit > 0.004)
+    .sort((a,b) => b.credit - a.credit);
+
+  return `
+    <div class="toolbar">
+      <span class="muted">${rows.length} refund(s) on file</span>
+      <span class="spacer"></span>
+      <button class="btn btn-primary btn-sm" data-act="new-refund">+ Refund a trainee</button>
+    </div>
+
+    ${held.length ? UI.card('Money we are holding that is not ours', UI.table([
+      { h:'Trainee', k:x => `<b>${UI.esc(name(x.t))}</b> <span class="muted">${UI.esc(x.t.no)}</span>` },
+      { h:'Mobile', k:x => UI.esc(x.t.mobile || '—') },
+      { h:'Credit', k:x => `<b>${UI.num(x.credit)}</b>`, cls:'num' },
+      { h:'', k:x => `<button class="btn btn-accent btn-xs" data-act="refund-trainee" data-id="${x.t.id}">Refund</button>`, w:'110px' },
+    ], held), { flush:true, sub:'Paid to us on bookings that were cancelled' }) : ''}
+
+    <div style="height:18px"></div>
+    ${UI.card('Refunds', UI.table([
+      { h:'No.', k:r => `<b class="mono">${UI.esc(r.no)}</b>`, w:'130px' },
+      { h:'Date', k:r => UI.date(r.date), w:'115px' },
+      { h:'Trainee', k:r => UI.esc(name(T(r.traineeId))) },
+      { h:'Reason', k:r => UI.esc(r.reason || '—') },
+      { h:'Mode', k:r => UI.tag(r.method, r.method === 'Cash' ? 'ok' : 'sea') },
+      { h:'Status', k:r => UI.statusTag(r.state) },
+      { h:'Amount', k:r => `<b>${UI.num(r.amount)}</b>`, cls:'num' },
+    ], rows, { empty:'No refund has been raised.' }), { flush:true })}
+  `;
+};
+
+function refundForm(traineeId){
+  const roster = D().trainees.slice().sort((a,b) => a.last.localeCompare(b.last));
+  UI.modal({
+    title:'Refund a trainee', sub:'Raised as pending — an admin approves before any money moves',
+    wide:true,
+    body:`
+      ${UI.f.select('traineeId','Trainee', traineeId || '', roster.map(t => {
+          const c = ACC.creditBalance(t.id);
+          return { v:t.id, l:`${name(t)} — ${t.no}${c > 0 ? ` · holding ${UI.peso(c)}` : ''}` };
+        }), { req:true, blank:'— select trainee —' })}
+      <div class="note" id="creditNote"></div>
+      ${UI.row(UI.f.num('amount','Amount to refund (₱)','',{ req:true, min:0.01 }),
+               UI.f.select('method','Refund by', ACC.methodNames()[0], ACC.methodNames()))}
+      ${UI.f.text('ref','Reference no.','',{ ph:'transaction no. where the mode has one' })}
+      ${UI.f.text('reason','Reason','',{ req:true, ph:'e.g. booking cancelled by the center' })}
+      <div class="note warn">Nothing is posted now. The refund appears in the daily
+        report only once an admin has approved it.</div>`,
+    submitLabel:'Raise refund',
+    onSubmit: fd => {
+      const t = T(fd.traineeId);
+      if(!t){ UI.toast('Select a trainee.', 'bad'); return false; }
+      const amount = ACC.r2(fd.amount);
+      if(amount <= 0){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
+      const credit = ACC.creditBalance(t.id);
+      if(amount - credit > 0.004){
+        UI.toast(`We are only holding ${UI.peso(credit)} for ${name(t)}.`, 'bad'); return false;
+      }
+      if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+      D().seq.refund = (D().seq.refund || 0) + 1;
+      const r = {
+        id:DB.uid('ref'), no:`RF-${new Date().getFullYear()}-${String(D().seq.refund).padStart(4,'0')}`,
+        date:DB.today(), traineeId:t.id, amount,
+        method:fd.method, ref:String(fd.ref||'').trim(), reason:String(fd.reason||'').trim(),
+        state:'Pending', raisedBy:SESSION.name,
+      };
+      D().refunds.push(r);
+      DB.activity('Raised refund', `${r.no} · ${name(t)} · ${UI.peso(amount)}`);
+      UI.toast(`${r.no} raised — waiting for approval.`);
+      refresh();
+    }
+  });
+
+  const form = document.getElementById('mForm');
+  const showCredit = () => {
+    const t = T(form.traineeId.value);
+    const box = document.getElementById('creditNote');
+    if(!t){ box.textContent = 'Pick the trainee to see what we are holding for them.'; return; }
+    const c = ACC.creditBalance(t.id);
+    box.innerHTML = c > 0
+      ? `We are holding <b>${UI.peso(c)}</b> for ${UI.esc(name(t))} — paid on a booking that was cancelled.`
+      : `<b>Nothing is owed back to ${UI.esc(name(t))}.</b> Cancel the booking first: cancelling reverses the bill and leaves what they paid as a credit.`;
+  };
+  form.addEventListener('change', showCredit);
+  showCredit();
+}
+
+/* ---------- Daily report ----------
+   One day on one page, and the rule for what appears on it is simple: money
+   that actually moved. Collections and the entries the system posts for itself
+   are on it as soon as they happen; a disbursement, a remittance or a refund
+   appears only once an admin has approved it, because until then no cash has
+   left and the ledger holds nothing.
+
+   What is still waiting is shown at the bottom, clearly outside the totals, so
+   the day is not read as complete when three vouchers are sitting unsigned. */
+VIEWS.daily = () => {
+  const d = D();
+  const on = state.q.day || DB.today();
+  const isToday = on === DB.today();
+  const CH = ACC.methodNames();
+
+  const tally = () => { const o = {}; CH.forEach(m => o[m] = 0); return o; };
+  const put = (o, method, amt) => {
+    const m = CH.includes(method) ? method : CH[CH.length - 1];
+    o[m] = ACC.r2(o[m] + amt);
+  };
+
+  /* ---- in ---- */
+  const receipts = d.payments.filter(p => !p.voided && p.date === on);
+  const inBy = tally();
+  receipts.forEach(p => (p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, amount:p.amount }])
+    .forEach(t => put(inBy, t.method, t.amount)));
+  const totalIn = ACC.r2(Object.values(inBy).reduce((s,v) => s + v, 0));
+
+  /* ---- out, approved only ---- */
+  const approvedOn = x => x.state === 'Approved' && (x.approvedOn || x.date) === on;
+  const vouchers = d.expenses.filter(v => approvedOn(v) && v.kind !== 'remittance');
+  const remits   = d.expenses.filter(v => approvedOn(v) && v.kind === 'remittance');
+  const refunds  = d.refunds.filter(approvedOn);
+
+  const outBy = tally();
+  [...vouchers, ...remits, ...refunds].forEach(x => put(outBy, x.method, x.amount));
+  const totalOut = ACC.r2(Object.values(outBy).reduce((s,v) => s + v, 0));
+
+  const sum = list => ACC.r2(list.reduce((s,x) => s + x.amount, 0));
+
+  /* ---- what the system posted for itself ---- */
+  const sysTypes = { Invoice:'Bookings billed', Booking:'Owed to training centers' };
+  const system = d.journal.filter(j => j.date === on && !j.voided && sysTypes[j.refType]);
+  const systemBy = {};
+  system.forEach(j => {
+    const k = sysTypes[j.refType];
+    systemBy[k] = { label:k, count:(systemBy[k]?.count || 0) + 1,
+                    amount:ACC.r2((systemBy[k]?.amount || 0) + j.debit) };
+  });
+
+  /* ---- cash position as of that day ---- */
+  const tb = ACC.trialBalance(on);
+  const bal = code => { const r = tb.rows.find(x => x.code === code); return r ? r.balance : 0; };
+
+  const pend = pendingMoneyOut();
+
+  const channelRows = CH.map(m => ({ label:m, inAmt:inBy[m], outAmt:outBy[m],
+                                     net:ACC.r2(inBy[m] - outBy[m]) }));
+
+  return `
+    <div class="toolbar" style="margin-bottom:16px">
+      <label class="fld" style="margin:0">
+        <span>Report for</span>
+        <input type="date" data-q="day" value="${on}" max="${DB.today()}">
+      </label>
+      <span class="muted">${isToday ? 'Today' : UI.date(on)}</span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="UI.print()">Print</button>
+    </div>
+
+    <div class="grid g4" style="margin-bottom:18px">
+      ${UI.kpi('Received', UI.peso(totalIn), `${receipts.length} official receipt(s)`, 'ok')}
+      ${UI.kpi('Paid out', UI.peso(totalOut),
+               `${vouchers.length + remits.length + refunds.length} approved document(s)`, totalOut ? 'warn' : '')}
+      ${UI.kpi('Net movement', UI.peso(ACC.r2(totalIn - totalOut)),
+               totalIn >= totalOut ? 'more in than out' : 'more out than in', totalIn >= totalOut ? '' : 'bad')}
+      ${UI.kpi('Cash on hand', UI.peso(bal(ACC.methods()[0].account)),
+               ACC.methods().slice(1).map(m => `${m.name} ${UI.shortMoney(bal(m.account))}`).join(' · '), '')}
+    </div>
+
+    ${UI.card('Money by channel', UI.table([
+      { h:'Channel', k:r => `<b>${UI.esc(r.label)}</b>` },
+      { h:'In', k:r => UI.num(r.inAmt), cls:'num' },
+      { h:'Out', k:r => UI.num(r.outAmt), cls:'num' },
+      { h:'Net', k:r => UI.num(r.net), cls:'num' },
+    ], channelRows, { foot:['TOTAL', UI.num(totalIn), UI.num(totalOut), UI.num(ACC.r2(totalIn - totalOut))] }),
+      { flush:true })}
+
+    <div style="height:18px"></div>
+    <div class="grid g2">
+      ${UI.card('Collections', UI.table([
+        { h:'OR No.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+        { h:'From', k:p => UI.esc(name(T(p.traineeId))) },
+        { h:'Mode', k:p => UI.esc(p.method) },
+        { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
+      ], receipts, { empty:'Nothing collected on this date.',
+          foot:['','','TOTAL', UI.num(sum(receipts))] }), { flush:true })}
+
+      ${UI.card('Refunds', UI.table([
+        { h:'No.', k:r => `<span class="mono">${UI.esc(r.no)}</span>` },
+        { h:'To', k:r => UI.esc(name(T(r.traineeId))) },
+        { h:'Reason', k:r => UI.esc(r.reason || '—') },
+        { h:'Amount', k:r => UI.num(r.amount), cls:'num' },
+      ], refunds, { empty:'No refund approved on this date.',
+          foot:['','','TOTAL', UI.num(sum(refunds))] }),
+        { flush:true, sub:'approved and paid' })}
+    </div>
+
+    <div style="height:18px"></div>
+    <div class="grid g2">
+      ${UI.card('Paid to training centers', UI.table([
+        { h:'Voucher', k:v => `<span class="mono">${UI.esc(v.no)}</span>` },
+        { h:'Center', k:v => UI.esc(String(v.payee).toUpperCase()) },
+        { h:'Bookings', k:v => UI.int((v.bookings||[]).length), cls:'num' },
+        { h:'Amount', k:v => UI.num(v.amount), cls:'num' },
+      ], remits, { empty:'No center was paid on this date.',
+          foot:['','','TOTAL', UI.num(sum(remits))] }), { flush:true })}
+
+      ${UI.card('Other disbursements', UI.table([
+        { h:'Voucher', k:v => `<span class="mono">${UI.esc(v.no)}</span>` },
+        { h:'Payee', k:'payee' },
+        { h:'Category', k:v => UI.esc(ACC.acct(v.account).name) },
+        { h:'Amount', k:v => UI.num(v.amount), cls:'num' },
+      ], vouchers, { empty:'No other disbursement on this date.',
+          foot:['','','TOTAL', UI.num(sum(vouchers))] }), { flush:true })}
+    </div>
+
+    <div style="height:18px"></div>
+    ${UI.card('Posted by the system', UI.table([
+      { h:'What', k:r => `<b>${UI.esc(r.label)}</b>` },
+      { h:'Entries', k:r => UI.int(r.count), cls:'num' },
+      { h:'Amount', k:r => UI.num(r.amount), cls:'num' },
+    ], Object.values(systemBy), { empty:'The system posted nothing on this date.' }),
+      { flush:true, sub:'Raised automatically when a booking was encoded — no approval needed, no cash moved' })}
+
+    ${pend.length ? `
+      <div style="height:18px"></div>
+      ${UI.card('Waiting for approval — not in the totals above', UI.table([
+        { h:'Document', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+        { h:'Raised', k:p => `${UI.date(p.date)} · ${UI.esc(p.raisedBy || '—')}` },
+        { h:'Pay to', k:p => UI.esc(p.payee || (p.traineeId ? name(T(p.traineeId)) : '—')) },
+        { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
+      ], pend), { flush:true,
+          actions:can('approvals') ? '<a class="btn btn-accent btn-xs" href="#/approvals">Review</a>' : '' })}` : ''}
+  `;
+};
 
 /* ---------- General ledger ---------- */
 VIEWS.ledger = () => {
@@ -1076,6 +1447,14 @@ VIEWS.settings = () => {
         ], ACC.methods(), { empty:'No modes configured.' }), { flush:true,
             actions:'<button class="btn btn-ghost btn-xs" data-act="edit-methods">Edit modes</button>',
             sub:'Offered at the collection window' })}
+
+        ${UI.card('Expense categories', UI.table([
+          { h:'Code', k:a => `<span class="mono">${UI.esc(a.code)}</span>`, w:'70px' },
+          { h:'Category', k:'name' },
+        ], d.accounts.filter(a => a.type === 'Expense').sort((a,b) => a.code.localeCompare(b.code)),
+          { empty:'No expense category yet.' }), { flush:true,
+            actions:'<button class="btn btn-ghost btn-xs" data-act="edit-categories">Edit categories</button>',
+            sub:'What a disbursement can be charged to' })}
 
         ${UI.card('Charges', UI.table([
           { h:'Description', k:'desc' },
@@ -1877,13 +2256,15 @@ function expenseForm(){
       ${UI.f.text('particulars','Particulars','',{ req:true, ph:'What was this for?' })}
       ${UI.row(UI.f.num('amount','Amount (₱)','',{ req:true, min:0.01 }),
                UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()))}
-      <div class="note">Posts as: <b>debit</b> the expense account, <b>credit</b> ${'Cash on Hand or Cash in Bank'} depending on the mode.</div>`,
-    submitLabel:'Post voucher',
+      <div class="note warn">Nothing posts yet. On approval this debits the expense
+        account and credits whichever cash account the mode names.</div>`,
+    submitLabel:'Raise voucher',
     onSubmit: fd => {
-      const v = { id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), ...fd, amount:ACC.r2(fd.amount) };
-      D().expenses.push(v); ACC.postExpense(v);
-      DB.activity('Posted disbursement', v.no);
-      UI.toast(`Voucher ${v.no} posted — ${UI.peso(v.amount)}`);
+      const v = { id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), ...fd, amount:ACC.r2(fd.amount),
+                  state:'Pending', raisedBy:SESSION.name };
+      D().expenses.push(v);
+      DB.activity('Raised disbursement', v.no);
+      UI.toast(`Voucher ${v.no} raised — waiting for approval.`);
       refresh();
     }
   });
@@ -2018,6 +2399,100 @@ function userForm(u){
 /* Modes of payment. Each one needs an account to post to, or the cash figures
    stop meaning anything, so the account is a dropdown of real asset accounts
    rather than a free-text box. */
+/* Expense categories — the 5xxx accounts a voucher can be charged to. The admin
+   adds and renames them; deleting one is refused if anything was ever posted to
+   it, because a voucher pointing at an account that no longer exists is a hole
+   in the ledger. Training Center Fees cannot be removed at all: the system
+   posts to it itself every time a seat is booked. */
+function categoriesForm(){
+  const cats = D().accounts.filter(a => a.type === 'Expense')
+    .sort((a,b) => a.code.localeCompare(b.code));
+  const used = code => D().journal.some(j => j.lines.some(l => l.account === code));
+  const locked = code => DB.SYSTEM_ACCOUNTS.includes(code);
+
+  UI.modal({
+    title:'Expense categories', sub:'What a disbursement voucher can be charged to', wide:true,
+    hideSubmit:true,
+    footExtra:`<button type="button" class="btn btn-primary" id="addCat">+ Add category</button>`,
+    body:`
+      ${UI.table([
+        { h:'Code', k:a => `<b class="mono">${UI.esc(a.code)}</b>`, w:'90px' },
+        { h:'Category', k:'name' },
+        { h:'Vouchers', k:a => UI.int(D().expenses.filter(v => v.account === a.code).length), cls:'num' },
+        { h:'Posted', k:a => { const t = D().journal.reduce((s,j) =>
+              s + j.lines.filter(l => l.account === a.code).reduce((x,l) => x + l.debit - l.credit, 0), 0);
+            return t ? UI.num(ACC.r2(t)) : '<span class="muted">—</span>'; }, cls:'num' },
+        { h:'', k:a => `
+            <button class="btn btn-ghost btn-xs" data-cat-edit="${a.code}">Rename</button>
+            ${locked(a.code)
+              ? '<span class="muted" style="font-size:11px">system</span>'
+              : `<button class="btn btn-ghost btn-xs" data-cat-del="${a.code}">Delete</button>`}`, w:'150px' },
+      ], cats, { empty:'No expense category yet.' })}
+      <div class="note">A category with anything posted to it cannot be deleted — the
+        ledger would be left pointing at nothing. Rename it instead.</div>`,
+  });
+
+  const root = document.getElementById('modalRoot');
+
+  root.querySelectorAll('[data-cat-edit]').forEach(b => b.onclick = () => {
+    const a = D().accounts.find(x => x.code === b.dataset.catEdit);
+    UI.modal({
+      title:'Rename category', sub:a.code,
+      body:UI.f.text('name','Category name', a.name, { req:true }),
+      submitLabel:'Save',
+      onSubmit: fd => {
+        const nm = (fd.name || '').trim();
+        if(!nm){ UI.toast('Give the category a name.', 'bad'); return false; }
+        a.name = nm;
+        DB.activity('Renamed expense category', `${a.code} — ${nm}`);
+        UI.toast('Category renamed.');
+        DB.save(); render();
+        setTimeout(categoriesForm, 0);
+      }
+    });
+  });
+
+  root.querySelectorAll('[data-cat-del]').forEach(b => b.onclick = () => {
+    const code = b.dataset.catDel;
+    const a = D().accounts.find(x => x.code === code);
+    if(used(code)) return UI.toast(`${a.name} has entries posted to it and cannot be deleted.`, 'bad');
+    UI.confirm(`Delete ${a.name}?`, () => {
+      D().accounts = D().accounts.filter(x => x.code !== code);
+      DB.activity('Deleted expense category', `${code} — ${a.name}`);
+      DB.save(); UI.toast('Category deleted.'); render();
+      setTimeout(categoriesForm, 0);
+    }, { danger:true, yes:'Delete category',
+         detail:'Nothing has been posted to it, so no entry is affected.' });
+  });
+
+  document.getElementById('addCat').onclick = () => {
+    /* Next free code in the expense range, so the admin does not have to know
+       the numbering scheme to add "Transport". */
+    const taken = new Set(D().accounts.map(x => x.code));
+    let next = 5100;
+    while(taken.has(String(next)) && next < 5999) next += 10;
+    UI.modal({
+      title:'Add expense category',
+      body:`
+        ${UI.row(UI.f.text('code','Code', String(next), { req:true, hint:'5000–5999' }),
+                 UI.f.text('name','Category name', '', { req:true, ph:'e.g. Transport and delivery' }))}
+        <div class="note">Charged as an expense when a voucher naming it is approved.</div>`,
+      submitLabel:'Add category',
+      onSubmit: fd => {
+        const code = String(fd.code || '').trim(), nm = (fd.name || '').trim();
+        if(!/^5\d{3}$/.test(code)){ UI.toast('Use a code between 5000 and 5999.', 'bad'); return false; }
+        if(taken.has(code)){ UI.toast(`${code} is already in the chart of accounts.`, 'bad'); return false; }
+        if(!nm){ UI.toast('Give the category a name.', 'bad'); return false; }
+        D().accounts.push({ code, name:nm, type:'Expense', nature:'debit' });
+        D().accounts.sort((x,y) => x.code.localeCompare(y.code));
+        DB.activity('Added expense category', `${code} — ${nm}`);
+        DB.save(); UI.toast('Category added.'); render();
+        setTimeout(categoriesForm, 0);
+      }
+    });
+  };
+}
+
 function methodsForm(){
   const list = ACC.methods();
   const assets = D().accounts.filter(a => a.type === 'Asset')
@@ -2120,11 +2595,22 @@ document.addEventListener('click', ev => {
     'new-payment':   () => paymentForm(null),
     'view-receipt':  () => receiptModal(PAY(id)),
     'new-expense':   () => expenseForm(),
+    'new-refund':    () => refundForm(),
+    'refund-trainee':() => { ev.stopPropagation(); refundForm(id); },
+    'approve-doc':   () => { const [k,i] = id.split(':');
+                       UI.confirm('Approve this document?', () => approveDoc(k, i, true),
+                         { yes:'Approve and post',
+                           detail:'The journal entry is made now, dated today. This is the point at which the money counts as having left.' }); },
+    'reject-doc':    () => { const [k,i] = id.split(':');
+                       UI.confirm('Reject this document?', fd => approveDoc(k, i, false, fd.reason),
+                         { danger:true, reason:true, yes:'Reject',
+                           detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'pay-center':    () => centerVoucherForm(id),
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
     'edit-methods':  () => methodsForm(),
+    'edit-categories':() => categoriesForm(),
     'new-user':      () => userForm(),
     'edit-user':     () => userForm(D().users.find(u => u.id === id)),
     'ledger-tab':    () => { location.hash = '#/ledger/' + id; },

@@ -255,6 +255,43 @@ const ACC = (() => {
     });
   }
 
+  /* ---------- refunds ----------
+     Money going back to a trainee. It clears the credit they are holding: the
+     booking was cancelled, which reversed the invoice and left what they had
+     already paid sitting as a negative receivable. Paying it back debits that
+     receivable and credits the cash it leaves from.
+
+     This is deliberately not a contra-revenue entry. The revenue was already
+     reversed when the invoice was voided; taking it off again would understate
+     income by the amount of every refund. */
+  function postRefund(r){
+    return post({
+      date:r.date, memo:`Refund — ${r.no}${r.reason ? ' · ' + r.reason : ''}`,
+      refType:'Refund', refNo:r.no, refId:r.id,
+      lines:[
+        { account:'1200', debit:r2(r.amount), credit:0 },
+        { account:cashAccount(r.method), debit:0, credit:r2(r.amount) },
+      ],
+    });
+  }
+
+  /* What a trainee has overpaid, across every invoice on their file and every
+     refund already given back. A positive figure is money we are holding that
+     is not ours. */
+  function creditBalance(traineeId){
+    const d = DB.get();
+    const owed = d.invoices.filter(i => i.traineeId === traineeId && !i.voided)
+      .reduce((s,i) => s + balanceOf(recomputeInvoice(i)), 0);
+    const paidOnVoided = d.invoices.filter(i => i.traineeId === traineeId && i.voided)
+      .reduce((s,i) => s + d.payments
+        .filter(p => p.invoiceId === i.id && !p.voided)
+        .reduce((t,p) => t + p.amount, 0), 0);
+    const refunded = d.refunds.filter(r => r.traineeId === traineeId && r.state === 'Approved')
+      .reduce((s,r) => s + r.amount, 0);
+    /* Overpayment on live invoices counts too: a balance below zero is a credit. */
+    return r2(Math.max(0, paidOnVoided - refunded) + Math.max(0, -owed));
+  }
+
   function recomputeInvoice(inv){
     const paid = DB.get().payments
       .filter(p => p.invoiceId === inv.id && !p.voided)
@@ -363,6 +400,7 @@ const ACC = (() => {
     r2, computeInvoice, post, reverse, acct,
     methods, methodNames, needsRef, DEFAULT_METHODS,
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
+    postRefund, creditBalance,
     recomputeInvoice, balanceOf, cashAccount, paymentLines,
     centerSettlement, postCenterPayable, postCenterRemittance,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,

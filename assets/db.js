@@ -29,6 +29,12 @@ const DB = (() => {
     { code:'5900', name:'Miscellaneous Expense',   type:'Expense',   nature:'debit'  },
   ];
 
+  /* Accounts the system posts to itself. The admin may rename these but not
+     delete them: remove one and a booking, a remittance or a refund would have
+     nowhere to land. */
+  const SYSTEM_ACCOUNTS = ['1000','1010','1020','1200','1250','2000','4000','4100','4200','4900','5050'];
+
+
   /* Accounts are maintained by the admin in Settings. `code` is the sign-in
      password. It is stored in clear text because this build has no server to
      hash against and no session to protect — anyone who can open the browser's
@@ -46,14 +52,14 @@ const DB = (() => {
     /* The admin maintains the price list and the accounts but does not work the
        journal — that is accounting's screen, and two people posting entries by
        hand into the same ledger is how a ledger stops being trustworthy. */
-    admin:      ['dashboard','trainees','courses','enrollments','invoices','payments','payables','expenses','reports','settings'],
+    admin:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','approvals','reports','settings'],
     /* One person covers registration and the cash window at this office, so the
        two jobs are one role rather than two accounts to sign in and out of.
        Neither touches the course list: prices and rebates are the admin's. */
-    frontdesk:  ['dashboard','trainees','enrollments','invoices','payments','reports'],
-    registrar:  ['dashboard','trainees','enrollments','invoices','reports'],
-    cashier:    ['dashboard','trainees','enrollments','invoices','payments','reports'],
-    accounting: ['dashboard','invoices','payments','payables','expenses','ledger','reports','settings'],
+    frontdesk:  ['dashboard','daily','trainees','enrollments','invoices','payments','refunds','reports'],
+    registrar:  ['dashboard','daily','trainees','enrollments','invoices','reports'],
+    cashier:    ['dashboard','daily','trainees','enrollments','invoices','payments','refunds','reports'],
+    accounting: ['dashboard','daily','invoices','payments','payables','refunds','expenses','approvals','ledger','reports','settings'],
   };
 
   const DEFAULT_COMPANY = {
@@ -145,10 +151,10 @@ const DB = (() => {
       company:{ ...DEFAULT_COMPANY },
       users:USERS.map(u => ({...u})),
       accounts:COA.map(a => ({...a})),
-      seq:{ trainee:0, course:0, enrollment:0, invoice:0, receipt:0, voucher:0, journal:0, application:0 },
+      seq:{ trainee:0, course:0, enrollment:0, invoice:0, receipt:0, voucher:0, refund:0, journal:0, application:0 },
       applications:[],
       trainees:[], courses:[], enrollments:[],
-      invoices:[], payments:[], expenses:[], journal:[],
+      invoices:[], payments:[], expenses:[], refunds:[], journal:[],
       log:[],
     };
   }
@@ -158,6 +164,14 @@ const DB = (() => {
   function migrate(d){
     d.applications = d.applications || [];
     d.expenses     = d.expenses || [];
+    d.refunds      = d.refunds || [];
+    if(d.seq && d.seq.refund == null) d.seq.refund = d.refunds.length;
+    /* Money out now waits for an approval before it posts. Anything already in
+       a store was posted the moment it was written, so it is approved by
+       definition — marking it pending would un-post history. */
+    (d.expenses || []).forEach(v => {
+      if(!v.state){ v.state = 'Approved'; v.approvedBy = v.approvedBy || 'Migrated'; v.approvedOn = v.approvedOn || v.date; }
+    });
     d.log          = d.log || [];
     d.seq          = d.seq || {};
     if(d.seq.application == null) d.seq.application = d.applications.length;
@@ -561,5 +575,5 @@ const DB = (() => {
   }
 
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
-           PERMS, blank, DELIVERY, normalizeDelivery };
+           PERMS, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS };
 })();
