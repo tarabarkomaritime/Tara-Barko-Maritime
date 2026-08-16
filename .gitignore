@@ -33,3 +33,6 @@ tmp/
 
 # Design PDFs are build output of design/concepts.html — regenerate, don't commit
 # (delete this rule if you want the rendered deck versioned)
+
+# Shareable demo build — regenerate with tools/build-demo.js, do not commit 300 KB of inlined source
+tara-barko-demo.html
