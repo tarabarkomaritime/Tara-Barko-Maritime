@@ -1870,16 +1870,38 @@ function enrollmentModal(e){
       ${inv ? `<button type="button" class="btn btn-ghost" id="openInv">Open bill</button>` : ''}
       ${e.status !== 'Cancelled' ? `<button type="button" class="btn btn-danger" id="cancelEnr">Cancel booking</button>` : ''}`,
     body: `
-      <dl class="def def-tight">
-        <dt>Trainee</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}
-          ${t?.rank ? `<span class="muted">· ${UI.esc(t.rank)}</span>` : ''}</dd>
-        <dt>Course</dt><dd>${UI.esc(c?.title || '—')}
-          ${(c?.modes||[]).length ? `<span class="muted">· ${UI.esc(c.modes.join(' + '))}</span>` : ''}</dd>
-        <dt>Training</dt><dd>${e.start ? UI.dateRange(e.start, e.end) : '—'}
-          ${e.center ? `<span class="muted">· ${UI.esc(e.center)}</span>` : ''}</dd>
-        <dt>Booked</dt><dd>${UI.date(e.date)} · ${UI.statusTag(e.status)}</dd>
-        ${e.remarks ? `<dt>Remarks</dt><dd>${UI.esc(e.remarks)}</dd>` : ''}
-      </dl>
+      <div class="grid g2">
+        <dl class="def def-tight">
+          <dt>Trainee</dt><dd><b>${UI.esc(name(t))}</b></dd>
+          <dt>Trainee no.</dt><dd class="mono">${UI.esc(t?.no || '—')}</dd>
+          <dt>SRN</dt><dd class="mono"><b>${UI.esc(t?.srn || '—')}</b></dd>
+          <dt>Birthday</dt><dd>${t?.birth ? UI.date(t.birth) : '—'}</dd>
+          <dt>Born in</dt><dd>${UI.esc(t?.birthPlace || '—')}</dd>
+          <dt>Man or woman</dt><dd>${t?.sex === 'F' ? 'Woman' : 'Man'}</dd>
+          <dt>Rank</dt><dd>${UI.esc(t?.rank || '—')}</dd>
+          <dt>Company</dt><dd>${UI.esc(t?.agency || '—')}</dd>
+        </dl>
+        <dl class="def def-tight">
+          <dt>Mobile</dt><dd class="mono">${UI.esc(t?.mobile || '—')}</dd>
+          <dt>Email</dt><dd>${UI.esc(t?.email || '—')}</dd>
+          <dt>Address</dt><dd>${UI.esc(t?.address || '—')}</dd>
+          <dt>Emergency</dt><dd>${UI.esc(t?.emergencyName || '—')}
+            ${t?.emergencyRelation ? `<span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}
+            ${t?.emergencyMobile ? `<br><span class="mono">${UI.esc(t.emergencyMobile)}</span>` : ''}</dd>
+          <dt>Course</dt><dd><b>${UI.esc(c?.title || '—')}</b>
+            ${(c?.modes||[]).length ? `<span class="muted">· ${UI.esc(c.modes.join(' + '))}</span>` : ''}</dd>
+          <dt>Training</dt><dd>${e.start ? UI.dateRange(e.start, e.end) : '—'}</dd>
+          <dt>Center</dt><dd>${UI.esc(e.center || '—')}</dd>
+          <dt>Booked</dt><dd>${UI.date(e.date)} · ${UI.statusTag(e.status)}</dd>
+        </dl>
+      </div>
+      ${e.remarks ? `<div class="note">${UI.esc(e.remarks)}</div>` : ''}
+      <div style="margin-top:8px">
+        <button type="button" class="btn btn-ghost btn-sm" id="copyDetails">Copy details for the training center</button>
+        <span class="muted" id="copyState" style="font-size:12px;margin-left:8px"></span>
+        <textarea id="copyBox" readonly rows="14"
+          style="display:none;width:100%;margin-top:8px;font-family:var(--mono);font-size:12px"></textarea>
+      </div>
 
       <div class="hr"></div>
       <table style="width:100%;font-size:13px">
@@ -1902,8 +1924,54 @@ function enrollmentModal(e){
       : `<div class="note warn">Not billed yet — nothing is on the books for this booking.</div>`}`
   });
 
+  /* Endorsing a trainee means re-keying their details into the center's own
+     form or pasting them into a chat. Copying by hand off a screen is where a
+     digit in an SRN goes wrong, so the block is built once, here. */
+  const endorsementText = () => [
+    'NAME: ' + name(t),
+    'SRN: ' + (t && t.srn || ''),
+    'DATE OF BIRTH: ' + (t && t.birth || ''),
+    'PLACE OF BIRTH: ' + (t && t.birthPlace || ''),
+    'SEX: ' + (t && t.sex === 'F' ? 'Female' : 'Male'),
+    'RANK: ' + (t && t.rank || ''),
+    'COMPANY: ' + (t && t.agency || ''),
+    'MOBILE: ' + (t && t.mobile || ''),
+    'EMAIL: ' + (t && t.email || ''),
+    'ADDRESS: ' + (t && t.address || ''),
+    'EMERGENCY: ' + (t && t.emergencyName || '')
+      + (t && t.emergencyRelation ? ' (' + t.emergencyRelation + ')' : '')
+      + (t && t.emergencyMobile ? ' - ' + t.emergencyMobile : ''),
+    '',
+    'COURSE: ' + (c ? c.title : '') + ((c && c.modes || []).length ? ' (' + c.modes.join(' + ') + ')' : ''),
+    'TRAINING DATE: ' + (e.start ? UI.dateRange(e.start, e.end) : ''),
+    'TRAINING CENTER: ' + (e.center || ''),
+    'BOOKING REF: ' + e.no,
+  ].join(String.fromCharCode(10));
   const on = (id, fn) => { const el = document.getElementById(id); if(el) el.onclick = fn; };
   on('billIt', () => billEnrollment(e));
+  on('copyDetails', () => {
+    const text = endorsementText();
+    const said = m => { const el = document.getElementById('copyState'); if(el) el.textContent = m; };
+    const fallback = () => {
+      /* No clipboard permission, or an insecure origin. Put it somewhere the
+         office can still select it rather than failing silently. */
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch(err) { ok = false; }
+      ta.remove();
+      if(ok){ said('Copied.'); return; }
+      /* Still refused. Show the block itself, selected, so the office can copy
+         it by hand instead of being told it failed and left with nothing. */
+      const box = document.getElementById('copyBox');
+      if(box){ box.style.display = 'block'; box.value = text; box.focus(); box.select(); }
+      said('Copy it from here:');
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(() => said('Copied — paste it into the centre form.'), fallback);
+    } else fallback();
+  });
   on('payIt', () => paymentForm(inv));
   on('openInv', () => invoiceModal(inv));
   on('cancelEnr', () => UI.confirm(
