@@ -980,6 +980,11 @@ function centerVoucherForm(center){
         /* What each booking is being paid on this voucher. Without it a part
            payment would print as the whole fee. */
         lines:picked.map(p => ({ id:p.r.e.id, amount:p.amount })),
+        /* Short-paying a booking is a judgement call, so the approver is told
+           what is being left unpaid rather than being handed a total and asked
+           to trust it. Nothing posts until an admin has seen this. */
+        shortfall:ACC.r2(picked.reduce((s,p) => s + (p.r.payable - p.amount), 0)),
+        partials:picked.filter(p => p.amount < p.r.payable - 0.004).length,
       };
       D().expenses.push(v);
       /* The money is committed straight away so a second voucher cannot be
@@ -1006,17 +1011,25 @@ function centerVoucherForm(center){
     const sum = group.rows.reduce((s,r,i) =>
       s + (ticked(r,i) ? (Number(form['amt'+i] && form['amt'+i].value) || 0) : 0), 0);
     const n = group.rows.filter(ticked).length;
+    const owed = group.rows.reduce((s,r,i) => s + (ticked(r,i) ? r.payable : 0), 0);
+    const short = ACC.r2(owed - sum);
     /* An unticked row's amount is not going anywhere; grey it out rather than
        leave a live-looking field that changes nothing. */
     group.rows.forEach((r,i) => { if(form['amt'+i]) form['amt'+i].disabled = !ticked(r,i); });
     document.getElementById('voucherTotal').innerHTML = `
       <div style="display:flex;justify-content:flex-end">
-        <table style="width:320px">
+        <table style="width:340px">
           <tr><td>Bookings on this voucher</td><td class="num">${UI.int(n)}</td></tr>
+          ${short > 0.004 ? `<tr><td>Left owing after this</td>
+              <td class="num">${UI.num(short)}</td></tr>` : ''}
           <tr><td style="font-weight:700;border-top:2px solid var(--border-strong)">Amount to remit</td>
               <td class="num" style="font-weight:700;font-size:15px;border-top:2px solid var(--border-strong)">${UI.peso(ACC.r2(sum))}</td></tr>
         </table>
-      </div>`;
+      </div>
+      ${short > 0.004 ? `<div class="note warn" style="margin-top:10px">This pays
+        <b>${UI.peso(short)}</b> less than these bookings are owed. A part payment goes to an
+        admin for approval before anything leaves the account, and the shortfall stays on the
+        payables list.</div>` : ''}`;
   };
   form.addEventListener('change', total);
   form.addEventListener('input', total);   // the amounts, as they are typed
@@ -1196,7 +1209,12 @@ VIEWS.approvals = () => {
       { h:'Pay to', k:d => UI.esc(d.payee || (d.traineeId ? name(T(d.traineeId)) : '—')) },
       { h:'Particulars', k:d => UI.esc(d.particulars || d.reason || '—') },
       { h:'Mode', k:d => UI.tag(d.method, d.method === 'Cash' ? 'ok' : 'sea') },
-      { h:'Amount', k:d => `<b>${UI.num(d.amount)}</b>`, cls:'num' },
+      /* A part payment is the one thing on this screen the amount alone does
+         not tell you about, so it is spelled out beside the figure. */
+      { h:'Amount', k:d => `<b>${UI.num(d.amount)}</b>`
+          + (d.shortfall > 0.004
+              ? `<br><span class="muted" style="font-size:11.5px">part payment · ${UI.num(d.shortfall)} left owing</span>`
+              : ''), cls:'num' },
       { h:'', k:d => canApprove()
           ? `<button class="btn btn-accent btn-xs" data-act="approve-doc" data-id="${d._kind}:${d.id}">Approve</button>
              <button class="btn btn-ghost btn-xs" data-act="reject-doc" data-id="${d._kind}:${d.id}">Reject</button>`
@@ -2888,9 +2906,17 @@ document.addEventListener('click', ev => {
     'new-refund':    () => refundForm(),
     'refund-trainee':() => { ev.stopPropagation(); refundForm(id); },
     'approve-doc':   () => { const [k,i] = id.split(':');
+                       const rec = (D()[k] || []).find(x => x.id === i);
+                       /* Approving a short-paid voucher is approving the
+                          shortfall as well, so say what it is. */
+                       const part = rec && rec.shortfall > 0.004
+                         ? ` This is a part payment: ${UI.peso(rec.shortfall)} of what `
+                           + `${rec.partials > 1 ? 'these bookings are' : 'this booking is'} owed `
+                           + 'is left unpaid and stays on the payables list.'
+                         : '';
                        UI.confirm('Approve this document?', () => approveDoc(k, i, true),
                          { yes:'Approve and post',
-                           detail:'The journal entry is made now, dated today. This is the point at which the money counts as having left.' }); },
+                           detail:'The journal entry is made now, dated today. This is the point at which the money counts as having left.' + part }); },
     'reject-doc':    () => { const [k,i] = id.split(':');
                        UI.confirm('Reject this document?', fd => approveDoc(k, i, false, fd.reason),
                          { danger:true, reason:true, yes:'Reject',
