@@ -801,14 +801,30 @@ VIEWS.payables = () => {
       { h:'Trainee', k:r => `<b>${UI.esc(name(T(r.e.traineeId)))}</b>` },
       { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || '—') },
       { h:'Training', k:r => r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—' },
-      { h:'Booking', k:r => `<span class="mono muted">${UI.esc(r.e.no)}</span>`, w:'135px' },
+      /* What the trainee has handed over so far, and whether that settles their
+         bill. The office reads this before deciding what to remit: a center
+         being paid for a seat the trainee has not paid for is money out ahead
+         of money in, and that is a decision, not an oversight. */
+      { h:'Trainee paid', k:r => {
+          const inv = invOf(r.e.id);
+          if(!inv) return '<span class="muted">—</span>';
+          ACC.recomputeInvoice(inv);
+          return `${UI.num(inv.paid || 0)}<br><span class="muted" style="font-size:11px">of ${UI.num(inv.total)}</span>`;
+        }, cls:'num' },
+      { h:'Payment', k:r => {
+          const inv = invOf(r.e.id);
+          if(!inv) return UI.tag('Not billed','muted');
+          ACC.recomputeInvoice(inv);
+          if(ACC.balanceOf(inv) <= 0.004) return UI.tag('Full','ok');
+          return (inv.paid || 0) > 0 ? UI.tag('Partial','warn') : UI.tag('Unpaid','bad');
+        }, w:'110px' },
       /* What is still owed on the seat — that is what the subtotal adds up and
          what the next voucher would pay. A part payment says so underneath so
          the smaller number is never a mystery. */
       { h:'Fee', k:r => `<b>${UI.num(r.payable)}</b>`
           + (r.paid ? `<br><span class="muted" style="font-size:11px">of ${UI.num(r.fee)} · ${UI.num(r.paid)} remitted</span>` : ''),
         cls:'num' },
-    ], c.rows, { foot:['SUBTOTAL', '', '', '', UI.num(c.payable)] }), {
+    ], c.rows, { foot:['SUBTOTAL', '', '', '', '', UI.num(c.payable)] }), {
       flush:true,
       sub:`${c.rows.length} booking(s) · oldest training ${c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest)}`
           + (c.receivable ? ` · ${UI.peso(c.receivable)} rebate still to collect` : ''),
