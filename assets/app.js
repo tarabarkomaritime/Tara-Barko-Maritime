@@ -809,15 +809,15 @@ VIEWS.payables = () => {
           const inv = invOf(r.e.id);
           if(!inv) return '<span class="muted">—</span>';
           ACC.recomputeInvoice(inv);
-          return `${UI.num(inv.paid || 0)}<br><span class="muted" style="font-size:11px">of ${UI.num(inv.total)}</span>`;
-        }, cls:'num' },
+          return UI.num(inv.paid || 0);
+        }, cls:'numc' },
       { h:'Payment', k:r => {
           const inv = invOf(r.e.id);
           if(!inv) return UI.tag('Not billed','muted');
           ACC.recomputeInvoice(inv);
           if(ACC.balanceOf(inv) <= 0.004) return UI.tag('Full','ok');
           return (inv.paid || 0) > 0 ? UI.tag('Partial','warn') : UI.tag('Unpaid','bad');
-        }, w:'110px' },
+        }, cls:'center', w:'110px' },
       /* What is still owed on the seat — that is what the subtotal adds up and
          what the next voucher would pay. A part payment says so underneath so
          the smaller number is never a mystery. */

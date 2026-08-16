@@ -65,6 +65,9 @@ body{
 .nowrap{white-space:nowrap}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+/* A figure that reads better centred than aligned — one that is not part of a
+   column being totted up, so there is no decimal point to line up on. */
+.numc{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap}
 
 /* ---------- Login ---------- */
 .login-screen{
@@ -199,6 +202,7 @@ th{
   font-weight:700;padding:9px 14px;background:var(--surface-2);border-bottom:1px solid var(--border);white-space:nowrap;
 }
 th.num,td.num{text-align:right}
+th.numc,td.numc,th.center,td.center{text-align:center}
 td{padding:9px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
 tbody tr:last-child td{border-bottom:none}
 tbody tr:hover{background:var(--surface-2)}
