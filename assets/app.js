@@ -593,7 +593,10 @@ function openPayables(){
 function payablesByCenter(){
   const map = {};
   openPayables().forEach(r => {
-    const m = map[r.center] || (map[r.center] = {
+    /* Keyed on the name in capitals: "Fareast" and "FAREAST" are one center
+       that owes one amount, however the row happened to be typed. */
+    const key = r.center.toUpperCase();
+    const m = map[key] || (map[key] = {
       center:r.center, rows:[], payable:0, rebateDeducted:0, receivable:0, oldest:'9999-12-31',
     });
     m.rows.push(r);
@@ -653,7 +656,8 @@ VIEWS.payables = () => {
 /* Pay one center. Every outstanding booking is on the voucher by default; the
    office can leave some off when it is settling only part of a statement. */
 function centerVoucherForm(center){
-  const group = payablesByCenter().find(c => c.center === center);
+  const key = String(center || '').toUpperCase();
+  const group = payablesByCenter().find(c => c.center.toUpperCase() === key);
   if(!group){ UI.toast('Nothing outstanding for that center.', 'bad'); return; }
 
   const row = (r,i) => `
@@ -740,49 +744,65 @@ function centerVoucherForm(center){
   total();
 }
 
+/* Two copies of one document on a single A4 — original for the party we are
+   paying or billing, duplicate for the file. Only the first shows on screen;
+   the print stylesheet reveals the second and sizes both to half a sheet. */
+function twoUp(inner){
+  const copy = label => `
+    <section class="doc-copy"><span class="copy-mark">${label}</span>${inner}</section>`;
+  return `<div class="doc2">
+    ${copy('ORIGINAL')}${copy('DUPLICATE')}
+    <p class="copy-note">Prints as two copies on one A4 — original above, duplicate below the cut line.</p>
+  </div>`;
+}
+
 /* The voucher itself, printable — a training center is going to want a copy. */
 function voucherModal(v){
   const bookings = (v.bookings || []).map(id => ENR(id)).filter(Boolean);
   const co = D().company;
+
+  const sheet = `
+    <div class="doc">
+      <div class="doc-head">
+        <div>
+          <h2>${UI.esc(co.name)}</h2>
+          <div class="co">${UI.esc(co.address)}<br>${UI.esc(co.contact)}<br>TIN ${UI.esc(co.tin)}</div>
+        </div>
+        <div class="doc-title">
+          <div class="t">DISBURSEMENT VOUCHER</div>
+          <div class="n">${UI.esc(v.no)}</div>
+          <div class="muted" style="font-size:12px">${UI.date(v.date)}</div>
+        </div>
+      </div>
+      <dl class="def">
+        <dt>Pay to</dt><dd><b>${UI.esc(String(v.payee).toUpperCase())}</b></dd>
+        <dt>Particulars</dt><dd>${UI.esc(v.particulars)}</dd>
+        <dt>Paid from</dt><dd>${UI.esc(v.method)}${v.ref ? ` · Ref ${UI.esc(v.ref)}` : ''}</dd>
+        <dt>Amount in words</dt><dd>${UI.esc(amountInWords(v.amount))}</dd>
+      </dl>
+      ${UI.table([
+        { h:'Trainee', k:e => UI.esc(name(T(e.traineeId))) },
+        { h:'Course', k:e => UI.esc((CRS(e.courseId)||{}).title || '—') },
+        { h:'Training', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
+        { h:'Rebate', k:e => e.deduct ? 'deducted' : 'not deducted' },
+        { h:'Amount', k:e => UI.num(e.centerPayable != null ? e.centerPayable : e.fee), cls:'num' },
+      ], bookings, { empty:'No bookings recorded on this voucher.' })}
+      <div class="doc-total">
+        <table>
+          <tr class="grand"><td>TOTAL REMITTED</td><td class="num">${UI.peso(v.amount)}</td></tr>
+        </table>
+      </div>
+      <div class="doc-sign">
+        <div>Prepared by</div>
+        <div>Received by ${UI.esc(String(v.payee).toUpperCase())}</div>
+      </div>
+    </div>`;
+
   UI.modal({
     title:`Voucher ${v.no}`, sub:`${String(v.payee).toUpperCase()} · ${UI.peso(v.amount)}`, wide:true,
     hideSubmit:true,
-    footExtra:`<button type="button" class="btn btn-ghost" id="printVoucher">Print</button>`,
-    body:`
-      <div class="p-slip" id="voucherSheet">
-        <div class="p-slip-head">
-          <div class="p-slip-org">
-            <div class="p-slip-name">${UI.esc(co.name)}</div>
-            <div class="muted">${UI.esc(co.address)}</div>
-            <div class="muted">${UI.esc(co.contact)}</div>
-          </div>
-          <div class="p-slip-no">
-            <div class="p-slip-kind">DISBURSEMENT VOUCHER</div>
-            <div class="mono p-slip-num">${UI.esc(v.no)}</div>
-            <div class="muted">${UI.date(v.date)}</div>
-          </div>
-        </div>
-        <dl class="def def-tight" style="margin:14px 0">
-          <dt>Pay to</dt><dd><b>${UI.esc(String(v.payee).toUpperCase())}</b></dd>
-          <dt>Particulars</dt><dd>${UI.esc(v.particulars)}</dd>
-          <dt>Paid from</dt><dd>${UI.esc(v.method)}${v.ref ? ` · Ref ${UI.esc(v.ref)}` : ''}</dd>
-          <dt>Amount</dt><dd><b>${UI.peso(v.amount)}</b> — ${UI.esc(amountInWords(v.amount))}</dd>
-        </dl>
-        ${UI.table([
-          { h:'Trainee', k:e => UI.esc(name(T(e.traineeId))) },
-          { h:'Course', k:e => UI.esc((CRS(e.courseId)||{}).title || '—') },
-          { h:'Training', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
-          { h:'Rebate', k:e => e.deduct ? 'deducted' : 'not deducted' },
-          { h:'Amount', k:e => UI.num(e.centerPayable != null ? e.centerPayable : e.fee), cls:'num' },
-        ], bookings, { empty:'No bookings recorded on this voucher.',
-            foot:['','','','TOTAL', UI.num(v.amount)] })}
-        <div style="display:flex;gap:40px;margin-top:26px">
-          <div style="flex:1;border-top:1px solid var(--border);padding-top:6px;text-align:center"
-            class="muted">Prepared by</div>
-          <div style="flex:1;border-top:1px solid var(--border);padding-top:6px;text-align:center"
-            class="muted">Received by ${UI.esc(String(v.payee).toUpperCase())}</div>
-        </div>
-      </div>`
+    footExtra:`<button type="button" class="btn btn-primary" id="printVoucher">Print</button>`,
+    body: twoUp(sheet),
   });
   document.getElementById('printVoucher').onclick = () => UI.print();
 }
@@ -1563,7 +1583,7 @@ function invoiceModal(inv){
       ${!inv.voided && bal > 0.004 && can('payments') ? `<button type="button" class="btn btn-accent" id="payNow">Record payment</button>` : ''}
       ${!inv.voided && can('invoices') ? `<button type="button" class="btn btn-danger" id="voidInv">Void</button>` : ''}
       <button type="button" class="btn btn-primary" onclick="UI.print()">Print</button>`,
-    body: `<div class="doc">
+    body: twoUp(`<div class="doc">
       <div class="doc-head">
         <div>
           <h2>${UI.esc(co.name)}</h2>
@@ -1615,7 +1635,7 @@ function invoiceModal(inv){
       ${inv.voided ? '<div class="note bad" style="margin-top:14px"><b>This invoice has been voided.</b> A reversing journal entry was posted.</div>' : ''}
       <div class="doc-sign"><div>Prepared by</div><div>Received by / Trainee</div></div>
       <p class="muted" style="font-size:11px;margin-top:18px">This document is computer-generated. TIN ${UI.esc(co.tin)}.</p>
-    </div>`
+    </div>`)
   });
   const on = (id, fn) => { const el = document.getElementById(id); if(el) el.onclick = fn; };
   on('payNow', () => paymentForm(inv));

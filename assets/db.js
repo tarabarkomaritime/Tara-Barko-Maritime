@@ -43,11 +43,15 @@ const DB = (() => {
 
   /* Which modules each role may open. Admin sees everything. */
   const PERMS = {
-    admin:      ['dashboard','trainees','courses','enrollments','invoices','payments','payables','expenses','ledger','reports','settings'],
+    /* The admin maintains the price list and the accounts but does not work the
+       journal — that is accounting's screen, and two people posting entries by
+       hand into the same ledger is how a ledger stops being trustworthy. */
+    admin:      ['dashboard','trainees','courses','enrollments','invoices','payments','payables','expenses','reports','settings'],
     /* One person covers registration and the cash window at this office, so the
-       two jobs are one role rather than two accounts to sign in and out of. */
-    frontdesk:  ['dashboard','trainees','courses','enrollments','invoices','payments','reports'],
-    registrar:  ['dashboard','trainees','courses','enrollments','invoices','reports'],
+       two jobs are one role rather than two accounts to sign in and out of.
+       Neither touches the course list: prices and rebates are the admin's. */
+    frontdesk:  ['dashboard','trainees','enrollments','invoices','payments','reports'],
+    registrar:  ['dashboard','trainees','enrollments','invoices','reports'],
     cashier:    ['dashboard','trainees','enrollments','invoices','payments','reports'],
     accounting: ['dashboard','invoices','payments','payables','expenses','ledger','reports','settings'],
   };
@@ -381,7 +385,11 @@ const DB = (() => {
          have to appear on the payables screen or only half of it is ever seen. */
       if(ri % 3 === 0) c.deduct = true;
       const start = dOff(off);
-      return { course:c, start, end:end(start, Math.ceil(c.days || 1)), center, room, instructor:instr, fee };
+      /* Take the center's name from the price list rather than repeating it
+         here: two spellings of one center split it in two on the payables
+         screen, and half the debt goes missing from each. */
+      return { course:c, start, end:end(start, Math.ceil(c.days || 1)),
+               center:c.center || center, room, instructor:instr, fee };
     });
 
     const names = [
