@@ -65,6 +65,14 @@ const PAY  = id => D().payments.find(x => x.id === id);
 /* Trainees and applications carry the same name fields, so one formatter serves both. */
 const name = t => APPS.forName(t);
 
+/* The same person, spelled out. APPS.forName initials the middle name, which
+   is right for a table and wrong for anything a training center will type onto
+   a certificate — a name that does not match their documents is a reprint the
+   trainee pays for. */
+const fullName = t => t
+  ? `${t.last}${t.suffix ? ' ' + t.suffix : ''}, ${t.first}${t.middle ? ' ' + t.middle : ''}`.trim()
+  : '—';
+
 /* The Registrar replies on Facebook, so these are meant to be clicked. Applicants
    paste bare handles as often as full URLs, so add the scheme when it is missing.
    rel=noopener because the target is a stranger's link. */
@@ -1559,7 +1567,7 @@ function traineeProfile(t){
   const bal = traineeBalance(t.id);
 
   UI.modal({
-    title: name(t), sub:`${t.no} · ${t.rank || 'No rank on file'} · ${t.agency || 'No company'}`, wide:true,
+    title: fullName(t), sub:`${t.no} · ${t.rank || 'No rank on file'} · ${t.agency || 'No company'}`, wide:true,
     hideSubmit:true,
     footExtra:`<button type="button" class="btn btn-ghost" id="editTrainee">Edit details</button>
                <button type="button" class="btn btn-accent" id="enrollHere">Book a course</button>`,
@@ -1567,9 +1575,8 @@ function traineeProfile(t){
       <div class="grid g2">
         <dl class="def">
           <dt>SRN</dt><dd class="mono"><b>${UI.esc(t.srn||'—')}</b></dd>
-          <dt>Man or woman</dt><dd>${t.sex === 'F' ? 'Woman' : 'Man'}</dd>
           <dt>Birthday</dt><dd>${UI.date(t.birth)}</dd>
-          <dt>Born in</dt><dd>${UI.esc(t.birthPlace||'—')}</dd>
+          <dt>Birthplace</dt><dd>${UI.esc(t.birthPlace||'—')}</dd>
           <dt>Signed up on</dt><dd>${UI.date(t.registered)}</dd>
         </dl>
         <dl class="def">
@@ -1872,12 +1879,11 @@ function enrollmentModal(e){
     body: `
       <div class="grid g2">
         <dl class="def def-tight">
-          <dt>Trainee</dt><dd><b>${UI.esc(name(t))}</b></dd>
+          <dt>Trainee</dt><dd><b>${UI.esc(fullName(t))}</b></dd>
           <dt>Trainee no.</dt><dd class="mono">${UI.esc(t?.no || '—')}</dd>
           <dt>SRN</dt><dd class="mono"><b>${UI.esc(t?.srn || '—')}</b></dd>
           <dt>Birthday</dt><dd>${t?.birth ? UI.date(t.birth) : '—'}</dd>
-          <dt>Born in</dt><dd>${UI.esc(t?.birthPlace || '—')}</dd>
-          <dt>Man or woman</dt><dd>${t?.sex === 'F' ? 'Woman' : 'Man'}</dd>
+          <dt>Birthplace</dt><dd>${UI.esc(t?.birthPlace || '—')}</dd>
           <dt>Rank</dt><dd>${UI.esc(t?.rank || '—')}</dd>
           <dt>Company</dt><dd>${UI.esc(t?.agency || '—')}</dd>
         </dl>
@@ -1928,7 +1934,7 @@ function enrollmentModal(e){
      form or pasting them into a chat. Copying by hand off a screen is where a
      digit in an SRN goes wrong, so the block is built once, here. */
   const endorsementText = () => [
-    'NAME: ' + name(t),
+    'NAME: ' + fullName(t),
     'SRN: ' + (t && t.srn || ''),
     'DATE OF BIRTH: ' + (t && t.birth || ''),
     'PLACE OF BIRTH: ' + (t && t.birthPlace || ''),
