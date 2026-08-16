@@ -1973,34 +1973,16 @@ function enrollmentModal(e){
     title:`Booking ${e.no}`, sub:`${name(t)} · ${c ? c.title : ''}`, wide:true, hideSubmit:true,
     footExtra:`
       ${!inv && e.status !== 'Cancelled' ? `<button type="button" class="btn btn-brass" id="billIt">Bill this booking</button>` : ''}
-      ${inv && bal > 0.004 && can('payments') ? `<button type="button" class="btn btn-accent" id="payIt">Record payment</button>` : ''}
       ${inv ? `<button type="button" class="btn btn-ghost" id="openInv">Open bill</button>` : ''}
       ${e.status !== 'Cancelled' ? `<button type="button" class="btn btn-danger" id="cancelEnr">Cancel booking</button>` : ''}`,
     body: `
-      <div class="grid g2">
-        <dl class="def def-tight">
-          <dt>Trainee</dt><dd><b>${UI.esc(fullName(t))}</b></dd>
-          <dt>Trainee no.</dt><dd class="mono">${UI.esc(t?.no || '—')}</dd>
-          <dt>SRN</dt><dd class="mono"><b>${UI.esc(t?.srn || '—')}</b></dd>
-          <dt>Birthday</dt><dd>${t?.birth ? UI.date(t.birth) : '—'}</dd>
-          <dt>Birthplace</dt><dd>${UI.esc(t?.birthPlace || '—')}</dd>
-          <dt>Rank</dt><dd>${UI.esc(t?.rank || '—')}</dd>
-          <dt>Company</dt><dd>${UI.esc(t?.agency || '—')}</dd>
-        </dl>
-        <dl class="def def-tight">
-          <dt>Mobile</dt><dd class="mono">${UI.esc(t?.mobile || '—')}</dd>
-          <dt>Email</dt><dd>${UI.esc(t?.email || '—')}</dd>
-          <dt>Address</dt><dd>${UI.esc(t?.address || '—')}</dd>
-          <dt>Emergency</dt><dd>${UI.esc(t?.emergencyName || '—')}
-            ${t?.emergencyRelation ? `<span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}
-            ${t?.emergencyMobile ? `<br><span class="mono">${UI.esc(t.emergencyMobile)}</span>` : ''}</dd>
-          <dt>Course</dt><dd><b>${UI.esc(c?.title || '—')}</b>
-            ${(c?.modes||[]).length ? `<span class="muted">· ${UI.esc(c.modes.join(' + '))}</span>` : ''}</dd>
-          <dt>Training</dt><dd>${e.start ? UI.dateRange(e.start, e.end) : '—'}</dd>
-          <dt>Center</dt><dd>${UI.esc(e.center || '—')}</dd>
-          <dt>Booked</dt><dd>${UI.date(e.date)} · ${UI.statusTag(e.status)}</dd>
-        </dl>
-      </div>
+      <dl class="def def-tight">
+        <dt>Trainee</dt><dd><b>${UI.esc(fullName(t))}</b></dd>
+        <dt>Trainee no.</dt><dd class="mono">${UI.esc(t?.no || '—')}</dd>
+        <dt>Training center</dt><dd>${UI.esc(e.center || '—')}</dd>
+        <dt>Scheduled date</dt><dd>${e.start ? UI.dateRange(e.start, e.end) : '—'}
+          <span class="muted">· ${UI.statusTag(e.status)}</span></dd>
+      </dl>
       ${e.remarks ? `<div class="note">${UI.esc(e.remarks)}</div>` : ''}
       ${copyRow('Copy details for the training center')}
 
@@ -2028,7 +2010,6 @@ function enrollmentModal(e){
   const on = (id, fn) => { const el = document.getElementById(id); if(el) el.onclick = fn; };
   on('billIt', () => billEnrollment(e));
   wireCopy(() => endorsementText(t, e));
-  on('payIt', () => paymentForm(inv));
   on('openInv', () => invoiceModal(inv));
   on('cancelEnr', () => UI.confirm(
     'Cancel this enrollment?',
