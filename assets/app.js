@@ -47,8 +47,8 @@ const TITLES = {
   courses:['Course Catalogue','Courses, centers, amounts and rebates'],
   enrollments:['Enrollments','Bookings encoded per trainee, with billing status and results'],
   invoices:['Billing','Statements of account issued to trainees'],
-  payments:['Collections','Official receipts and cash position'],
-  payables:['Payables to Training Centers','What each center is owed, and the vouchers that settle it'],
+  payments:['Collections','Payments taken and cash position'],
+  payables:['Payables To Training Centers','What each center is owed, and the vouchers that settle it'],
   expenses:['Disbursements','Vouchers for operating expenses'],
   ledger:['General Ledger','Journal entries and chart of accounts'],
   reports:['Reports','Financial statements and enrollment analytics'],
@@ -385,7 +385,7 @@ VIEWS.dashboard = () => {
     </div>
 
     <div class="grid g2" style="margin-bottom:18px">
-      ${UI.card('Money by channel', UI.table([
+      ${UI.card('Money By Channel', UI.table([
         { h:'Channel', k:r => `<b>${UI.esc(r.label)}</b>` },
         { h:'Received', k:r => UI.num(r.inAmt), cls:'num' },
         { h:'Disbursed', k:r => UI.num(r.outAmt), cls:'num' },
@@ -394,7 +394,7 @@ VIEWS.dashboard = () => {
           foot:['TOTAL', UI.num(receivedTotal), UI.num(paidTotal), UI.num(ACC.r2(receivedTotal - paidTotal))] }),
         { flush:true, sub:`${receiptCount} receipt(s) in · ${voucherCount} voucher(s) out` })}
 
-      ${UI.card('Training starting tomorrow', UI.table([
+      ${UI.card('Training Starting Tomorrow', UI.table([
         { h:'Trainee', k:e => { const t = T(e.traineeId); return t
             ? `<b>${UI.esc(name(t))}</b><br><span class="muted" style="font-size:11.5px">${UI.esc(t.mobile||'')}</span>`
             : '—'; } },
@@ -408,7 +408,7 @@ VIEWS.dashboard = () => {
         { flush:true, sub:UI.date(tomorrow) })}
     </div>
 
-    ${UI.card('Recent activity', UI.table([
+    ${UI.card('Recent Activity', UI.table([
       { h:'When', k:l => UI.esc(new Date(l.ts).toLocaleString('en-PH',{ month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })), w:'170px' },
       { h:'User', k:'user', w:'150px' },
       { h:'Action', k:'action' },
@@ -635,13 +635,13 @@ VIEWS.payments = () => {
       ], rows, { empty:'No collections in this period.', rowClass:'clickable',
                  rowAttrs:p => `data-act="view-receipt" data-id="${p.id}"` }), { flush:true })}</div>
       <div>
-        ${UI.card('Collections this period', `
+        ${UI.card('Collections This Period', `
           <div class="kpi" style="border:none;box-shadow:none;padding:0;margin-bottom:14px">
             <div class="lbl">Total received</div><div class="val">${UI.peso(col.total)}</div>
             <div class="sub">${col.rows.length} payment(s)</div></div>
           <div class="hr"></div>
           ${UI.donut(methods, { money:true, center:'BY MODE' })}`)}
-        ${UI.card('Cash position', (() => {
+        ${UI.card('Cash Position', (() => {
           const tb = ACC.trialBalance(DB.today());
           const g = c => (tb.rows.find(r => r.code === c) || { balance:0 }).balance;
           return `<dl class="def">
@@ -685,7 +685,7 @@ VIEWS.expenses = () => {
         { h:'Status', k:v => UI.statusTag(v.state || 'Approved') },
         { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
       ], rows, { empty:'No disbursements in this period.' }), { flush:true })}</div>
-      <div>${UI.card('Expenses by account',
+      <div>${UI.card('Expenses By Account',
         UI.barChart(Object.entries(byAcct).map(([c,v]) => ({ label:ACC.acct(c).name, value:v }))
           .sort((a,b) => b.value - a.value), { money:true }))}</div>
     </div>`;
@@ -758,7 +758,7 @@ VIEWS.payables = () => {
       ${UI.kpi('Rebates to collect', UI.peso(totalRecv), 'centers owe us this back', totalRecv > 0 ? 'sea' : '')}
     </div>
 
-    ${UI.card('What we owe each training center', UI.table([
+    ${UI.card('What We Owe Each Training Center', UI.table([
       { h:'Training center', k:c => `<b>${UI.esc(c.center.toUpperCase())}</b>` },
       { h:'Bookings', k:c => UI.int(c.rows.length), cls:'num' },
       { h:'Oldest', k:c => c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest) },
@@ -772,7 +772,7 @@ VIEWS.payables = () => {
               UI.num(totalKept), UI.num(totalRecv), UI.num(totalDue), ''] }), { flush:true })}
 
     <div style="height:18px"></div>
-    ${UI.card('Vouchers issued to centers', UI.table([
+    ${UI.card('Vouchers Issued To Centers', UI.table([
       { h:'Voucher No.', k:v => `<b class="mono">${UI.esc(v.no)}</b>`, w:'135px' },
       { h:'Date', k:v => UI.date(v.date), w:'115px' },
       { h:'Training center', k:v => UI.esc(String(v.payee).toUpperCase()) },
@@ -842,7 +842,7 @@ function centerVoucherForm(center){
         /* Booked to the payable, not to an expense: the cost was recognised
            when the seat was taken. */
         account:'2000',
-        particulars:(fd.particulars || `Remittance to ${center}`).trim(),
+        particulars:(fd.particulars || `Remittance To ${center}`).trim(),
         method:fd.method, ref:String(fd.ref||'').trim(),
         amount, bookings:picked.map(r => r.e.id),
       };
@@ -1024,7 +1024,7 @@ VIEWS.approvals = () => {
                  .reduce((s,d) => s + d.amount, 0))), 'posted to the ledger', 'ok')}
     </div>
 
-    ${UI.card('Waiting for approval', UI.table([
+    ${UI.card('Waiting For Approval', UI.table([
       { h:'Document', k:d => `<b class="mono">${UI.esc(d.no)}</b><br>
           <span class="muted" style="font-size:11.5px">${UI.esc(kindOf(d))}</span>` },
       { h:'Raised', k:d => `${UI.date(d.date)}<br>
@@ -1040,7 +1040,7 @@ VIEWS.approvals = () => {
     ], pend, { empty:'Nothing is waiting — every voucher and refund has been decided.' }), { flush:true })}
 
     <div style="height:18px"></div>
-    ${UI.card('Recently decided', UI.table([
+    ${UI.card('Recently Decided', UI.table([
       { h:'Document', k:d => `<span class="mono">${UI.esc(d.no)}</span>` },
       { h:'Type', k:d => UI.esc(kindOf(d)) },
       { h:'Pay to', k:d => UI.esc(d.payee || (d.traineeId ? name(T(d.traineeId)) : '—')) },
@@ -1068,7 +1068,7 @@ VIEWS.refunds = () => {
       <button class="btn btn-primary btn-sm" data-act="new-refund">+ Refund a trainee</button>
     </div>
 
-    ${held.length ? UI.card('Money we are holding that is not ours', UI.table([
+    ${held.length ? UI.card('Money We Are Holding That Is Not Ours', UI.table([
       { h:'Trainee', k:x => `<b>${UI.esc(name(x.t))}</b> <span class="muted">${UI.esc(x.t.no)}</span>` },
       { h:'Mobile', k:x => UI.esc(x.t.mobile || '—') },
       { h:'Credit', k:x => `<b>${UI.num(x.credit)}</b>`, cls:'num' },
@@ -1226,7 +1226,7 @@ VIEWS.daily = () => {
                ACC.methods().slice(1).map(m => `${m.name} ${UI.shortMoney(bal(m.account))}`).join(' · '), '')}
     </div>
 
-    ${UI.card('Money by channel', UI.table([
+    ${UI.card('Money By Channel', UI.table([
       { h:'Channel', k:r => `<b>${UI.esc(r.label)}</b>` },
       { h:'In', k:r => UI.num(r.inAmt), cls:'num' },
       { h:'Out', k:r => UI.num(r.outAmt), cls:'num' },
@@ -1256,7 +1256,7 @@ VIEWS.daily = () => {
 
     <div style="height:18px"></div>
     <div class="grid g2">
-      ${UI.card('Paid to training centers', UI.table([
+      ${UI.card('Paid To Training Centers', UI.table([
         { h:'Voucher', k:v => `<span class="mono">${UI.esc(v.no)}</span>` },
         { h:'Center', k:v => UI.esc(String(v.payee).toUpperCase()) },
         { h:'Bookings', k:v => UI.int((v.bookings||[]).length), cls:'num' },
@@ -1264,7 +1264,7 @@ VIEWS.daily = () => {
       ], remits, { empty:'No center was paid on this date.',
           foot:['','','TOTAL', UI.num(sum(remits))] }), { flush:true })}
 
-      ${UI.card('Other disbursements', UI.table([
+      ${UI.card('Other Disbursements', UI.table([
         { h:'Voucher', k:v => `<span class="mono">${UI.esc(v.no)}</span>` },
         { h:'Payee', k:'payee' },
         { h:'Category', k:v => UI.esc(ACC.acct(v.account).name) },
@@ -1274,7 +1274,7 @@ VIEWS.daily = () => {
     </div>
 
     <div style="height:18px"></div>
-    ${UI.card('Posted by the system', UI.table([
+    ${UI.card('Posted By The System', UI.table([
       { h:'What', k:r => `<b>${UI.esc(r.label)}</b>` },
       { h:'Entries', k:r => UI.int(r.count), cls:'num' },
       { h:'Amount', k:r => UI.num(r.amount), cls:'num' },
@@ -1283,7 +1283,7 @@ VIEWS.daily = () => {
 
     ${pend.length ? `
       <div style="height:18px"></div>
-      ${UI.card('Waiting for approval — not in the totals above', UI.table([
+      ${UI.card('Waiting For Approval — Not In The Totals Above', UI.table([
         { h:'Document', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
         { h:'Raised', k:p => `${UI.date(p.date)} · ${UI.esc(p.raisedBy || '—')}` },
         { h:'Pay to', k:p => UI.esc(p.payee || (p.traineeId ? name(T(p.traineeId)) : '—')) },
@@ -1305,7 +1305,7 @@ VIEWS.ledger = () => {
 
   if(tab === 'coa'){
     const tb = ACC.trialBalance(DB.today());
-    return nav + UI.card('Chart of accounts — balances as of ' + UI.date(DB.today()), UI.table([
+    return nav + UI.card('Chart Of Accounts — Balances As Of ' + UI.date(DB.today()), UI.table([
       { h:'Code', k:a => `<b class="mono">${UI.esc(a.code)}</b>`, w:'80px' },
       { h:'Account Name', k:'name' },
       { h:'Type', k:a => UI.tag(a.type, { Asset:'sea', Liability:'warn', Equity:'info', Revenue:'ok', Expense:'bad' }[a.type] || 'muted') },
@@ -1517,8 +1517,8 @@ VIEWS.reports = () => {
       ${UI.kpi('Passing Rate', assessed ? Math.round(passed/assessed*100) + '%' : '—', 'Of assessed trainees', assessed && passed/assessed < .8 ? 'warn' : 'ok')}
     </div>
     <div class="grid g2">
-      ${UI.card('By company', UI.barChart(Object.entries(byAgency).map(([l,v]) => ({ label:l, value:v })).sort((a,b) => b.value - a.value)))}
-      ${UI.card('By month', UI.barChart(Object.entries(byMonth).sort().map(([l,v]) => ({ label:l, value:v }))))}
+      ${UI.card('By Company', UI.barChart(Object.entries(byAgency).map(([l,v]) => ({ label:l, value:v })).sort((a,b) => b.value - a.value)))}
+      ${UI.card('By Month', UI.barChart(Object.entries(byMonth).sort().map(([l,v]) => ({ label:l, value:v }))))}
     </div>` +
     UI.table([
       { h:'Status', k:r => UI.statusTag(r[0]) },
@@ -1532,7 +1532,7 @@ VIEWS.settings = () => {
   const c = D().company, d = D();
   return `
     <div class="grid g2">
-      ${UI.card('Company profile', `
+      ${UI.card('Company Profile', `
         <form id="coForm">
           ${UI.f.text('name','Registered name', c.name, { req:true })}
           ${UI.f.area('address','Business address', c.address)}
@@ -1545,7 +1545,7 @@ VIEWS.settings = () => {
           <button class="btn btn-primary" type="submit">Save company profile</button>
         </form>`)}
       <div>
-        ${UI.card('User accounts', UI.table([
+        ${UI.card('User Accounts', UI.table([
           { h:'Name', k:u => `<b>${UI.esc(u.name)}</b><br><span class="muted" style="font-size:11.5px">${UI.esc(u.email || 'no email on file')}</span>` },
           { h:'Role', k:u => UI.tag(u.role, 'info') },
           { h:'Modules', k:u => `<span class="muted">${DB.PERMS[u.role].length} of ${Object.keys(TITLES).length}</span>` },
@@ -1554,7 +1554,7 @@ VIEWS.settings = () => {
             actions:'<button class="btn btn-primary btn-xs" data-act="new-user">+ Add user</button>',
             sub:'Name, email, password and role' })}
 
-        ${UI.card('Modes of payment', UI.table([
+        ${UI.card('Modes Of Payment', UI.table([
           { h:'Mode', k:m => `<b>${UI.esc(m.name)}</b>` },
           { h:'Posts to', k:m => { const a = ACC.acct(m.account);
               return `<span class="mono">${UI.esc(m.account)}</span> ${UI.esc(a.name || '')}`; } },
@@ -1563,7 +1563,7 @@ VIEWS.settings = () => {
             actions:'<button class="btn btn-ghost btn-xs" data-act="edit-methods">Edit modes</button>',
             sub:'Offered at the collection window' })}
 
-        ${UI.card('Expense categories', UI.table([
+        ${UI.card('Expense Categories', UI.table([
           { h:'Code', k:a => `<span class="mono">${UI.esc(a.code)}</span>`, w:'70px' },
           { h:'Category', k:'name' },
         ], d.accounts.filter(a => a.type === 'Expense').sort((a,b) => a.code.localeCompare(b.code)),
@@ -1710,7 +1710,7 @@ function traineeProfile(t){
         ${UI.kpi('Still to pay', UI.peso(bal),
                  bal > 0 ? 'not yet settled' : 'fully paid', bal > 0 ? 'bad' : 'ok')}
       </div>
-      <h4 style="margin:0 0 8px;font-size:13px">Courses booked</h4>
+      <h4 style="margin:0 0 8px;font-size:13px">Courses Booked</h4>
       ${UI.table([
         { h:'Course', k:e => UI.esc(CRS(e.courseId)?.title || '—') },
         { h:'Training center', k:e => UI.esc(e.center || '—') },
@@ -1722,7 +1722,7 @@ function traineeProfile(t){
             return due > 0.004 ? `<span class="neg">${UI.peso(due)} left</span>` : 'Paid'; } },
       ], enr, { empty:'No courses booked yet.' })}
       <div class="hr"></div>
-      <h4 style="margin:0 0 8px;font-size:13px">Bills and payments</h4>
+      <h4 style="margin:0 0 8px;font-size:13px">Bills And Payments</h4>
       ${UI.table([
         { h:'Bill no.', k:i => `<span class="mono">${UI.esc(i.no)}</span>` },
         { h:'Date', k:i => UI.date(i.date) },
@@ -1766,7 +1766,7 @@ function courseForm(c){
       </div>
 
       <div class="hr"></div>
-      <h4 style="margin:0 0 8px;font-size:13px">Where it runs, and what it costs</h4>
+      <h4 style="margin:0 0 8px;font-size:13px">Where It Runs, And What It Costs</h4>
       ${UI.row(UI.f.text('center','Training center', c.center, { attr:'list="courseCenters"',
                           hint:'partner running this course' }),
                UI.f.num('amount','Amount (₱)', c.amount, { min:0, hint:'price at this center' }))}
@@ -1864,7 +1864,7 @@ function enrollmentForm(existing, presetTrainee){
     <p class="p-note-inline muted" style="margin:-6px 0 12px;font-size:12px">
       Not on the list? <a href="#" data-act="new-trainee-here">Register a new trainee</a> first.</p>
 
-    <h4 style="margin:0 0 8px;font-size:13px">Course and training date</h4>
+    <h4 style="margin:0 0 8px;font-size:13px">Course And Training Date</h4>
     ${UI.f.select('courseId','Course', '', active
         .map(c => ({ v:c.id, l:`${c.title}${c.center ? ' — ' + c.center : ''}`
           /* A center can run the same course two ways — face to face and
@@ -2188,10 +2188,10 @@ function paymentForm(inv){
 
       ${UI.f.text('note','Notes','')}
       <p class="muted" style="margin:-6px 0 4px;font-size:12px">Received today,
-         ${UI.date(DB.today())} — a proof of payment carries the date it is issued.</p>
+         ${UI.date(DB.today())} — an acknowledgement receipt carries the date it is issued.</p>
 
       <div class="hr"></div>
-      <h4 style="margin:0 0 4px;font-size:13px">How it was paid</h4>
+      <h4 style="margin:0 0 4px;font-size:13px">How It Was Paid</h4>
       <p class="muted" style="margin:0 0 10px;font-size:12px">
         One line per mode. GCash and Bank need the reference number that appears
         on the statement.</p>
@@ -2301,13 +2301,13 @@ function receiptModal(p){
   const words = amountInWords(p.amount);
 
   UI.modal({
-    title:'Proof of Payment', sub:UI.date(p.date), hideSubmit:true, wide:true,
+    title:'Acknowledgement Receipt', sub:UI.date(p.date), hideSubmit:true, wide:true,
     footExtra:`${!p.voided && can('payments') ? `<button type="button" class="btn btn-danger" id="voidPay">Void payment</button>` : ''}
                <button type="button" class="btn btn-primary" onclick="UI.print()">Print</button>`,
     body: `<div class="doc">
       <div class="doc-head">
         ${docCompany()}
-        <div class="doc-title"><div class="t">PROOF OF PAYMENT</div>
+        <div class="doc-title"><div class="t">ACKNOWLEDGEMENT RECEIPT</div>
           <div class="muted" style="font-size:12px">${UI.date(p.date)}</div>
           ${p.voided ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}</div>
       </div>
@@ -2333,7 +2333,7 @@ function receiptModal(p){
     </div>`
   });
   const vb = document.getElementById('voidPay');
-  if(vb) vb.onclick = () => UI.confirm('Void this proof of payment?', fd => {
+  if(vb) vb.onclick = () => UI.confirm('Void this acknowledgement receipt?', fd => {
       p.voided = true;
       ACC.reverse(p.id, fd.reason || 'Receipt voided');
       if(inv) ACC.recomputeInvoice(inv);
