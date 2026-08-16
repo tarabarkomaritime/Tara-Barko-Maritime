@@ -287,11 +287,11 @@ VIEWS.dashboard = () => {
 VIEWS.trainees = () => {
   const q = (state.q.trainee || '').toLowerCase();
   const rows = D().trainees.filter(t =>
-    !q || [t.no,t.last,t.first,t.srn,t.sirb,t.rank,t.agency,t.mobile].join(' ').toLowerCase().includes(q));
+    !q || [t.no,t.last,t.first,t.srn,t.rank,t.agency,t.mobile].join(' ').toLowerCase().includes(q));
 
   return `
     <div class="toolbar">
-      <input type="search" data-q="trainee" value="${UI.esc(state.q.trainee||'')}" placeholder="Search name, SRN, SIRB, agency…" style="min-width:280px">
+      <input type="search" data-q="trainee" value="${UI.esc(state.q.trainee||'')}" placeholder="Search name, SRN, company or mobile…" style="min-width:280px">
       <span class="muted">${rows.length} of ${D().trainees.length} record(s)</span>
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-trainee">+ Register trainee</button>
@@ -338,16 +338,19 @@ VIEWS.courses = () => {
     </div>
     ${UI.card('', UI.table([
       { h:'Course ID', k:c => `<b class="mono">${UI.esc(c.code)}</b>`, w:'100px' },
-      { h:'Course Title', k:'title' },
-      { h:'Duration', k:c => UI.esc(c.duration || '—'), w:'110px' },
+      { h:'Course Title', k:c => UI.esc(c.title.toUpperCase())
+          + ((c.options||[]).length
+              ? ` <span class="muted" style="font-size:11.5px">${UI.esc(c.options.join(' · ').toUpperCase())}</span>`
+              : '') },
+      { h:'Duration', k:c => UI.esc((c.duration || '—').toUpperCase()), w:'110px' },
       { h:'Mode of Learning', k:c => (c.modes||[]).length
-          ? (c.modes||[]).map(m => UI.tag(m, 'info')).join(' ')
+          ? (c.modes||[]).map(m => UI.tag(m.toUpperCase(), 'info')).join(' ')
           : '<span class="muted">—</span>' },
       { h:'Training Center', k:c => UI.esc(c.center || '—') },
       { h:'Amount', k:c => c.amount ? UI.num(c.amount) : '<span class="muted">—</span>', cls:'num' },
       { h:'Rebate', k:c => c.rebate ? UI.num(c.rebate) : '<span class="muted">—</span>', cls:'num' },
       { h:'Rebate treatment', k:c => c.rebate
-          ? (c.deduct ? UI.tag('Deduct','warn') : UI.tag('Do not deduct','ok'))
+          ? (c.deduct ? UI.tag('DEDUCT','warn') : UI.tag('DO NOT DEDUCT','ok'))
           : '<span class="muted">—</span>' },
       { h:'', k:c => admin
           ? `<button class="btn btn-ghost btn-xs" data-act="edit-course" data-id="${c.id}">Edit</button>`
@@ -841,7 +844,7 @@ VIEWS.settings = () => {
 function traineeForm(t, onDone){
   const isNew = !t;
   t = t || { srn:'', last:'', first:'', middle:'', suffix:'', sex:'M', birth:'', birthPlace:'',
-             sirb:'', passport:'', rank:'', agency:'', mobile:'', email:'',
+             rank:'', agency:'', mobile:'', email:'',
              facebook:'', messenger:'', address:'',
              emergencyName:'', emergencyRelation:'', emergencyMobile:'', remarks:'' };
   const H = s => `<h4 style="margin:18px 0 8px;font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--tb-orange);border-bottom:2px solid var(--tb-orange-soft);padding-bottom:5px">${s}</h4>`;
@@ -851,8 +854,7 @@ function traineeForm(t, onDone){
     wide:true,
     body: `
       ${H('Seafarer identity')}
-      ${UI.row(UI.f.text('srn','SRN', t.srn, { req:true, hint:'Seafarer Registration No.' }),
-               UI.f.text('sirb','SIRB No.', t.sirb), UI.f.text('passport','Passport No.', t.passport))}
+      ${UI.f.text('srn','SRN', t.srn, { req:true, hint:"the seafarer's registration number" })}
       ${UI.row(UI.f.text('last','Last name', t.last, { req:true }),
                UI.f.text('first','First name', t.first, { req:true }),
                UI.f.text('middle','Middle name', t.middle))}
@@ -894,6 +896,9 @@ function traineeForm(t, onDone){
   });
 }
 
+/* The trainee's page, in the words the desk uses out loud. No document numbers
+   we do not hold, no exam results we do not issue — the training center marks
+   and certifies, we book and bill. */
 function traineeProfile(t){
   const enr = D().enrollments.filter(e => e.traineeId === t.id).sort((a,b) => b.date.localeCompare(a.date));
   const invs = D().invoices.filter(i => i.traineeId === t.id).map(i => (ACC.recomputeInvoice(i), i));
@@ -901,55 +906,62 @@ function traineeProfile(t){
   const bal = traineeBalance(t.id);
 
   UI.modal({
-    title: name(t), sub:`${t.no} · ${t.rank || 'No rank on file'} · ${t.agency || 'No agency'}`, wide:true,
+    title: name(t), sub:`${t.no} · ${t.rank || 'No rank on file'} · ${t.agency || 'No company'}`, wide:true,
     hideSubmit:true,
-    footExtra:`<button type="button" class="btn btn-ghost" id="editTrainee">Edit record</button>
-               <button type="button" class="btn btn-accent" id="enrollHere">Enroll in a course</button>`,
+    footExtra:`<button type="button" class="btn btn-ghost" id="editTrainee">Edit details</button>
+               <button type="button" class="btn btn-accent" id="enrollHere">Book a course</button>`,
     body: `
       <div class="grid g2">
         <dl class="def">
           <dt>SRN</dt><dd class="mono"><b>${UI.esc(t.srn||'—')}</b></dd>
-          <dt>SIRB</dt><dd class="mono">${UI.esc(t.sirb||'—')}</dd>
-          <dt>Passport</dt><dd class="mono">${UI.esc(t.passport||'—')}</dd>
-          <dt>Sex / Birthdate</dt><dd>${t.sex === 'F' ? 'Female' : 'Male'} · ${UI.date(t.birth)}</dd>
-          <dt>Place of birth</dt><dd>${UI.esc(t.birthPlace||'—')}</dd>
+          <dt>Man or woman</dt><dd>${t.sex === 'F' ? 'Woman' : 'Man'}</dd>
+          <dt>Birthday</dt><dd>${UI.date(t.birth)}</dd>
+          <dt>Born in</dt><dd>${UI.esc(t.birthPlace||'—')}</dd>
+          <dt>Signed up on</dt><dd>${UI.date(t.registered)}</dd>
         </dl>
         <dl class="def">
-          <dt>Mobile</dt><dd>${UI.esc(t.mobile||'—')}</dd>
+          <dt>Mobile number</dt><dd>${UI.esc(t.mobile||'—')}</dd>
           <dt>Email</dt><dd>${UI.esc(t.email||'—')}</dd>
           <dt>Facebook</dt><dd>${fbLink(t.facebook)}</dd>
-          <dt>Address</dt><dd>${UI.esc(t.address||'—')}</dd>
-          <dt>Emergency contact</dt><dd>${UI.esc(t.emergencyName||'—')}${t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}</dd>
-          <dt>Emergency number</dt><dd>${UI.esc(t.emergencyMobile||'—')}</dd>
-          <dt>Registered</dt><dd>${UI.date(t.registered)}</dd>
+          <dt>Home address</dt><dd>${UI.esc(t.address||'—')}</dd>
+          <dt>Who to call in an emergency</dt>
+            <dd>${UI.esc(t.emergencyName||'—')}${t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}
+                ${t.emergencyMobile ? `<br><span class="mono">${UI.esc(t.emergencyMobile)}</span>` : ''}</dd>
         </dl>
       </div>
       <div class="hr"></div>
       <div class="grid g3" style="margin-bottom:16px">
-        ${UI.kpi('Courses taken', UI.int(enr.length), `${enr.filter(e=>e.result==='Passed').length} passed`, '')}
-        ${UI.kpi('Total billed', UI.peso(invs.filter(i=>!i.voided).reduce((s,i)=>s+i.total,0)), `${pays.length} payment(s)`, 'sea')}
-        ${UI.kpi('Outstanding', UI.peso(bal), bal > 0 ? 'Please settle' : 'Fully settled', bal > 0 ? 'bad' : 'ok')}
+        ${UI.kpi('Courses booked', UI.int(enr.length),
+                 enr.length ? 'with us so far' : 'none yet', '')}
+        ${UI.kpi('Total charged', UI.peso(invs.filter(i=>!i.voided).reduce((s,i)=>s+i.total,0)),
+                 `${pays.length} payment(s) received`, 'sea')}
+        ${UI.kpi('Still to pay', UI.peso(bal),
+                 bal > 0 ? 'not yet settled' : 'fully paid', bal > 0 ? 'bad' : 'ok')}
       </div>
-      <h4 style="margin:0 0 8px;font-size:13px">Training history</h4>
+      <h4 style="margin:0 0 8px;font-size:13px">Courses booked</h4>
       ${UI.table([
-        { h:'Enrollment', k:e => `<span class="mono">${UI.esc(e.no)}</span>` },
         { h:'Course', k:e => UI.esc(CRS(e.courseId)?.title || '—') },
-        { h:'Training date', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
-        { h:'Status', k:e => UI.statusTag(e.status) },
-        { h:'Result', k:e => e.result ? UI.statusTag(e.result) : '—' },
-        { h:'Certificate', k:e => `<span class="mono">${UI.esc(e.certificateNo||'—')}</span>` },
-      ], enr, { empty:'No training history yet.' })}
+        { h:'Training center', k:e => UI.esc(e.center || '—') },
+        { h:'When', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
+        { h:'Booking', k:e => UI.statusTag(e.status) },
+        { h:'Paid?', k:e => { const i = invOf(e.id);
+            if(!i) return '<span class="muted">not billed</span>';
+            const due = ACC.balanceOf(ACC.recomputeInvoice(i));
+            return due > 0.004 ? `<span class="neg">${UI.peso(due)} left</span>` : 'Paid'; } },
+      ], enr, { empty:'No courses booked yet.' })}
       <div class="hr"></div>
-      <h4 style="margin:0 0 8px;font-size:13px">Statement of account</h4>
+      <h4 style="margin:0 0 8px;font-size:13px">Bills and payments</h4>
       ${UI.table([
-        { h:'Invoice', k:i => `<span class="mono">${UI.esc(i.no)}</span>` },
+        { h:'Bill no.', k:i => `<span class="mono">${UI.esc(i.no)}</span>` },
         { h:'Date', k:i => UI.date(i.date) },
-        { h:'Total', k:i => UI.num(i.total), cls:'num' },
+        { h:'Charged', k:i => UI.num(i.total), cls:'num' },
         { h:'Paid', k:i => UI.num(i.paid||0), cls:'num' },
-        { h:'Balance', k:i => i.voided ? '—' : UI.num(ACC.balanceOf(i)), cls:'num' },
+        { h:'Left to pay', k:i => i.voided ? '—' : UI.num(ACC.balanceOf(i)), cls:'num' },
         { h:'Status', k:i => UI.statusTag(invStatus(i)) },
-      ], invs, { empty:'No invoices issued.' })}`
+      ], invs, { empty:'Nothing billed yet.' })}`
   });
+  document.getElementById('editTrainee').onclick = () => traineeForm(t);
+  document.getElementById('enrollHere').onclick = () => enrollmentForm(null, t.id);
   document.getElementById('editTrainee').onclick = () => traineeForm(t);
   document.getElementById('enrollHere').onclick = () => enrollmentForm(null, t.id);
 }
@@ -977,7 +989,7 @@ function courseForm(c){
       <div class="chips" style="margin:-8px 0 14px">
         ${DB.DELIVERY.map((m,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
             <input type="checkbox" name="mode${i}" style="width:auto;margin:0"
-                   ${(c.modes||[]).includes(m) ? 'checked' : ''}> ${UI.esc(m)}</label>`).join('')}
+                   ${(c.modes||[]).includes(m) ? 'checked' : ''}> ${UI.esc(m.toUpperCase())}</label>`).join('')}
       </div>
 
       <div class="hr"></div>
@@ -1821,7 +1833,7 @@ function addonsForm(){
 function globalSearch(term){
   const q = term.toLowerCase().trim();
   if(!q) return;
-  const tr = D().trainees.filter(t => [t.no,t.last,t.first,t.srn,t.sirb,t.mobile].join(' ').toLowerCase().includes(q)).slice(0,8);
+  const tr = D().trainees.filter(t => [t.no,t.last,t.first,t.srn,t.mobile].join(' ').toLowerCase().includes(q)).slice(0,8);
   const iv = D().invoices.filter(i => i.no.toLowerCase().includes(q)).slice(0,8);
   const pr = D().payments.filter(p => p.no.toLowerCase().includes(q)).slice(0,8);
   const en = D().enrollments.filter(e => e.no.toLowerCase().includes(q)).slice(0,8);
