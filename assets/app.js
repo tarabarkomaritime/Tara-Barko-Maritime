@@ -722,56 +722,133 @@ function openPayables(){
     }));
 }
 
-function payablesByCenter(){
+/* Everything outstanding, grouped under the center that is owed it. The date
+   bounds are optional and read the training date, because that is how a center
+   organises the statement the office reconciles against. Both bounds empty
+   means everything: a payables screen that hides an old debt by default is a
+   payables screen that lets an old debt go unpaid. */
+function payablesByCenter(from, to){
   const map = {};
   openPayables().forEach(r => {
+    const when = r.e.start || r.e.date || '';
+    if(from && when < from) return;
+    if(to && when > to) return;
     /* Keyed on the name in capitals: "Fareast" and "FAREAST" are one center
        that owes one amount, however the row happened to be typed. */
     const key = r.center.toUpperCase();
     const m = map[key] || (map[key] = {
-      center:r.center, rows:[], payable:0, rebateDeducted:0, receivable:0, oldest:'9999-12-31',
+      key, center:r.center, rows:[], payable:0, rebateDeducted:0, receivable:0, oldest:'9999-12-31',
     });
     m.rows.push(r);
     m.payable = ACC.r2(m.payable + r.payable);
     if(r.deduct) m.rebateDeducted = ACC.r2(m.rebateDeducted + r.rebate);
     m.receivable = ACC.r2(m.receivable + r.receivable);
-    const when = r.e.start || r.e.date;
     if(when && when < m.oldest) m.oldest = when;
   });
-  return Object.values(map).sort((a,b) => b.payable - a.payable);
+  const out = Object.values(map);
+  /* Oldest training first inside a center — that is the order the office pays
+     in, and the order a statement arrives in. */
+  out.forEach(m => m.rows.sort((a,b) =>
+    String(a.e.start || a.e.date || '').localeCompare(String(b.e.start || b.e.date || ''))));
+  return out.sort((a,b) => b.payable - a.payable);
 }
 
+/* The filter as the rest of the module reads it. centerVoucherForm uses the
+   same values, so a voucher covers the bookings actually on screen. */
+const payablesFilter = () => ({
+  from:state.q.payaFrom || '',
+  to:state.q.payaTo || '',
+  center:state.q.payaCenter || '',
+});
+
 VIEWS.payables = () => {
-  const centers = payablesByCenter();
-  const totalDue = ACC.r2(centers.reduce((s,c) => s + c.payable, 0));
+  const { from, to, center:pick } = payablesFilter();
+  const inWindow = d => (!from || d >= from) && (!to || d <= to);
+
+  /* The picker lists every center with something outstanding whatever the
+     dates say. A filter that empties its own control cannot be undone. */
+  const everyCenter = payablesByCenter().map(c => c.key).sort();
+
+  const centers = payablesByCenter(from, to).filter(c => !pick || c.key === pick);
+  const totalDue  = ACC.r2(centers.reduce((s,c) => s + c.payable, 0));
   const totalRecv = ACC.r2(centers.reduce((s,c) => s + c.receivable, 0));
   const totalKept = ACC.r2(centers.reduce((s,c) => s + c.rebateDeducted, 0));
+  const bookings  = centers.reduce((s,c) => s + c.rows.length, 0);
 
   const paid = D().expenses.filter(v => v.kind === 'remittance')
-    .sort((a,b) => b.date.localeCompare(a.date)).slice(0, 12);
+    .filter(v => !pick || String(v.payee).toUpperCase() === pick)
+    .filter(v => inWindow(v.date))
+    .sort((a,b) => b.date.localeCompare(a.date)).slice(0, 24);
+
+  const filtered = !!(from || to || pick);
+  const span = from && to ? `${UI.date(from)} to ${UI.date(to)}`
+             : from ? `from ${UI.date(from)}`
+             : to ? `up to ${UI.date(to)}`
+             : 'all dates';
+
+  /* One card per training center, with its own bookings and its own voucher
+     button. The summary above is for deciding who to pay; these are for seeing
+     exactly what is being paid for. */
+  const section = c => UI.card(c.key, UI.table([
+      { h:'Trainee', k:r => `<b>${UI.esc(name(T(r.e.traineeId)))}</b>` },
+      { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || '—') },
+      { h:'Training', k:r => r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—' },
+      { h:'Booking', k:r => `<span class="mono muted">${UI.esc(r.e.no)}</span>`, w:'135px' },
+      { h:'Rebate', k:r => r.deduct ? UI.tag('deducted','warn')
+          : (r.rebate ? UI.tag('to collect','sea') : '<span class="muted">—</span>') },
+      { h:'Owed', k:r => `<b>${UI.num(r.payable)}</b>`, cls:'num' },
+    ], c.rows, { foot:['SUBTOTAL', '', '', '', '', UI.num(c.payable)] }), {
+      flush:true,
+      sub:`${c.rows.length} booking(s) · oldest training ${c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest)}`
+          + (c.receivable ? ` · ${UI.peso(c.receivable)} rebate still to collect` : ''),
+      actions:can('payables')
+        ? `<button class="btn btn-accent btn-xs" data-act="pay-center"
+             data-id="${UI.esc(c.center)}">Generate voucher</button>` : '',
+    });
 
   return `
     <div class="grid g4" style="margin-bottom:18px">
       ${UI.kpi('Owed to centers', UI.peso(totalDue), `${centers.length} center(s) to settle`, totalDue > 0 ? 'warn' : 'ok')}
-      ${UI.kpi('Bookings unpaid', UI.int(centers.reduce((s,c) => s + c.rows.length, 0)), 'seats already taken', '')}
+      ${UI.kpi('Bookings unpaid', UI.int(bookings), 'seats already taken', '')}
       ${UI.kpi('Rebates kept', UI.peso(totalKept), 'deducted from what we remit', 'ok')}
       ${UI.kpi('Rebates to collect', UI.peso(totalRecv), 'centers owe us this back', totalRecv > 0 ? 'sea' : '')}
     </div>
 
-    ${UI.card('What We Owe Each Training Center', UI.table([
-      { h:'Training center', k:c => `<b>${UI.esc(c.center.toUpperCase())}</b>` },
+    <div class="toolbar">
+      <select data-q="payaCenter" style="min-width:210px">
+        <option value="">All training centers</option>
+        ${everyCenter.map(k => `<option value="${UI.esc(k)}" ${k === pick ? 'selected' : ''}>${UI.esc(k)}</option>`).join('')}
+      </select>
+      <label class="muted" style="font-size:12px">Training from</label>
+      <input type="date" data-q="payaFrom" value="${from}">
+      <label class="muted" style="font-size:12px">to</label>
+      <input type="date" data-q="payaTo" value="${to}">
+      ${filtered ? '<button class="btn btn-ghost btn-sm" data-act="payables-all">Show everything</button>' : ''}
+      <span class="spacer"></span>
+      <span class="muted" style="font-size:12px">${UI.int(bookings)} booking(s) · ${span}</span>
+    </div>
+
+    ${centers.length > 1 ? UI.card('What We Owe Each Training Center', UI.table([
+      { h:'Training center', k:c => `<b>${UI.esc(c.key)}</b>` },
       { h:'Bookings', k:c => UI.int(c.rows.length), cls:'num' },
       { h:'Oldest', k:c => c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest) },
       { h:'Rebate deducted', k:c => c.rebateDeducted ? UI.num(c.rebateDeducted) : '<span class="muted">—</span>', cls:'num' },
       { h:'Rebate to collect', k:c => c.receivable ? UI.num(c.receivable) : '<span class="muted">—</span>', cls:'num' },
       { h:'To remit', k:c => `<b>${UI.num(c.payable)}</b>`, cls:'num' },
-      { h:'', k:c => `<button class="btn btn-accent btn-xs" data-act="pay-center"
-            data-id="${UI.esc(c.center)}">Generate voucher</button>`, w:'150px' },
-    ], centers, { empty:'Nothing outstanding — every booking has been remitted.',
-        foot:['TOTAL', UI.int(centers.reduce((s,c)=>s+c.rows.length,0)), '',
-              UI.num(totalKept), UI.num(totalRecv), UI.num(totalDue), ''] }), { flush:true })}
+      { h:'', k:c => `<button class="btn btn-ghost btn-xs" data-act="paya-only"
+            data-id="${UI.esc(c.key)}">Open</button>`, w:'90px' },
+    ], centers, { foot:['TOTAL', UI.int(bookings), '',
+              UI.num(totalKept), UI.num(totalRecv), UI.num(totalDue), ''] }),
+      { flush:true, sub:`By training date · ${span}` }) + '<div style="height:18px"></div>' : ''}
 
-    <div style="height:18px"></div>
+    ${centers.length
+      ? centers.map(c => section(c) + '<div style="height:18px"></div>').join('')
+      : UI.card('Outstanding Bookings',
+          `<div class="empty"><span class="big">⚓</span>${filtered
+            ? 'Nothing outstanding in this window. Widen the dates, or show everything.'
+            : 'Nothing outstanding — every booking has been remitted.'}</div>`,
+          { flush:true }) + '<div style="height:18px"></div>'}
+
     ${UI.card('Vouchers Issued To Centers', UI.table([
       { h:'Voucher No.', k:v => `<b class="mono">${UI.esc(v.no)}</b>`, w:'135px' },
       { h:'Date', k:v => UI.date(v.date), w:'115px' },
@@ -781,7 +858,10 @@ VIEWS.payables = () => {
       { h:'Reference', k:v => UI.esc(v.ref || '—') },
       { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
       { h:'', k:v => `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`, w:'80px' },
-    ], paid, { empty:'No remittance voucher has been issued yet.' }), { flush:true })}
+    ], paid, { empty:filtered
+        ? 'No voucher was issued in this window.'
+        : 'No remittance voucher has been issued yet.' }),
+      { flush:true, sub:`By date issued · ${span}` })}
   `;
 };
 
@@ -789,8 +869,14 @@ VIEWS.payables = () => {
    office can leave some off when it is settling only part of a statement. */
 function centerVoucherForm(center){
   const key = String(center || '').toUpperCase();
-  const group = payablesByCenter().find(c => c.center.toUpperCase() === key);
+  const { from, to } = payablesFilter();
+  const group = payablesByCenter(from, to).find(c => c.center.toUpperCase() === key);
   if(!group){ UI.toast('Nothing outstanding for that center.', 'bad'); return; }
+  /* What the date filter is holding back. The office is looking at a
+     filtered screen; it should not have to guess that the voucher is
+     filtered too, or how much it is leaving behind. */
+  const whole = payablesByCenter().find(c => c.center.toUpperCase() === key) || group;
+  const hidden = whole.rows.length - group.rows.length;
 
   const row = (r,i) => `
     <tr>
@@ -809,6 +895,10 @@ function centerVoucherForm(center){
     sub:`${group.rows.length} booking(s) · ${UI.peso(group.payable)} outstanding`,
     wide:true,
     body:`
+      ${hidden > 0 ? `<div class="note warn">The date filter is hiding ${UI.int(hidden)}
+        other outstanding booking(s) for ${UI.esc(key)}, worth
+        ${UI.peso(ACC.r2(whole.payable - group.payable))}. They are not on this voucher.
+        Clear the dates first if this should settle everything.</div>` : ''}
       <table style="width:100%;font-size:12.5px;margin-bottom:12px">
         <thead><tr>
           <th style="text-align:left">Booking</th><th style="text-align:left">Training</th>
@@ -915,7 +1005,6 @@ function voucherModal(v){
         { h:'Trainee', k:e => UI.esc(name(T(e.traineeId))) },
         { h:'Course', k:e => UI.esc((CRS(e.courseId)||{}).title || '—') },
         { h:'Training', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
-        { h:'Rebate', k:e => e.deduct ? 'Deducted' : 'Not Deducted' },
         { h:'Amount', k:e => UI.num(e.centerPayable != null ? e.centerPayable : e.fee), cls:'num' },
       ], bookings, { empty:'No bookings recorded on this voucher.' })}
       <div class="doc-total">
@@ -2732,6 +2821,8 @@ document.addEventListener('click', ev => {
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'pay-center':    () => centerVoucherForm(id),
+    'paya-only':     () => { state.q.payaCenter = id; render(); },
+    'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = state.q.payaTo = ''; render(); },
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
@@ -2766,6 +2857,12 @@ document.addEventListener('input', ev => {
 document.addEventListener('change', ev => {
   const el = ev.target.closest('select[data-q],input[type=date][data-q]');
   if(!el) return;
+  /* A date input fires input as each segment is typed, so the value is already
+     stored by the time it loses focus. Re-rendering again on blur would swap
+     the button out from under a mouse that is already pressing it, and the
+     click would land on nothing — click reaches the nearest common ancestor of
+     mousedown and mouseup, and the element it started on no longer exists. */
+  if(state.q[el.dataset.q] === el.value) return;
   state.q[el.dataset.q] = el.value;
   render();
 });
