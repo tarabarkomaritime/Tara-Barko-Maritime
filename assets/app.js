@@ -108,39 +108,62 @@ function endorsementText(t, e){
 }
 
 /* The button, the status line, and the box the text falls back into. */
+/* The button opens the block and copies it in the same motion. Showing it
+   matters: a clipboard is invisible, and an office that cannot see what it
+   copied has to paste somewhere to find out whether the copy worked. */
 const copyRow = label => `
   <div style="margin-top:8px">
-    <button type="button" class="btn btn-ghost btn-sm" id="copyDetails">${UI.esc(label)}</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="copyDetails">
+      ${UI.esc(label)} <span id="copyCaret">&#9662;</span></button>
     <span class="muted" id="copyState" style="font-size:12px;margin-left:8px"></span>
-    <textarea id="copyBox" readonly rows="14"
-      style="display:none;width:100%;margin-top:8px;font-family:var(--mono);font-size:12px"></textarea>
+    <div id="copyPanel" style="display:none;margin-top:8px">
+      <textarea id="copyBox" readonly rows="16"
+        style="width:100%;font-family:var(--mono);font-size:12px;line-height:1.5"></textarea>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button type="button" class="btn btn-ghost btn-xs" id="copyAgain">Copy again</button>
+        <button type="button" class="btn btn-ghost btn-xs" id="copyHide">Hide</button>
+      </div>
+    </div>
   </div>`;
 
 function wireCopy(textFn){
   const btn = document.getElementById('copyDetails');
   if(!btn) return;
-  btn.onclick = () => {
-    const text = textFn();
-    const said = m => { const el = document.getElementById('copyState'); if(el) el.textContent = m; };
-    const fallback = () => {
-      /* No clipboard permission, or an insecure origin. */
-      const ta = document.createElement('textarea');
-      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select();
+  const el = id => document.getElementById(id);
+  const said = m => { const s = el('copyState'); if(s) s.textContent = m; };
+
+  const toClipboard = text => {
+    const legacy = () => {
+      /* No clipboard permission, or an insecure origin. The block is already
+         on screen and selected, so this failing is not the end of the road. */
+      const box = el('copyBox');
       let ok = false;
-      try { ok = document.execCommand('copy'); } catch(err) { ok = false; }
-      ta.remove();
-      if(ok){ said('Copied.'); return; }
-      /* Still refused. Show the block itself, selected, so the office can copy
-         it by hand rather than being told it failed and left with nothing. */
-      const box = document.getElementById('copyBox');
-      if(box){ box.style.display = 'block'; box.value = text; box.focus(); box.select(); }
-      said('Copy it from here:');
+      try { box.focus(); box.select(); ok = document.execCommand('copy'); }
+      catch(err) { ok = false; }
+      said(ok ? 'Copied.' : 'Select the text above and copy it.');
     };
     if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(() => said('Copied.'), fallback);
-    } else fallback();
+      navigator.clipboard.writeText(text).then(() => said('Copied.'), legacy);
+    } else legacy();
   };
+
+  const open = () => {
+    const text = textFn();
+    el('copyBox').value = text;
+    el('copyPanel').style.display = 'block';
+    el('copyCaret').innerHTML = '&#9652;';
+    el('copyBox').focus(); el('copyBox').select();
+    toClipboard(text);
+  };
+  const shut = () => {
+    el('copyPanel').style.display = 'none';
+    el('copyCaret').innerHTML = '&#9662;';
+    said('');
+  };
+
+  btn.onclick = () => (el('copyPanel').style.display === 'block' ? shut() : open());
+  el('copyAgain').onclick = () => toClipboard(textFn());
+  el('copyHide').onclick = shut;
 }
 
 
