@@ -73,6 +73,77 @@ const fullName = t => t
   ? `${t.last}${t.suffix ? ' ' + t.suffix : ''}, ${t.first}${t.middle ? ' ' + t.middle : ''}`.trim()
   : '—';
 
+/* ---------- handing a trainee to a training center ----------
+   The center re-keys these into its own form, or the office pastes them into
+   a chat thread. Copying by hand off a screen is where a digit in an SRN goes
+   wrong, so the block is built once and both the trainee page and the booking
+   page use it. Pass the booking to have the course and dates on the end. */
+function endorsementText(t, e){
+  const c = e && CRS(e.courseId);
+  const lines = [
+    'NAME: ' + fullName(t),
+    'TRAINEE NO: ' + (t && t.no || ''),
+    'SRN: ' + (t && t.srn || ''),
+    'DATE OF BIRTH: ' + (t && t.birth || ''),
+    'PLACE OF BIRTH: ' + (t && t.birthPlace || ''),
+    'SEX: ' + (t && t.sex === 'F' ? 'Female' : 'Male'),
+    'RANK: ' + (t && t.rank || ''),
+    'COMPANY: ' + (t && t.agency || ''),
+    'MOBILE: ' + (t && t.mobile || ''),
+    'EMAIL: ' + (t && t.email || ''),
+    'ADDRESS: ' + (t && t.address || ''),
+    'FACEBOOK: ' + (t && t.facebook || ''),
+    'EMERGENCY: ' + (t && t.emergencyName || '')
+      + (t && t.emergencyRelation ? ' (' + t.emergencyRelation + ')' : '')
+      + (t && t.emergencyMobile ? ' - ' + t.emergencyMobile : ''),
+  ];
+  if(e){
+    lines.push('',
+      'COURSE: ' + (c ? c.title : '') + ((c && c.modes || []).length ? ' (' + c.modes.join(' + ') + ')' : ''),
+      'TRAINING DATE: ' + (e.start ? UI.dateRange(e.start, e.end) : ''),
+      'TRAINING CENTER: ' + (e.center || ''),
+      'BOOKING REF: ' + e.no);
+  }
+  return lines.join(String.fromCharCode(10));
+}
+
+/* The button, the status line, and the box the text falls back into. */
+const copyRow = label => `
+  <div style="margin-top:8px">
+    <button type="button" class="btn btn-ghost btn-sm" id="copyDetails">${UI.esc(label)}</button>
+    <span class="muted" id="copyState" style="font-size:12px;margin-left:8px"></span>
+    <textarea id="copyBox" readonly rows="14"
+      style="display:none;width:100%;margin-top:8px;font-family:var(--mono);font-size:12px"></textarea>
+  </div>`;
+
+function wireCopy(textFn){
+  const btn = document.getElementById('copyDetails');
+  if(!btn) return;
+  btn.onclick = () => {
+    const text = textFn();
+    const said = m => { const el = document.getElementById('copyState'); if(el) el.textContent = m; };
+    const fallback = () => {
+      /* No clipboard permission, or an insecure origin. */
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch(err) { ok = false; }
+      ta.remove();
+      if(ok){ said('Copied.'); return; }
+      /* Still refused. Show the block itself, selected, so the office can copy
+         it by hand rather than being told it failed and left with nothing. */
+      const box = document.getElementById('copyBox');
+      if(box){ box.style.display = 'block'; box.value = text; box.focus(); box.select(); }
+      said('Copy it from here:');
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(() => said('Copied.'), fallback);
+    } else fallback();
+  };
+}
+
+
 /* The Registrar replies on Facebook, so these are meant to be clicked. Applicants
    paste bare handles as often as full URLs, so add the scheme when it is missing.
    rel=noopener because the target is a stranger's link. */
@@ -1574,9 +1645,12 @@ function traineeProfile(t){
     body: `
       <div class="grid g2">
         <dl class="def">
+          <dt>Trainee no.</dt><dd class="mono">${UI.esc(t.no||'—')}</dd>
           <dt>SRN</dt><dd class="mono"><b>${UI.esc(t.srn||'—')}</b></dd>
           <dt>Birthday</dt><dd>${UI.date(t.birth)}</dd>
           <dt>Birthplace</dt><dd>${UI.esc(t.birthPlace||'—')}</dd>
+          <dt>Rank</dt><dd>${UI.esc(t.rank||'—')}</dd>
+          <dt>Company</dt><dd>${UI.esc(t.agency||'—')}</dd>
           <dt>Signed up on</dt><dd>${UI.date(t.registered)}</dd>
         </dl>
         <dl class="def">
@@ -1584,11 +1658,13 @@ function traineeProfile(t){
           <dt>Email</dt><dd>${UI.esc(t.email||'—')}</dd>
           <dt>Facebook</dt><dd>${fbLink(t.facebook)}</dd>
           <dt>Home address</dt><dd>${UI.esc(t.address||'—')}</dd>
+          <dt>Messenger</dt><dd>${t.messenger ? fbLink(t.messenger) : '<span class="muted">—</span>'}</dd>
           <dt>Who to call in an emergency</dt>
             <dd>${UI.esc(t.emergencyName||'—')}${t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}
                 ${t.emergencyMobile ? `<br><span class="mono">${UI.esc(t.emergencyMobile)}</span>` : ''}</dd>
         </dl>
       </div>
+      ${copyRow('Copy details')}
       <div class="hr"></div>
       <div class="grid g3" style="margin-bottom:16px">
         ${UI.kpi('Courses booked', UI.int(enr.length),
@@ -1620,6 +1696,7 @@ function traineeProfile(t){
         { h:'Status', k:i => UI.statusTag(invStatus(i)) },
       ], invs, { empty:'Nothing billed yet.' })}`
   });
+  wireCopy(() => endorsementText(t));
   document.getElementById('editTrainee').onclick = () => traineeForm(t);
   document.getElementById('enrollHere').onclick = () => enrollmentForm(null, t.id);
   document.getElementById('editTrainee').onclick = () => traineeForm(t);
@@ -1902,12 +1979,7 @@ function enrollmentModal(e){
         </dl>
       </div>
       ${e.remarks ? `<div class="note">${UI.esc(e.remarks)}</div>` : ''}
-      <div style="margin-top:8px">
-        <button type="button" class="btn btn-ghost btn-sm" id="copyDetails">Copy details for the training center</button>
-        <span class="muted" id="copyState" style="font-size:12px;margin-left:8px"></span>
-        <textarea id="copyBox" readonly rows="14"
-          style="display:none;width:100%;margin-top:8px;font-family:var(--mono);font-size:12px"></textarea>
-      </div>
+      ${copyRow('Copy details for the training center')}
 
       <div class="hr"></div>
       <table style="width:100%;font-size:13px">
@@ -1930,54 +2002,9 @@ function enrollmentModal(e){
       : `<div class="note warn">Not billed yet — nothing is on the books for this booking.</div>`}`
   });
 
-  /* Endorsing a trainee means re-keying their details into the center's own
-     form or pasting them into a chat. Copying by hand off a screen is where a
-     digit in an SRN goes wrong, so the block is built once, here. */
-  const endorsementText = () => [
-    'NAME: ' + fullName(t),
-    'SRN: ' + (t && t.srn || ''),
-    'DATE OF BIRTH: ' + (t && t.birth || ''),
-    'PLACE OF BIRTH: ' + (t && t.birthPlace || ''),
-    'SEX: ' + (t && t.sex === 'F' ? 'Female' : 'Male'),
-    'RANK: ' + (t && t.rank || ''),
-    'COMPANY: ' + (t && t.agency || ''),
-    'MOBILE: ' + (t && t.mobile || ''),
-    'EMAIL: ' + (t && t.email || ''),
-    'ADDRESS: ' + (t && t.address || ''),
-    'EMERGENCY: ' + (t && t.emergencyName || '')
-      + (t && t.emergencyRelation ? ' (' + t.emergencyRelation + ')' : '')
-      + (t && t.emergencyMobile ? ' - ' + t.emergencyMobile : ''),
-    '',
-    'COURSE: ' + (c ? c.title : '') + ((c && c.modes || []).length ? ' (' + c.modes.join(' + ') + ')' : ''),
-    'TRAINING DATE: ' + (e.start ? UI.dateRange(e.start, e.end) : ''),
-    'TRAINING CENTER: ' + (e.center || ''),
-    'BOOKING REF: ' + e.no,
-  ].join(String.fromCharCode(10));
   const on = (id, fn) => { const el = document.getElementById(id); if(el) el.onclick = fn; };
   on('billIt', () => billEnrollment(e));
-  on('copyDetails', () => {
-    const text = endorsementText();
-    const said = m => { const el = document.getElementById('copyState'); if(el) el.textContent = m; };
-    const fallback = () => {
-      /* No clipboard permission, or an insecure origin. Put it somewhere the
-         office can still select it rather than failing silently. */
-      const ta = document.createElement('textarea');
-      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select();
-      let ok = false;
-      try { ok = document.execCommand('copy'); } catch(err) { ok = false; }
-      ta.remove();
-      if(ok){ said('Copied.'); return; }
-      /* Still refused. Show the block itself, selected, so the office can copy
-         it by hand instead of being told it failed and left with nothing. */
-      const box = document.getElementById('copyBox');
-      if(box){ box.style.display = 'block'; box.value = text; box.focus(); box.select(); }
-      said('Copy it from here:');
-    };
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(() => said('Copied — paste it into the centre form.'), fallback);
-    } else fallback();
-  });
+  wireCopy(() => endorsementText(t, e));
   on('payIt', () => paymentForm(inv));
   on('openInv', () => invoiceModal(inv));
   on('cancelEnr', () => UI.confirm(
