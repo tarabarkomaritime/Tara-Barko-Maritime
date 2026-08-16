@@ -215,10 +215,17 @@ const DB = (() => {
     /* Delivery was free text and carried values that are not a delivery. Fold
        every stored course onto the four allowed ones. */
     (d.courses || []).forEach(c => {
-      const { modes, options } = normalizeDelivery([...(c.modes || []), c.note].filter(Boolean));
+      const { modes, options } = normalizeDelivery([...(c.modes || []), c.note, ...(c.options || [])].filter(Boolean));
       c.modes = modes;
       if(options.length) c.options = options;
       delete c.note;
+      /* Courses no longer carry a status. One is either on the price list or it
+         is deleted from it. */
+      delete c.active;
+      if(c.amount == null) c.amount = 0;
+      if(c.rebate == null) c.rebate = 0;
+      if(c.deduct == null) c.deduct = false;
+      if(c.center == null) c.center = '';
     });
 
     /* ---- no VAT, no other taxes ---- */
@@ -306,26 +313,33 @@ const DB = (() => {
       throw new Error('assets/courses.js must be loaded before db.js — the seed builds the ' +
                       'catalogue from it. Regenerate with tools/import-courses.js if it is missing.');
     }
+    /* The masterlist is the office price matrix, one entry per course at a
+       training center, carrying that center's fee and rebate. The same course at
+       two centers is two entries at two prices — which is the business. */
     data.courses = COURSE_CATALOGUE.map(c => {
-      /* The import writes the delivery across two fields — `modes` for what the
-         matrix listed, `note` for "Module" / "Blended" — and both are folded
-         into one canonical list here. */
-      const { modes, options } = normalizeDelivery([...(c.modes || []), c.note].filter(Boolean));
+      const { modes, options } = normalizeDelivery([...(c.modes || []), ...(c.options || [])]);
       return {
         id:uid('crs'),
         code:c.code, title:c.title,
-        days:c.days ?? null, daysTo:c.daysTo, duration:c.duration,
+        days:c.days ?? null, duration:c.duration || '',
         modes, options,
-        /* Where it runs and what it costs. Blank for most of the catalogue: the
-           admin fills these in from the price matrix, course by course. The
-           seeded demo fills the handful that have bookings against them, below. */
-        center:'', amount:0, rebate:0, deduct:false,
-        active:true,
+        center:c.center || '',
+        amount:r2(c.amount || 0),
+        rebate:r2(c.rebate || 0),
+        /* Whether the rebate comes off what the trainee pays. The matrix does not
+           say, and getting it wrong changes a price, so it starts as "do not
+           deduct" and the office sets it per course. */
+        deduct:false,
       };
     });
     data.seq.course = data.courses.length;
 
-    const crs = t => data.courses.find(c => c.title.toUpperCase() === t.toUpperCase());
+    /* Several centers run the same course at different prices, so the seeded
+       bookings name both. */
+    const crs = (t, center) => data.courses.find(c =>
+      c.title.toUpperCase() === t.toUpperCase() &&
+      (!center || c.center.toUpperCase() === center.toUpperCase()))
+      || data.courses.find(c => c.title.toUpperCase() === t.toUpperCase());
     const dOff = n => { const d = new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
     const end  = (s,days) => { const d = new Date(s); d.setDate(d.getDate()+days-1); return d.toISOString().slice(0,10); };
     /* Trainees register shortly before a batch opens — and never in the future, so the
@@ -348,22 +362,12 @@ const DB = (() => {
       ['SATSDSD',                      21, 'Great Seas',        'Rm 305',        'Capt. M. Delos Reyes',  700],
       ['MECA - MEDICAL CARE',          28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400],
     ].map(([title, off, center, room, instr, fee]) => {
-      const c = crs(title);
+      const c = crs(title, center);
       /* The seed names real catalogue entries. If one stops matching, the import
          renamed it — fail loudly rather than seeding a half-empty demo. */
       if(!c) throw new Error(`seed: no catalogue entry titled "${title}" — check tools/import-courses.js output`);
       const start = dOff(off);
       return { course:c, start, end:end(start, Math.ceil(c.days || 1)), center, room, instructor:instr, fee };
-    });
-
-    /* Give the courses that actually have bookings a center and a price, so the
-       price list is not entirely blank on a fresh install. Rebates are left at
-       zero on purpose — those are commercial terms only the office knows, and a
-       made-up rebate in a demo is a number someone will eventually quote. */
-    RUNS.forEach(r => {
-      if(r.course.center) return;
-      r.course.center = r.center;
-      r.course.amount = r.fee;
     });
 
     const names = [

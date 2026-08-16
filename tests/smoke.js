@@ -265,22 +265,35 @@ check('a course with nothing recorded defaults to face to face', () => {
   const c = run('DB.get().courses.find(c => c.title === "AB DECK")');
   return c.modes.join() === 'Face-to-Face' || c.modes.join();
 });
-check('the Module note became a delivery', () => {
-  const c = run('DB.get().courses.find(c => c.title === "ABC - AWARENESS ON BASIC COMPUTER")');
-  return c.modes.join() === 'Module' || c.modes.join();
+/* The matrix does not mark anything as a module, so nothing is seeded as one.
+   The value still has to be offered, because the office sets it by hand. */
+check('Module is available even though the matrix uses none', () =>
+  run('DB.DELIVERY').includes('Module') || 'Module is not offered');
+check('a Blended row maps to the two deliveries it is made of', () => {
+  const hit = run('DB.get().courses.filter(c => c.title === "BASIC TRAINING")' +
+    '.find(c => c.modes.length === 2)');
+  return (hit && hit.modes.includes('Face-to-Face') && hit.modes.includes('Distance Learning'))
+    || 'no blended entry found';
 });
-check('Blended maps to the two deliveries it is made of', () => {
-  const c = run('DB.get().courses.find(c => c.title === "BASIC TRAINING")');
-  return (c.modes.includes('Face-to-Face') && c.modes.includes('Distance Learning')) || c.modes.join();
+check('the same course at two centers is two entries at two prices', () => {
+  const rows = run('DB.get().courses.filter(c => c.title === "BT - PSSR")' +
+    '.map(c => c.center + ":" + c.amount)');
+  return (rows.length >= 5 && new Set(rows.map(r => r.split(":")[1])).size > 1) || rows.join(' | ');
 });
-check('distance learning survives', () => {
-  const c = run('DB.get().courses.find(c => c.title === "BT - PSSR")');
-  return c.modes.includes('Distance Learning') || c.modes.join();
+/* Only one center offers BT - PSSR by distance learning; the rest teach it in
+   the room. The delivery belongs to the center's row, not to the course name. */
+check('distance learning survives on the center that offers it', () => {
+  const rows = run('DB.get().courses.filter(c => c.title === "BT - PSSR")');
+  const dl = rows.filter(c => c.modes.includes('Distance Learning'));
+  return (dl.length === 1 && dl[0].center === 'MARIANA')
+    || rows.map(c => c.center + ':' + c.modes.join('+')).join(' | ');
 });
-check('accommodation is not a delivery', () => {
-  const c = run('DB.get().courses.find(c => c.title === "ETO")');
-  return (!c.modes.some(m => /accommodation/i.test(m)) && (c.options||[]).length === 2) ||
-         JSON.stringify({ modes:c.modes, options:c.options });
+check('accommodation is an option, not a delivery', () => {
+  const rows = run('DB.get().courses.filter(c => c.title === "ETO")');
+  const clean = rows.every(c => !c.modes.some(m => /accommodation/i.test(m)));
+  const opts = rows.flatMap(c => c.options || []).sort();
+  return (rows.length === 2 && clean && opts.join('|') === 'With accommodation|Without accommodation')
+    || JSON.stringify(rows.map(c => ({ modes:c.modes, options:c.options })));
 });
 check('the note field is retired', () =>
   run('DB.get().courses.every(c => c.note === undefined)') === true || 'a note survives');
@@ -294,8 +307,16 @@ check('a course may carry its center and price', () => {
   const c = run('DB.get().courses.find(c => c.amount > 0)');
   return (c && c.center && c.amount > 0) || 'no priced course seeded';
 });
-check('rebates default to zero rather than being invented', () =>
-  run('DB.get().courses.every(c => (c.rebate || 0) === 0)') === true || 'a rebate was seeded');
+check('rebates come from the matrix', () => {
+  const withRebate = run('DB.get().courses.filter(c => c.rebate > 0).length');
+  return withRebate > 250 || 'only ' + withRebate + ' courses carry a rebate';
+});
+check('no rebate is deducted until the office says so', () =>
+  run('DB.get().courses.every(c => c.deduct === false)') === true || 'a course deducts by default');
+check('every course entry names the center that quoted it', () =>
+  run('DB.get().courses.every(c => !!c.center)') === true || 'an entry has no center');
+check('courses no longer carry a status', () =>
+  run('DB.get().courses.every(c => c.active === undefined)') === true || 'a status survives');
 check('a deducted rebate lowers what the trainee pays', () => {
   run('globalThis.PRICED = DB.get().courses.find(c => c.amount > 0)');
   run('PRICED.rebate = 500; PRICED.deduct = true');

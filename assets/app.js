@@ -332,7 +332,7 @@ VIEWS.courses = () => {
     <div class="toolbar">
       <input type="search" data-q="crs" value="${UI.esc(state.q.crs||'')}"
              placeholder="Search course, code, center or delivery…" style="min-width:300px">
-      <span class="muted">${rows.length} of ${all.filter(c=>c.active).length} active course(s)</span>
+      <span class="muted">${rows.length} of ${all.length} course(s)</span>
       <span class="spacer"></span>
       ${admin ? `<button class="btn btn-primary btn-sm" data-act="new-course">+ Add course</button>` : ''}
     </div>
@@ -349,7 +349,6 @@ VIEWS.courses = () => {
       { h:'Rebate treatment', k:c => c.rebate
           ? (c.deduct ? UI.tag('Deduct','warn') : UI.tag('Do not deduct','ok'))
           : '<span class="muted">—</span>' },
-      { h:'Status', k:c => UI.statusTag(c.active ? 'Open' : 'Closed') },
       { h:'', k:c => admin
           ? `<button class="btn btn-ghost btn-xs" data-act="edit-course" data-id="${c.id}">Edit</button>`
           : '', w:'70px' },
@@ -810,8 +809,8 @@ VIEWS.settings = () => {
 
         ${UI.card('Courses', `
           <dl class="def">
-            <dt>In the catalogue</dt><dd>${UI.int(d.courses.length)}</dd>
-            <dt>Active</dt><dd>${UI.int(d.courses.filter(x => x.active).length)}</dd>
+            <dt>Course entries</dt><dd>${UI.int(d.courses.length)}</dd>
+            <dt>Training centers</dt><dd>${UI.int(new Set(d.courses.map(c => c.center).filter(Boolean)).size)}</dd>
           </dl>
           <a class="btn btn-ghost btn-sm btn-block" href="#/courses">Open the course list</a>`)}
 
@@ -958,7 +957,7 @@ function traineeProfile(t){
 function courseForm(c){
   const isNew = !c;
   c = c || { code:'', title:'', duration:'', days:null, center:'', amount:0, rebate:0,
-             deduct:false, active:true, modes:['Face-to-Face'] };
+             deduct:false, modes:['Face-to-Face'] };
   const centers = [...new Set([
     ...D().courses.map(x => x.center),
     ...D().enrollments.map(x => x.center),
@@ -972,8 +971,7 @@ function courseForm(c){
                UI.f.text('title','Course title', c.title, { req:true }))}
       ${UI.row(UI.f.num('days','Duration (days)', c.days, { step:'0.5', min:0 }),
                UI.f.text('duration','Duration as written', c.duration, { ph:'e.g. 5 days' }),
-               UI.f.select('active','Status', c.active ? '1' : '0',
-                 [{v:'1',l:'Open for enrollment'},{v:'0',l:'Not offered'}]))}
+               UI.f.text('_spacer','', '', { attr:'style="visibility:hidden"' }))}
 
       <label class="fld"><span>Mode of learning</span></label>
       <div class="chips" style="margin:-8px 0 14px">
@@ -1009,7 +1007,6 @@ function courseForm(c){
         center:(fd.center||'').trim(),
         amount:ACC.r2(fd.amount), rebate:ACC.r2(fd.rebate),
         deduct: fd.deduct === '1',
-        active: fd.active === '1',
       };
       if(rec.rebate > rec.amount){ UI.toast('The rebate cannot exceed the amount.', 'bad'); return false; }
       if(isNew){ D().courses.push({ id:DB.uid('crs'), ...rec }); DB.activity('Added course', rec.code); UI.toast('Course added.'); }
@@ -1040,12 +1037,7 @@ function courseForm(c){
        encode form and keeps the history readable. */
     const used = D().enrollments.filter(e => e.courseId === c.id).length;
     if(used){
-      return UI.confirm(`${c.code} has ${used} enrollment(s) against it.`, () => {
-        c.active = false;
-        DB.activity('Closed course', c.code);
-        UI.close(); UI.toast(`${c.code} closed — it can no longer be booked.`); refresh();
-      }, { yes:'Close the course instead', title:'This course cannot be deleted',
-           detail:'Deleting it would leave invoices, receipts and certificates naming a course that no longer exists. Closing it removes it from the encode form and keeps the history intact.' });
+      return UI.toast(`${c.code} has ${used} booking(s) against it and cannot be deleted.`, 'bad');
     }
     UI.confirm(`Delete ${c.code} — ${c.title}?`, () => {
       D().courses = D().courses.filter(x => x.id !== c.id);
@@ -1063,7 +1055,7 @@ function courseForm(c){
 function enrollmentForm(existing, presetTrainee){
   const roster = D().trainees.slice().sort((a,b) => a.last.localeCompare(b.last));
   if(!roster.length){ UI.toast('Register the trainee first — the registry is empty.', 'bad'); return; }
-  const active = D().courses.filter(c => c.active);
+  const active = D().courses;
   const centers = [...new Set(D().enrollments.map(x => x.center).filter(Boolean))].sort();
 
   const body = `

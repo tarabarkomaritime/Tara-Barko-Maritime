@@ -1,1534 +1,355 @@
-/* assets/courses.js — GENERATED FILE, DO NOT EDIT BY HAND.
+/* courses.js — GENERATED. Do not edit by hand.
 
-   Built from the internal PRICE & REBATES MATRIX by tools/import-courses.js.
-   Regenerate with:
+   Built from the office price matrix by tools/import-courses.js. One entry per
+   course at a training center: the same course at two centers is two entries at
+   two prices, because that is what the office sells.
 
-       node tools/import-courses.js "<path to the matrix csv>"
-
-   Deliberately carries no fees, no rebates and no partner training center names.
-   Those are commercial terms between Tara Barko and its partners; the public
-   catalogue shows a course title and how long it takes, and nothing else.
-
-   222 unique courses, reduced from 344 matrix rows.
-   Generated from: PRICE & REBATES MATRIX - DO NOT DELETE - COURSES.csv
+   Source rows: 344    Entries: 341    Centers: 16
+   Regenerate:  node tools/import-courses.js "<matrix.csv>"
 */
 
 const COURSE_CATALOGUE = [
-  {
-    "code": "AB",
-    "title": "AB DECK",
-    "days": 7,
-    "daysTo": 8,
-    "duration": "7–8 days"
-  },
-  {
-    "code": "AB",
-    "title": "AB ENGINE",
-    "days": 8,
-    "duration": "8 days"
-  },
-  {
-    "code": "ABC",
-    "title": "ABC - AWARENESS ON BASIC COMPUTER",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "AFF",
-    "title": "AFF",
-    "days": 5,
-    "daysTo": 5.5,
-    "duration": "5–5.5 days",
-    "modes": [
-      "Face to face"
-    ]
-  },
-  {
-    "code": "AFF",
-    "title": "AFF - R",
-    "days": 1.5,
-    "daysTo": 2,
-    "duration": "1.5–2 days"
-  },
-  {
-    "code": "AHPR",
-    "title": "AHPR - AWARENESS ON HARRASSMENT PREVENTION AND RESPONSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "AI",
-    "title": "AI - ACCIDENT INVESTIGATION",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "AI",
-    "title": "AI/RA - ACCIDENT INVESTIGATION AND RISK ASSESSMENT COURSE",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "AIIRCA",
-    "title": "AIIRCA - ACCIDENT INVESTIGATION AND ROOT CAUSE ANALYSIS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "AIRCA",
-    "title": "AIRCA",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "AIS",
-    "title": "AIS - AUTOMATIC IDENFICATION SYSTEM",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "AMMS",
-    "title": "AMMS AUXILIARY MARINE MACHINERY SYSTEMS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "APC",
-    "title": "APC - ANTI PIRACY",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ARPA",
-    "title": "ARPA - AUTOMATIC RADAR PLOTTING AIDS",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "ATCT",
-    "title": "ATCT",
-    "days": 8,
-    "duration": "8 days"
-  },
-  {
-    "code": "ATLGT",
-    "title": "ATLGT",
-    "days": 8,
-    "daysTo": 9,
-    "duration": "8–9 days"
-  },
-  {
-    "code": "ATOT",
-    "title": "ATOT",
-    "days": 8,
-    "duration": "8 days"
-  },
-  {
-    "code": "BAC",
-    "title": "BAC - BASIC ARABIC COURSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "BAC",
-    "title": "BAC - BASIC ARABIC CULTURE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "BARTENDING",
-    "title": "BARTENDING - NCII",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "BASIC",
-    "title": "BASIC TRAINING",
-    "days": 10,
-    "daysTo": 11,
-    "duration": "10–11 days",
-    "modes": [
-      "Blended",
-      "Face to face"
-    ]
-  },
-  {
-    "code": "BBSC",
-    "title": "BBSC - BEHAVIORAL BASED SAFETY COURSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "BFH",
-    "title": "BFH - BASIC FOOD HYGIENE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "BMT",
-    "title": "BMT - BANKSMAN TRAINING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "BNC",
-    "title": "BNC - BASIC NETWORKING COURSE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "BNHACCP",
-    "title": "BNHACCP - BASIC NUTRITION WITH HACCP",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "BREAD",
-    "title": "BREAD & PASTRY - BPP",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "BREAD",
-    "title": "BREAD & PASTRY - NCII",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "BRM",
-    "title": "BRM - BRIDGE RESOURCES MANAGEMENT",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "BRM",
-    "title": "BRM W/BTM",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "BS",
-    "title": "BS - BANKSMAN AND SLINGING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "BSFM",
-    "title": "BSFM - BASIC SHIPBOARD FOOD MANAGEMENT",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "BT",
-    "title": "BT - PSSR",
-    "days": 1,
-    "duration": "1 day",
-    "modes": [
-      "Distance learning",
-      "Face to face"
-    ]
-  },
-  {
-    "code": "BTLGT",
-    "title": "BTLGT",
-    "days": 5,
-    "daysTo": 5.5,
-    "duration": "5–5.5 days"
-  },
-  {
-    "code": "BTM",
-    "title": "BTM - BRIDGE TEAM MANAGEMENT",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "BTOC",
-    "title": "BTOC",
-    "days": 5.5,
-    "daysTo": 7,
-    "duration": "5.5–7 days"
-  },
-  {
-    "code": "BTOCT",
-    "title": "BTOCT",
-    "days": 6,
-    "duration": "6 days"
-  },
-  {
-    "code": "BTR",
-    "title": "BTR - BASIC TRAINING REFRESHER",
-    "days": 2,
-    "daysTo": 3,
-    "duration": "2–3 days"
-  },
-  {
-    "code": "BULKFAM",
-    "title": "BULKFAM - BULK CARRIER FAMILIARIZATION AND SAFETY",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "CAREGIVING",
-    "title": "CAREGIVING",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "CCI",
-    "title": "CCI PACKAGE",
-    "days": 5.5,
-    "duration": "5.5 days"
-  },
-  {
-    "code": "CCI",
-    "title": "CCI SPECIAL",
-    "days": 5.5,
-    "duration": "5.5 days"
-  },
-  {
-    "code": "CCMD",
-    "title": "CCMD - CROWD AND CRISIS MANAGEMENT FOR DOMESTIC",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Blended"
-  },
-  {
-    "code": "CCTC",
-    "title": "CCTC - CONSUMPTION CONTROL TRAINING COURSE",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "CE",
-    "title": "CE - CONTROL ENGINEERING",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "CFC",
-    "title": "CFC - CLASSIFICATION FAMILIARIZATION COURSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "CHCC",
-    "title": "CHCC - CARGO HANDLING AND CARE OF CARGO",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "CHSM",
-    "title": "CHSM - CATERING HEALTH AND SAFETY MANAGEMENT",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "CM",
-    "title": "CM - CATERING MANAGEMENT",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "COC",
-    "title": "COC - CRANE OPERATION COURSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "COLREG",
-    "title": "COLREG - COLLISION REGULATION ON RULES OF THE ROADS",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "COOKERY",
-    "title": "COOKERY - NCII",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "COW",
-    "title": "COW - CRUDE OIL WASHING SYSTEM",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "CRISIS",
-    "title": "CRISIS MANAGEMENT",
-    "days": 1,
-    "daysTo": 3,
-    "duration": "1–3 days"
-  },
-  {
-    "code": "CROWD",
-    "title": "CROWD MANAGEMENT",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "CSA",
-    "title": "CSA - CYBER SECURITY AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "CSF",
-    "title": "CSF - CONTAINER SHIP FAMILIARIZATION",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "CST",
-    "title": "CST - CRANE SAFETY TRAINING",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "DCST",
-    "title": "DCST - DECK CRANE SAFETY TRAINING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "DECK",
-    "title": "DECK WATCHKEEPING",
-    "days": 5.5,
-    "daysTo": 6,
-    "duration": "5.5–6 days"
-  },
-  {
-    "code": "DMA",
-    "title": "DMA - DECK MACHINERY AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ECDIS",
-    "title": "ECDIS - OPERATIONAL USE OF ELECTRONIC CHART, DISPLAY AND INFORMATION SYSTEM",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "EMS",
-    "title": "EMS - ENVIRONMENTAL MANAGEMENT SYSTEM",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ENGINE",
-    "title": "ENGINE WATCH KEEPING - DOMESTIC",
-    "days": null,
-    "duration": "Duration to be confirmed"
-  },
-  {
-    "code": "ENGINE",
-    "title": "ENGINE WATCHKEEPING",
-    "days": 5.5,
-    "daysTo": 6,
-    "duration": "5.5–6 days"
-  },
-  {
-    "code": "EPS",
-    "title": "EPS - ELECTRO PNEUMATIC SYSTEM",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ERRM",
-    "title": "ERRM - ENGINE ROOM RESOURCE MANAGEMENT",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "ERTM",
-    "title": "ERTM - ENGINE ROOM TEAM MANAGEMENT",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "ESE",
-    "title": "ESE - ENCLOSED SPACE ENTRY",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ETO",
-    "title": "ETO",
-    "days": 80.5,
-    "duration": "80.5 days",
-    "modes": [
-      "With accommodation",
-      "Without accommodation"
-    ]
-  },
-  {
-    "code": "ETR",
-    "title": "ETR",
-    "days": 40.5,
-    "daysTo": 42,
-    "duration": "40.5–42 days",
-    "modes": [
-      "With accommodation",
-      "Without accommodation"
-    ]
-  },
-  {
-    "code": "FCM",
-    "title": "FCM - FOOD AND CATERING MANAGEMENT",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "FH",
-    "title": "FH - FOOD HYGIENE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "FH",
-    "title": "FH - HACCP - FOOD HYGIENE WITH HACCP",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "FHS",
-    "title": "FHS - FOOD HYGIENE AND SANITATION",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "FOOD",
-    "title": "FOOD & BEVERAGES - NCII",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "FRAMO",
-    "title": "FRAMO - FRAMO PUMP",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "FRB",
-    "title": "FRB",
-    "days": 4,
-    "duration": "4 days"
-  },
-  {
-    "code": "FRB",
-    "title": "FRB - R",
-    "days": 1.5,
-    "daysTo": 2,
-    "duration": "1.5–2 days"
-  },
-  {
-    "code": "FSH",
-    "title": "FSH - FOOD SAFETY AND HYGIENE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "FST",
-    "title": "FST - FOOD SAFETY TRAINING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "GAC",
-    "title": "GAC - GALLEY AWARENESS COURSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "GAH",
-    "title": "GAH - GALLEY AFFAIRS AND HOUSEKEEPING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "GHC",
-    "title": "GHC - GOOD HOUSEKEEPING COURSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "GHFS",
-    "title": "GHFS - GALLEY HYGIENE AND FOOD SANITATION",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "GHH",
-    "title": "GHH - GALLEY HYGIENE WITH HACCP",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "GOC",
-    "title": "GOC FOR GMDSS",
-    "days": 16,
-    "duration": "16 days"
-  },
-  {
-    "code": "GOC",
-    "title": "GOC FOR GMDSS - ASST",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "GPM",
-    "title": "GPM - GALLEY (PROVISION) MANAGEMENT",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "H2S",
-    "title": "H2S - HYDROGEN SULFIDE AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "HACCP",
-    "title": "HACCP - HAZARD ANALYSIS AND CRITICAL CONTROL POINTS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "HAZID",
-    "title": "HAZID - HAZARD IDENTIFICATION",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "HAZMAT",
-    "title": "HAZMAT - DANGEROUS HAZARDOUS AND HARMFUL CARGOES (HAZMAT)",
-    "days": 4,
-    "duration": "4 days",
-    "note": "Module"
-  },
-  {
-    "code": "HAZMAT",
-    "title": "HAZMAT - HAZARDOUS MATERIALS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "HAZMAT",
-    "title": "HAZMAT WITH CFR",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "HCIM",
-    "title": "HCIM - HATCH COVER INSPECTION AND MAINTENANCE",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "HOUSEKEEPI",
-    "title": "HOUSEKEEPING - NCII",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "HPT",
-    "title": "HPT - HYDRAULIC AND PHEUMATIC TRAINING",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "HSBAT",
-    "title": "HSBAT - HYDROGEN SULFIDE BASIC AWARENESS TRAINING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "HUPH",
-    "title": "HUPH - HACCP AND UNITED STATE PUBLIC HEALTH",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "HVT",
-    "title": "HVT - HIGH VOLTAGE TRAINING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "IHM",
-    "title": "IHM - INVENTORY OF HAZARDOUS MATERIALS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "II",
-    "title": "II - 4 DECK RATINGS",
-    "days": 1.5,
-    "daysTo": 2,
-    "duration": "1.5–2 days"
-  },
-  {
-    "code": "II",
-    "title": "II - 5 AB DECK",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "III",
-    "title": "III - 4 ENGINE RATINGS",
-    "days": 1.5,
-    "daysTo": 2,
-    "duration": "1.5–2 days"
-  },
-  {
-    "code": "III",
-    "title": "III - 5 AB ENGINE",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "INCI",
-    "title": "INCI - INCIDENT INVESTIGATION",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "IP",
-    "title": "IP - INJURY PREVENTION",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ISM",
-    "title": "ISM - INTERNATIONAL SAFETY MANAGEMENT",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ISMO",
-    "title": "ISMO - INTERNATIAL SAFETY MANAGEMENT (OFFICER)",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "ISMR",
-    "title": "ISMR - INTERNATIAL SAFETY MANAGEMENT (RATINGS)",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "LCBOCT",
-    "title": "LCBOCT - LIQUID CARGO AND BALLAST OPERATIONS OR CHEMICAL TANKERS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "LMT",
-    "title": "LMT - LEADERSHIP AND MANAGEMENT TRAINING",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "LSC",
-    "title": "LSC - LOW SULFUR",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "LSHB",
-    "title": "LSHB - LEADERSHIP AND HUMAN BEHAVIOR",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "LT",
-    "title": "LT - LEADERSHIP AND TEAMWORK",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MAEN",
-    "title": "MAEN - MARITIME ENGLISH",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MARPOL",
-    "title": "MARPOL - CONSOLIDATED MARPOL ANNEXI - VI",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "MARPOL",
-    "title": "MARPOL - CONSOLIDATED MARPOL ANNEXI - VI (21 HRS)",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "MARPOL",
-    "title": "MARPOL - CONSOLIDATED MARPOL ANNEXI - VI (40 HRS)",
-    "days": 5,
-    "duration": "5 days"
-  },
-  {
-    "code": "MEA",
-    "title": "MEA - MARINE ENVIRONMENTAL AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MECA",
-    "title": "MECA - MEDICAL CARE",
-    "days": 6,
-    "duration": "6 days"
-  },
-  {
-    "code": "MECAR",
-    "title": "MECAR - MEDICAL CARE - REFRESHER",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "MEFA",
-    "title": "MEFA - MEDICAL FIRST AID",
-    "days": 4.5,
-    "daysTo": 6,
-    "duration": "4.5–6 days"
-  },
-  {
-    "code": "MEFAR",
-    "title": "MEFAR - MEDICAL FIRST AID - REFRESHER",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MESSMAN",
-    "title": "MESSMAN - NC1",
-    "days": 6,
-    "duration": "6 days"
-  },
-  {
-    "code": "MHA",
-    "title": "MHA - MENTAL HEALTH AWARENESS",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "ML",
-    "title": "ML DECK",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "ML",
-    "title": "ML ENGINE",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "MLA",
-    "title": "MLA - MARITIME LAW AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC DECK (ALL FUNCTION)",
-    "days": 27,
-    "duration": "27 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC DECK F1",
-    "days": 15,
-    "duration": "15 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC DECK F2",
-    "days": 4,
-    "duration": "4 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC DECK F3",
-    "days": 8,
-    "duration": "8 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC ENGINE (ALL FUNCTION)",
-    "days": 43,
-    "duration": "43 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC ENGINE F1",
-    "days": 15.5,
-    "duration": "15.5 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC ENGINE F2",
-    "days": 10,
-    "duration": "10 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC ENGINE F3",
-    "days": 5,
-    "duration": "5 days"
-  },
-  {
-    "code": "MLC",
-    "title": "MLC ENGINE F4",
-    "days": 12.5,
-    "duration": "12.5 days"
-  },
-  {
-    "code": "MLH",
-    "title": "MLH - MARINE LEADERSHIP AND HUMAN BEHAVIOR",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MLSO",
-    "title": "MLSO - MARITIME LAW FOR SHIP OFFICERS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MOSHA",
-    "title": "MOSHA - MARITIME OCCUPATIONAL SAFETY AND HEALT AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MP",
-    "title": "MP - MARINE POSITIONING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "MRC",
-    "title": "MRC - MEDIA RESPONSE COURSE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "MSC",
-    "title": "MSC - MESSMAN/STEWARD COURSE",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "NCI",
-    "title": "NCI - ASSESSMENT",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "NCI",
-    "title": "NCI MESSMAN COURSE",
-    "days": 6,
-    "duration": "6 days"
-  },
-  {
-    "code": "NCII",
-    "title": "NCII - ASSESSMENT",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "NCIII",
-    "title": "NCIII - ASSESSMENT",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "NCIII",
-    "title": "NCIII SHIP'S COOK",
-    "days": 3,
-    "duration": "3 days"
-  },
-  {
-    "code": "OIC",
-    "title": "OIC DECK",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "OIC",
-    "title": "OIC ENGINE",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "OPA",
-    "title": "OPA - OIL POLLUTION ACT",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "OPESLOG",
-    "title": "OPESLOG - ORIENTATION ON PROPER ENTRIES ON SHIPS LOGBOOKS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "ORB",
-    "title": "ORB - OIL RECORD BOOK",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "PADAMS",
-    "title": "PADAMS - PREVENTION OF ALCOHOL AND DRUG ABUSE IN THE MARITIME SECTOR",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "PAMA",
-    "title": "PAMA - PAINT MAINTENANCE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "PAP",
-    "title": "PAP - PREPARATION OF ARRIVAL IN PORT",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "PASSENGER",
-    "title": "PASSENGER SAFETY",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "PASSENGER",
-    "title": "PASSENGER SAFETY, CARGO SAFETY AND HULL INTEGRITY TRAINING",
-    "days": 2.5,
-    "daysTo": 3,
-    "duration": "2.5–3 days"
-  },
-  {
-    "code": "PDS",
-    "title": "PDS - PRACTICAL DECK SKILL",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "PEME",
-    "title": "PEME MEDICAL",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "PEVF",
-    "title": "PEVF - PERSONAL EFFECTIVENESS AND VALUES FORMATION",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "PFRBC",
-    "title": "PFRBC - PROFICIENCY IN FAST RESCUE BOAT COXSWAIN",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "PHS",
-    "title": "PHS - PUBLIC HEALTH AND SANITATION",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "PP",
-    "title": "PP - PASSAGE PLANNING",
-    "days": null,
-    "duration": "Duration to be confirmed"
-  },
-  {
-    "code": "PPE",
-    "title": "PPE - PERSONAL PROTECTIVE EQUIPMENT",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "PSA",
-    "title": "PSA - PERSONAL SAFETY AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "PSC",
-    "title": "PSC - PORT STATE CONTROL",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "RAC",
-    "title": "RAC - RISK ASSESMENT COURSE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "RADAROC",
-    "title": "RADAROC - RADAR OPERATION COURSE",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "RAIA",
-    "title": "RAIA - RISK ASSESSMENT, INCIDENT INVESTIGATION AND ANALYSIS",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "RAM",
-    "title": "RAM - RISK ASSESSMENT AND MANAGEMENT",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "RBTMBRM",
-    "title": "RBTMBRM - REFRESHER FOR BRM AND BTM",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "RCSHM",
-    "title": "RCSHM - REFRESHER COURSE ON SHIP HANDLLING AND MANEUVERING",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "RNRPUA",
-    "title": "RNRPUA - RADAR NAVIGATION, RADAR PLOTTING AND USE OF ARPA",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "ROPA",
-    "title": "ROPA - RADAR OBSERVATION AND PLOTTING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "RSDI",
-    "title": "RSDI - RIGHTSHIP INSPECTION",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "SAFE",
-    "title": "SAFE - CONTAINED BREATHING APPARATUS & FIRST AID FAMILIARIZATION",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "SAFETY",
-    "title": "SAFETY - STPPDSPPS - PASSENGER SAFETY",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "SAFETY",
-    "title": "SAFETY, CROWD, CRISIS - PACKAGE",
-    "days": 5,
-    "duration": "5 days"
-  },
-  {
-    "code": "SAM",
-    "title": "SAM - STRESS AND ANGER MANAGEMENT",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "SARTA",
-    "title": "SARTA - SART AWARENESS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "SATSDSD",
-    "title": "SATSDSD",
-    "days": 1,
-    "daysTo": 4.5,
-    "duration": "1–4.5 days"
-  },
-  {
-    "code": "SC",
-    "title": "SC - SHIPBOARD CULINARY",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "SCCM",
-    "title": "SCCM - SHIPBOARD CULINARY AND CATERING MANAGEMENT",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "SCRB",
-    "title": "SCRB",
-    "days": 5,
-    "duration": "5 days",
-    "modes": [
-      "Face to face"
-    ]
-  },
-  {
-    "code": "SCRB",
-    "title": "SCRB - R",
-    "days": 1,
-    "daysTo": 5,
-    "duration": "1–5 days"
-  },
-  {
-    "code": "SDC",
-    "title": "SDC - SMOKE DIVING COURSE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "SFH",
-    "title": "SFH - SAFE FOOD HANDLING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "SGS",
-    "title": "SGS - SHIP GENERAL SAFETY",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "SHIP",
-    "title": "SHIP STEERING COURSE",
-    "days": null,
-    "duration": "Duration to be confirmed"
-  },
-  {
-    "code": "SHIPS",
-    "title": "SHIPS COOK - NCIII",
-    "days": 5,
-    "duration": "5 days"
-  },
-  {
-    "code": "SHM",
-    "title": "SHM - SHIP HANDLING AND MANUEVERING",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "SMAW",
-    "title": "SMAW ASS",
-    "days": 1,
-    "duration": "1 day"
-  },
-  {
-    "code": "SMAW",
-    "title": "SMAW WITH ASS",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "SMC",
-    "title": "SMC - STRESS MANAGEMENT COURSE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "SMO",
-    "title": "SMO - SAFE - MOORING - OPERATIONS",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "SNC",
-    "title": "SNC - SAFE NAVIGATION COURSE",
-    "days": 4,
-    "duration": "4 days",
-    "note": "Module"
-  },
-  {
-    "code": "SNCA",
-    "title": "SNCA - COLLISION AVOIDANCE",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "SNCA",
-    "title": "SNCA - SAFE NAVIGATION AND COLLISION AVOIDANCE",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "SNT",
-    "title": "SNT - SAFE NAVIGATION TRAINING",
-    "days": 4,
-    "duration": "4 days",
-    "note": "Module"
-  },
-  {
-    "code": "SOC",
-    "title": "SOC - SAFETY OFFICER COURSE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "SOPEP",
-    "title": "SOPEP - SHIPBOARD OIL POLLUTION EMERGENCY PLAN",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "SOTC",
-    "title": "SOTC - SECURITY OFFICER TRAINING COURSE",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "SSBT",
-    "title": "SSBT",
-    "days": null,
-    "duration": "Duration to be confirmed"
-  },
-  {
-    "code": "SSO",
-    "title": "SSO - SHIP SECURITY OFFICER",
-    "days": 3,
-    "daysTo": 4,
-    "duration": "3–4 days"
-  },
-  {
-    "code": "SSOC",
-    "title": "SSOC - SHIPBOARD SAFETY OFFICER COURSE",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "SSOR",
-    "title": "SSOR - SHIP'S SECURITY OFFICER - REFRESHER",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "SV",
-    "title": "SV - SHIPBOARD VICTUALLING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "SVI",
-    "title": "SVI - SIRE AND VETTING INSPECTION",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "TANKFAM",
-    "title": "TANKFAM - TANKER FAMILIARIZATION AND SAFETY",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "TAS",
-    "title": "TAS - TRIM AND STABILITY",
-    "days": 3,
-    "duration": "3 days",
-    "note": "Module"
-  },
-  {
-    "code": "TI",
-    "title": "TI - TANK INSPECTION",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "TRIM",
-    "title": "TRIM AND STABILITY FOR BULKCARRIER",
-    "days": 2,
-    "duration": "2 days"
-  },
-  {
-    "code": "VETTING",
-    "title": "VETTING INSPECTION COURSE",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "VICTUALLIN",
-    "title": "VICTUALLING",
-    "days": null,
-    "duration": "Duration to be confirmed"
-  },
-  {
-    "code": "VOC",
-    "title": "VOC - VOLATILE ORGANIC COMPOUND",
-    "days": 1,
-    "duration": "1 day",
-    "note": "Module"
-  },
-  {
-    "code": "VP",
-    "title": "VP - VOYAGE PLANNING",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "VPCC",
-    "title": "VPCC - VOYAGE PLANNING AND CHART CORRECTION",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  },
-  {
-    "code": "VRM",
-    "title": "VRM - VESSEL RESOURCE MANAGEMENT",
-    "days": 5,
-    "duration": "5 days",
-    "note": "Module"
-  },
-  {
-    "code": "WH",
-    "title": "WH - WORKING AT HEIGHTS",
-    "days": 2,
-    "duration": "2 days",
-    "note": "Module"
-  }
+  {"code":"AB DECK","title":"AB DECK","center":"GREAT SEAS","amount":5500,"rebate":300,"days":7,"duration":"7 days","modes":["Face-to-Face"]},
+  {"code":"AB DECK","title":"AB DECK","center":"MARIANA","amount":5500,"rebate":600,"days":7,"duration":"7 days","modes":["Face-to-Face"]},
+  {"code":"AB DECK","title":"AB DECK","center":"PNTC","amount":5400,"rebate":640,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"AB ENGINE","title":"AB ENGINE","center":"GREAT SEAS","amount":5800,"rebate":300,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"AB ENGINE","title":"AB ENGINE","center":"MARIANA","amount":5800,"rebate":600,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"AB ENGINE","title":"AB ENGINE","center":"PNTC","amount":5800,"rebate":640,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ABC","title":"ABC - AWARENESS ON BASIC COMPUTER","center":"NEW WAVE","amount":900,"rebate":450,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF","center":"ALTITUDE MARITIME","amount":4200,"rebate":600,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF","center":"FAREAST","amount":4200,"rebate":100,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF","center":"FAREAST","amount":4500,"rebate":100,"days":5,"duration":"5 days","modes":["Distance Learning"]},
+  {"code":"AFF","title":"AFF","center":"GREAT SEAS","amount":4000,"rebate":500,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF","center":"NAUTICAL OPTIONS","amount":4200,"rebate":1200,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF","center":"PNTC","amount":5200,"rebate":940,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF - R","center":"ALTITUDE MARITIME","amount":2500,"rebate":600,"days":1.5,"duration":"1.5 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF - R","center":"FAREAST","amount":3500,"rebate":200,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF - R","center":"GREAT SEAS","amount":2500,"rebate":300,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF - R","center":"NAUTICAL OPTIONS","amount":2500,"rebate":600,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"AFF","title":"AFF - R","center":"PNTC","amount":3300,"rebate":450,"days":1.5,"duration":"1.5 days","modes":["Face-to-Face"]},
+  {"code":"AHPR","title":"AHPR - AWARENESS ON HARRASSMENT PREVENTION AND RESPONSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"AI","title":"AI - ACCIDENT INVESTIGATION","center":"NEW WAVE","amount":900,"rebate":450,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"AI/RA","title":"AI/RA - ACCIDENT INVESTIGATION AND RISK ASSESSMENT COURSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"AIIRCA","title":"AIIRCA - ACCIDENT INVESTIGATION AND ROOT CAUSE ANALYSIS","center":"NEW WAVE","amount":2500,"rebate":1250,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"AIRCA","title":"AIRCA","center":"RAJ","amount":900,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"AIS","title":"AIS - AUTOMATIC IDENFICATION SYSTEM","center":"NEW WAVE","amount":2000,"rebate":1000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"AMMS AUXILIA","title":"AMMS AUXILIARY MARINE MACHINERY SYSTEMS","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"APC","title":"APC - ANTI PIRACY","center":"NEW WAVE","amount":600,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ARPA","title":"ARPA - AUTOMATIC RADAR PLOTTING AIDS","center":"NEW WAVE","amount":4000,"rebate":200,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"ATCT","title":"ATCT","center":"FAREAST","amount":5300,"rebate":300,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ATCT","title":"ATCT","center":"NAUTICAL OPTIONS","amount":4700,"rebate":800,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ATCT","title":"ATCT","center":"PNTC","amount":5300,"rebate":950,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ATLGT","title":"ATLGT","center":"COMPASS","amount":6500,"rebate":900,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ATLGT","title":"ATLGT","center":"FAREAST","amount":5300,"rebate":300,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ATLGT","title":"ATLGT","center":"PNTC","amount":5300,"rebate":950,"days":9,"duration":"9 days","modes":["Face-to-Face"]},
+  {"code":"ATOT","title":"ATOT","center":"FAREAST","amount":5300,"rebate":300,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ATOT","title":"ATOT","center":"NAUTICAL OPTIONS","amount":4700,"rebate":800,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"ATOT","title":"ATOT","center":"PNTC","amount":5300,"rebate":950,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"BAC","title":"BAC - BASIC ARABIC COURSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BAC","title":"BAC - BASIC ARABIC CULTURE","center":"NEW WAVE","amount":2000,"rebate":1000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BARTENDING","title":"BARTENDING - NCII","center":"UNITED INTERNATIONAL","amount":7500,"rebate":2000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"BASIC TRAINI","title":"BASIC TRAINING","center":"ALTITUDE MARITIME","amount":6000,"rebate":1300,"days":10,"duration":"10 days","modes":["Face-to-Face"]},
+  {"code":"BASIC TRAINI","title":"BASIC TRAINING","center":"FAREAST","amount":6500,"rebate":200,"days":11,"duration":"11 days","modes":["Face-to-Face"]},
+  {"code":"BASIC TRAINI","title":"BASIC TRAINING","center":"FAREAST","amount":6500,"rebate":200,"days":11,"duration":"11 days","modes":["Face-to-Face","Distance Learning"]},
+  {"code":"BASIC TRAINI","title":"BASIC TRAINING","center":"GREAT SEAS","amount":5500,"rebate":1000,"days":10,"duration":"10 days","modes":["Face-to-Face"]},
+  {"code":"BASIC TRAINI","title":"BASIC TRAINING","center":"NAUTICAL OPTIONS","amount":5500,"rebate":1300,"days":10,"duration":"10 days","modes":["Face-to-Face"]},
+  {"code":"BASIC TRAINI","title":"BASIC TRAINING","center":"NAUTICAL OPTIONS","amount":5500,"rebate":1300,"days":10,"duration":"10 days","modes":["Face-to-Face","Distance Learning"]},
+  {"code":"BASIC TRAINI","title":"BASIC TRAINING","center":"PNTC","amount":6200,"rebate":1600,"days":11,"duration":"11 days","modes":["Face-to-Face"]},
+  {"code":"BBSC","title":"BBSC - BEHAVIORAL BASED SAFETY COURSE","center":"NEW WAVE","amount":2500,"rebate":1250,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BFH","title":"BFH - BASIC FOOD HYGIENE","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BMT","title":"BMT - BANKSMAN TRAINING","center":"NEW WAVE","amount":2000,"rebate":0,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BNC","title":"BNC - BASIC NETWORKING COURSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BNHACCP","title":"BNHACCP - BASIC NUTRITION WITH HACCP","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BREAD &","title":"BREAD & PASTRY - NCII","center":"JVV","amount":7500,"rebate":2000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"BREAD &","title":"BREAD & PASTRY - NCII","center":"UNITED INTERNATIONAL","amount":7500,"rebate":2000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"BRM","title":"BRM - BRIDGE RESOURCES MANAGEMENT","center":"NEW WAVE","amount":2000,"rebate":1000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"BRM W/ BTM","title":"BRM W/ BTM","center":"NEW WAVE","amount":5000,"rebate":2500,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"BS","title":"BS - BANKSMAN AND SLINGING","center":"NEW WAVE","amount":2000,"rebate":1000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BSFM","title":"BSFM - BASIC SHIPBOARD FOOD MANAGEMENT","center":"NEW WAVE","amount":3500,"rebate":1750,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"BT","title":"BT - PSSR","center":"ALTITUDE MARITIME","amount":1000,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BT","title":"BT - PSSR","center":"FAREAST","amount":1500,"rebate":200,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BT","title":"BT - PSSR","center":"GRANDLINE","amount":1500,"rebate":375,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BT","title":"BT - PSSR","center":"GREAT SEAS","amount":1300,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BT","title":"BT - PSSR","center":"MARIANA","amount":1700,"rebate":600,"days":1,"duration":"1 day","modes":["Distance Learning"]},
+  {"code":"BT","title":"BT - PSSR","center":"NAUTICAL OPTIONS","amount":1500,"rebate":100,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BT","title":"BT - PSSR","center":"NEW WAVE","amount":1300,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BT","title":"BT - PSSR","center":"RAJ","amount":1500,"rebate":400,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"BTLGT","title":"BTLGT","center":"FAREAST","amount":3800,"rebate":100,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"BTLGT","title":"BTLGT","center":"NAUTICAL OPTIONS","amount":3500,"rebate":700,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"BTLGT","title":"BTLGT","center":"PNTC","amount":5300,"rebate":950,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"BTM","title":"BTM - BRIDGE TEAM MANAGEMENT","center":"NEW WAVE","amount":3000,"rebate":1500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BTOC","title":"BTOC","center":"ALTITUDE MARITIME","amount":3000,"rebate":600,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"BTOC","title":"BTOC","center":"FAREAST","amount":4200,"rebate":100,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"BTOC","title":"BTOC","center":"NAUTICAL OPTIONS","amount":3200,"rebate":700,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"BTOC","title":"BTOC","center":"PNTC","amount":5300,"rebate":950,"days":7,"duration":"7 days","modes":["Face-to-Face"]},
+  {"code":"BTR","title":"BTR - BASIC TRAINING REFRESHER","center":"ALTITUDE MARITIME","amount":2800,"rebate":600,"days":2.5,"duration":"2.5 days","modes":["Face-to-Face"]},
+  {"code":"BTR","title":"BTR - BASIC TRAINING REFRESHER","center":"FAREAST","amount":3400,"rebate":100,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"BTR","title":"BTR - BASIC TRAINING REFRESHER","center":"GREAT SEAS","amount":2500,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BTR","title":"BTR - BASIC TRAINING REFRESHER","center":"NAUTICAL OPTIONS","amount":3000,"rebate":600,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"BTR","title":"BTR - BASIC TRAINING REFRESHER","center":"PNTC","amount":3200,"rebate":540,"days":2.5,"duration":"2.5 days","modes":["Face-to-Face"]},
+  {"code":"BULKFAM","title":"BULKFAM - BULK CARRIER FAMILIARIZATION AND SAFETY","center":"NEW WAVE","amount":5000,"rebate":2500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CAREGIVING","title":"CAREGIVING","center":"JVV","amount":10000,"rebate":1000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CCI PACKAGE","title":"CCI PACKAGE","center":"ALTITUDE MARITIME","amount":4200,"rebate":900,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"CCI SPECIAL","title":"CCI SPECIAL","center":"NEW WAVE","amount":10000,"rebate":2600,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"CCMD","title":"CCMD - CROWD AND CRISIS MANAGEMENT FOR DOMESTIC","center":"ALTITUDE MARITIME","amount":2500,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CCMD","title":"CCMD - CROWD AND CRISIS MANAGEMENT FOR DOMESTIC","center":"GRANDLINE","amount":2500,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CCMD","title":"CCMD - CROWD AND CRISIS MANAGEMENT FOR DOMESTIC","center":"NEW WAVE","amount":2500,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CCMD","title":"CCMD - CROWD AND CRISIS MANAGEMENT FOR DOMESTIC","center":"RAJ","amount":2500,"rebate":1000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CCTC","title":"CCTC - CONSUMPTION CONTROL TRAINING COURSE","center":"NEW WAVE","amount":2850,"rebate":1425,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CE","title":"CE - CONTROL ENGINEERING","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"CFC","title":"CFC - CLASSIFICATION FAMILIARIZATION COURSE","center":"NEW WAVE","amount":2500,"rebate":1250,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CHCC","title":"CHCC - CARGO HANDLING AND CARE OF CARGO","center":"NEW WAVE","amount":4500,"rebate":2250,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"CHSM","title":"CHSM - CATERING HEALTH AND SAFETY MANAGEMENT","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CM","title":"CM - CATERING MANAGEMENT","center":"NEW WAVE","amount":3500,"rebate":1750,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"COC","title":"COC - CRANE OPERATION COURSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"COLREG","title":"COLREG - COLLISION REGULATION ON RULES OF THE ROADS","center":"NEW WAVE","amount":3500,"rebate":1750,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"COOKERY","title":"COOKERY - NCII","center":"UNITED INTERNATIONAL","amount":7500,"rebate":2000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"COW","title":"COW - CRUDE OIL WASHING SYSTEM","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"CRISIS MANAG","title":"CRISIS MANAGEMENT","center":"ALTITUDE MARITIME","amount":1600,"rebate":400,"days":2.5,"duration":"2.5 days","modes":["Face-to-Face"]},
+  {"code":"CRISIS MANAG","title":"CRISIS MANAGEMENT","center":"FAREAST","amount":2400,"rebate":200,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CRISIS MANAG","title":"CRISIS MANAGEMENT","center":"GRANDLINE","amount":1600,"rebate":400,"days":2.5,"duration":"2.5 days","modes":["Face-to-Face"]},
+  {"code":"CRISIS MANAG","title":"CRISIS MANAGEMENT","center":"NEW WAVE","amount":1600,"rebate":300,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CRISIS MANAG","title":"CRISIS MANAGEMENT","center":"PNTC","amount":2000,"rebate":200,"days":2.5,"duration":"2.5 days","modes":["Face-to-Face"]},
+  {"code":"CRISIS MANAG","title":"CRISIS MANAGEMENT","center":"RAJ","amount":1500,"rebate":350,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"CROWD MANAGE","title":"CROWD MANAGEMENT","center":"ALTITUDE MARITIME","amount":1600,"rebate":400,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CROWD MANAGE","title":"CROWD MANAGEMENT","center":"GRANDLINE","amount":1600,"rebate":400,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CROWD MANAGE","title":"CROWD MANAGEMENT","center":"NEW WAVE","amount":1600,"rebate":300,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CROWD MANAGE","title":"CROWD MANAGEMENT","center":"PNTC","amount":2000,"rebate":200,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CROWD MANAGE","title":"CROWD MANAGEMENT","center":"RAJ","amount":1500,"rebate":350,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"CSA","title":"CSA - CYBER SECURITY AWARENESS","center":"NEW WAVE","amount":2500,"rebate":1250,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"CSF","title":"CSF - CONTAINER SHIP FAMILIARIZATION","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"CSHI","title":"CSHI - PASSENGER SAFETY, CARGO SAFETY, AND HULL INTEGRITY TRAINING","center":"FAREAST","amount":5700,"rebate":200,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"CST","title":"CST - CRANE SAFETY TRAINING","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"DCST","title":"DCST - DECK CRANE SAFETY TRAINING","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"DECK WATCHKE","title":"DECK WATCHKEEPING","center":"ALTITUDE MARITIME","amount":2500,"rebate":600,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"DECK WATCHKE","title":"DECK WATCHKEEPING","center":"FAREAST","amount":3300,"rebate":100,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"DECK WATCHKE","title":"DECK WATCHKEEPING","center":"NAUTICAL OPTIONS","amount":2600,"rebate":500,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"DECK WATCHKE","title":"DECK WATCHKEEPING","center":"PNTC","amount":3700,"rebate":740,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"DMA","title":"DMA - DECK MACHINERY AWARENESS","center":"NEW WAVE","amount":2000,"rebate":1000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ECDIS","title":"ECDIS - OPERATIONAL USE OF ELECTRONIC CHART, DISPLAY AND INFORMATION SYSTEM","center":"NEW WAVE","amount":3000,"rebate":1500,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"EMS","title":"EMS - ENVIRONMENTAL MANAGEMENT SYSTEM","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ENGINE WATCH","title":"ENGINE WATCH KEEPING","center":"ALTITUDE MARITIME","amount":2500,"rebate":600,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"ENGINE WATCH","title":"ENGINE WATCH KEEPING","center":"FAREAST","amount":3300,"rebate":100,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"ENGINE WATCH","title":"ENGINE WATCH KEEPING","center":"PNTC","amount":3700,"rebate":740,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"ENGINE WATCH","title":"ENGINE WATCH KEEPING - DOMESTIC","center":"NEW WAVE","amount":1500,"rebate":750,"days":null,"duration":"","modes":["Face-to-Face"]},
+  {"code":"EPS","title":"EPS - ELECTRO PNEUMATIC SYSTEM","center":"NEW WAVE","amount":1800,"rebate":900,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ERRM","title":"ERRM - ENGINE ROOM RESOURCE MANAGEMENT","center":"NEW WAVE","amount":2000,"rebate":1000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"ERTM","title":"ERTM - ENGINE ROOM TEAM MANAGEMENT","center":"NEW WAVE","amount":3000,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"ESE","title":"ESE - ENCLOSED SPACE ENTRY","center":"NEW WAVE","amount":2500,"rebate":1250,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ETO","title":"ETO","center":"MARIANA","amount":480000,"rebate":10000,"days":80.5,"duration":"80.5 days","modes":["Face-to-Face"],"options":["With accommodation"]},
+  {"code":"ETO","title":"ETO","center":"MARIANA","amount":380000,"rebate":10000,"days":80.5,"duration":"80.5 days","modes":["Face-to-Face"],"options":["Without accommodation"]},
+  {"code":"ETR","title":"ETR","center":"FAREAST","amount":190000,"rebate":10000,"days":42,"duration":"42 days","modes":["Face-to-Face"]},
+  {"code":"ETR","title":"ETR","center":"MARIANA","amount":235000,"rebate":10000,"days":40.5,"duration":"40.5 days","modes":["Face-to-Face"],"options":["With accommodation"]},
+  {"code":"ETR","title":"ETR","center":"MARIANA","amount":190000,"rebate":10000,"days":40.5,"duration":"40.5 days","modes":["Face-to-Face"],"options":["Without accommodation"]},
+  {"code":"FCM","title":"FCM - FOOD AND CATERING MANAGEMENT","center":"NEW WAVE","amount":3500,"rebate":1750,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"FH","title":"FH - FOOD HYGIENE","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"FH","title":"FH - HACCP - FOOD HYGIENE WITH HACCP","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"FHS","title":"FHS - FOOD HYGIENE AND SANITATION","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"FOOD &","title":"FOOD & BEVERAGES - NCII","center":"JVV","amount":4500,"rebate":2700,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"FOOD &","title":"FOOD & BEVERAGES - NCII","center":"UNITED INTERNATIONAL","amount":4500,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"FRAMO","title":"FRAMO - FRAMO PUMP","center":"NEW WAVE","amount":3000,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"FRB","title":"FRB","center":"FAREAST","amount":4500,"rebate":200,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"FRB","title":"FRB","center":"PNTC","amount":4500,"rebate":740,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"FRB","title":"FRB - R","center":"FAREAST","amount":3800,"rebate":200,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"FRB","title":"FRB - R","center":"PNTC","amount":3300,"rebate":450,"days":1.5,"duration":"1.5 days","modes":["Face-to-Face"]},
+  {"code":"FSH","title":"FSH - FOOD SAFETY AND HYGIENE","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"FST","title":"FST - FOOD SAFETY TRAINING","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GAC","title":"GAC - GALLEY AWARENESS COURSE","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GAH","title":"GAH - GALLEY AFFAIRS AND HOUSEKEEPING","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GHC","title":"GHC - GOOD HOUSEKEEPING COURSE","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GHFS","title":"GHFS - GALLEY HYGIENE AND FOOD SANITATION","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GHH","title":"GHH - GALLEY HYGIENE WITH HACCP","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GOC FOR","title":"GOC FOR GMDSS","center":"FAREAST","amount":10500,"rebate":200,"days":16,"duration":"16 days","modes":["Face-to-Face"]},
+  {"code":"GOC FOR","title":"GOC FOR GMDSS","center":"MARIANA","amount":4000,"rebate":400,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GOC FOR","title":"GOC FOR GMDSS","center":"NAVIGATOR","amount":4000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"GOC FOR","title":"GOC FOR GMDSS","center":"TONSBERG","amount":10600,"rebate":1000,"days":16,"duration":"16 days","modes":["Face-to-Face"]},
+  {"code":"GPM","title":"GPM - GALLEY (PROVISION) MANAGEMENT","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"H2S","title":"H2S - HYDROGEN SULFIDE AWARENESS","center":"NEW WAVE","amount":2000,"rebate":1000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"HACCP","title":"HACCP - HAZARD ANALYSIS AND CRITICAL CONTROL POINTS","center":"NEW WAVE","amount":1800,"rebate":900,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"HAZID","title":"HAZID - HAZARD IDENTIFICATION","center":"NEW WAVE","amount":3500,"rebate":1750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"HAZMAT","title":"HAZMAT - DANGEROUS HAZARDOUS AND HARMFUL CARGOES (HAZMAT)","center":"NEW WAVE","amount":1000,"rebate":500,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"HAZMAT","title":"HAZMAT - HAZARDOUS MATERIALS","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"HAZMAT WITH","title":"HAZMAT WITH CFR","center":"NEW WAVE","amount":1000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"HCIM","title":"HCIM - HATCH COVER INSPECTION AND MAINTENANCE","center":"NEW WAVE","amount":5000,"rebate":2500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"HOUSEKEEPING","title":"HOUSEKEEPING - NCII","center":"JVV","amount":4500,"rebate":3000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"HOUSEKEEPING","title":"HOUSEKEEPING - NCII","center":"UNITED INTERNATIONAL","amount":4500,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"HPT","title":"HPT - HYDRAULIC AND PHEUMATIC TRAINING","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"HSBAT","title":"HSBAT - HYDROGEN SULFIDE BASIC AWARENESS TRAINING","center":"NEW WAVE","amount":2500,"rebate":1250,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"HUPH","title":"HUPH - HACCP AND UNITED STATE PUBLIC HEALTH","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"HVT","title":"HVT - HIGH VOLTAGE TRAINING","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"IHM","title":"IHM - INVENTORY OF HAZARDOUS MATERIALS","center":"NEW WAVE","amount":3500,"rebate":1750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"II-4 DECK","title":"II-4 DECK RATINGS","center":"GREAT SEAS","amount":2000,"rebate":300,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"II-4 DECK","title":"II-4 DECK RATINGS","center":"MARIANA","amount":2000,"rebate":300,"days":1.5,"duration":"1.5 days","modes":["Face-to-Face"]},
+  {"code":"II-4 DECK","title":"II-4 DECK RATINGS","center":"NAVIGATOR","amount":2000,"rebate":800,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"II-4 DECK","title":"II-4 DECK RATINGS","center":"PNTC","amount":2000,"rebate":100,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"II-5 AB DECK","title":"II-5 AB DECK","center":"GREAT SEAS","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"II-5 AB DECK","title":"II-5 AB DECK","center":"MARIANA","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"II-5 AB DECK","title":"II-5 AB DECK","center":"PNTC","amount":5000,"rebate":2000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"III-4 ENGINE","title":"III-4 ENGINE RATINGS","center":"GREAT SEAS","amount":2000,"rebate":300,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"III-4 ENGINE","title":"III-4 ENGINE RATINGS","center":"MARIANA","amount":2000,"rebate":300,"days":1.5,"duration":"1.5 days","modes":["Face-to-Face"]},
+  {"code":"III-4 ENGINE","title":"III-4 ENGINE RATINGS","center":"NAVIGATOR","amount":2000,"rebate":800,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"III-4 ENGINE","title":"III-4 ENGINE RATINGS","center":"PNTC","amount":2000,"rebate":100,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"III-5 AB","title":"III-5 AB ENGINE","center":"GREAT SEAS","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"III-5 AB","title":"III-5 AB ENGINE","center":"MARIANA","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"III-5 AB","title":"III-5 AB ENGINE","center":"PNTC","amount":5000,"rebate":1800,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"INCI","title":"INCI - INCIDENT INVESTIGATION","center":"NEW WAVE","amount":900,"rebate":450,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"IP","title":"IP - INJURY PREVENTION","center":"NEW WAVE","amount":700,"rebate":350,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ISM","title":"ISM - INTERNATIONAL SAFETY MANAGEMENT","center":"NEW WAVE","amount":700,"rebate":350,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ISMO","title":"ISMO - INTERNATIAL SAFETY MANAGEMENT (OFFICER)","center":"RAJ","amount":1000,"rebate":350,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ISMR","title":"ISMR - INTERNATIAL SAFETY MANAGEMENT (RATINGS)","center":"RAJ","amount":900,"rebate":350,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"LCBOCT","title":"LCBOCT - LIQUID CARGO AND BALLAST OPERATIONS OR CHEMICAL TANKERS","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"LMT","title":"LMT - LEADERSHIP AND MANAGEMENT TRAINING","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"LSC","title":"LSC - LOW SULFUR","center":"NEW WAVE","amount":2500,"rebate":1250,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"LSHB","title":"LSHB - LEADERSHIP AND HUMAN BEHAVIOR","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"LT","title":"LT - LEADERSHIP AND TEAMWORK","center":"NEW WAVE","amount":1800,"rebate":900,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MAEN","title":"MAEN - MARITIME ENGLISH","center":"NEW WAVE","amount":900,"rebate":450,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MARPOL","title":"MARPOL - CONSOLIDATED MARPOL ANNEXI-VI","center":"NEW WAVE","amount":1100,"rebate":550,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"MARPOL","title":"MARPOL - CONSOLIDATED MARPOL ANNEXI-VI (21 HRS)","center":"RAJ","amount":1000,"rebate":500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"MARPOL","title":"MARPOL - CONSOLIDATED MARPOL ANNEXI-VI (40 HRS)","center":"RAJ","amount":3000,"rebate":500,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"MEA","title":"MEA - MARINE ENVIRONMENTAL AWARENESS","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MECA","title":"MECA - MEDICAL CARE","center":"ALTITUDE MARITIME","amount":3000,"rebate":500,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"MECA","title":"MECA - MEDICAL CARE","center":"FAREAST","amount":4400,"rebate":200,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"MECA","title":"MECA - MEDICAL CARE","center":"GRANDLINE","amount":3000,"rebate":0,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"MECA","title":"MECA - MEDICAL CARE","center":"PNTC","amount":3800,"rebate":550,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"MECA","title":"MECA - MEDICAL CARE","center":"RAJ","amount":3500,"rebate":700,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"MECAR","title":"MECAR - MEDICAL CARE - REFRESHER","center":"NEW WAVE","amount":2500,"rebate":1250,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"MEFA","title":"MEFA - MEDICAL FIRST AID","center":"ALTITUDE MARITIME","amount":1600,"rebate":300,"days":5.5,"duration":"5.5 days","modes":["Face-to-Face"]},
+  {"code":"MEFA","title":"MEFA - MEDICAL FIRST AID","center":"FAREAST","amount":3000,"rebate":100,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"MEFA","title":"MEFA - MEDICAL FIRST AID","center":"GRANDLINE","amount":1500,"rebate":0,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"MEFA","title":"MEFA - MEDICAL FIRST AID","center":"NAUTICAL OPTIONS","amount":2000,"rebate":500,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"MEFA","title":"MEFA - MEDICAL FIRST AID","center":"PNTC","amount":3300,"rebate":450,"days":4.5,"duration":"4.5 days","modes":["Face-to-Face"]},
+  {"code":"MEFA","title":"MEFA - MEDICAL FIRST AID","center":"RAJ","amount":1600,"rebate":300,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"MEFAR","title":"MEFAR - MEDICAL FIRST AID - REFRESHER","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MESSMAN","title":"MESSMAN - NCI","center":"UNITED INTERNATIONAL","amount":3500,"rebate":1200,"days":6,"duration":"6 days","modes":["Face-to-Face"]},
+  {"code":"MHA","title":"MHA - MENTAL HEALTH AWARENESS","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"ML DECK","title":"ML DECK","center":"GREAT SEAS","amount":13000,"rebate":2000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"ML DECK","title":"ML DECK","center":"MARIANA","amount":13000,"rebate":1500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"ML DECK","title":"ML DECK","center":"NAUTICAL OPTIONS","amount":14000,"rebate":2000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"ML ENGINE","title":"ML ENGINE","center":"GREAT SEAS","amount":13000,"rebate":2000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"ML ENGINE","title":"ML ENGINE","center":"MARIANA","amount":13000,"rebate":1500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"MLA","title":"MLA - MARITIME LAW AWARENESS","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MLC DECK","title":"MLC DECK (ALL FUNCTION)","center":"GREAT SEAS","amount":30000,"rebate":1500,"days":27,"duration":"27 days","modes":["Face-to-Face"]},
+  {"code":"MLC DECK","title":"MLC DECK (ALL FUNCTION)","center":"PNTC","amount":30000,"rebate":3300,"days":27,"duration":"27 days","modes":["Face-to-Face"]},
+  {"code":"MLC DECK F1","title":"MLC DECK F1","center":"GREAT SEAS","amount":15000,"rebate":750,"days":15,"duration":"15 days","modes":["Face-to-Face"]},
+  {"code":"MLC DECK F1","title":"MLC DECK F1","center":"PNTC","amount":16000,"rebate":2400,"days":15,"duration":"15 days","modes":["Face-to-Face"]},
+  {"code":"MLC DECK F2","title":"MLC DECK F2","center":"GREAT SEAS","amount":6000,"rebate":300,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"MLC DECK F2","title":"MLC DECK F2","center":"PNTC","amount":5000,"rebate":800,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"MLC DECK F3","title":"MLC DECK F3","center":"GREAT SEAS","amount":9000,"rebate":450,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"MLC DECK F3","title":"MLC DECK F3","center":"PNTC","amount":9000,"rebate":1100,"days":8,"duration":"8 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE (ALL FUNCTION)","center":"GREAT SEAS","amount":43000,"rebate":2150,"days":43,"duration":"43 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE (ALL FUNCTION)","center":"PNTC","amount":43000,"rebate":5600,"days":43,"duration":"43 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F1","center":"GREAT SEAS","amount":15000,"rebate":750,"days":15.5,"duration":"15.5 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F1","center":"PNTC","amount":15000,"rebate":2000,"days":15.5,"duration":"15.5 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F2","center":"GREAT SEAS","amount":10000,"rebate":500,"days":10,"duration":"10 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F2","center":"PNTC","amount":10000,"rebate":1200,"days":10,"duration":"10 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F3","center":"GREAT SEAS","amount":5000,"rebate":250,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F3","center":"PNTC","amount":500,"rebate":500,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F4","center":"GREAT SEAS","amount":13000,"rebate":650,"days":12.5,"duration":"12.5 days","modes":["Face-to-Face"]},
+  {"code":"MLC ENGINE","title":"MLC ENGINE F4","center":"PNTC","amount":12500,"rebate":1900,"days":12.5,"duration":"12.5 days","modes":["Face-to-Face"]},
+  {"code":"MLH","title":"MLH - MARINE LEADERSHIP AND HUMAN BEHAVIOR","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MLSO","title":"MLSO - MARITIME LAW FOR SHIP OFFICERS","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MOSHA","title":"MOSHA - MARITIME OCCUPATIONAL SAFETY AND HEALT AWARENESS","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MP","title":"MP - MARINE POSITIONING","center":"NEW WAVE","amount":3000,"rebate":1500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"MRC","title":"MRC - MEDIA RESPONSE COURSE","center":"NEW WAVE","amount":3000,"rebate":1500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"MSC","title":"MSC - MESSMAN/STEWARD COURSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"NCI","title":"NCI - ASSESSMENT","center":"UNITED INTERNATIONAL","amount":2000,"rebate":939,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"NCII","title":"NCII - ASSESSMENT","center":"UNITED INTERNATIONAL","amount":2000,"rebate":1118,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"NCIII","title":"NCIII - ASSESSMENT","center":"UNITED INTERNATIONAL","amount":3500,"rebate":1800,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"OIC DECK","title":"OIC DECK","center":"GREAT SEAS","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"OIC DECK","title":"OIC DECK","center":"MARIANA","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"OIC DECK","title":"OIC DECK","center":"NAUTICAL OPTIONS","amount":4500,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"OIC ENGINE","title":"OIC ENGINE","center":"GREAT SEAS","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"OIC ENGINE","title":"OIC ENGINE","center":"MARIANA","amount":5000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"OPA","title":"OPA - OIL POLLUTION ACT","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"OPESLOG","title":"OPESLOG - ORIENTATION ON PROPER ENTRIES ON SHIPS LOGBOOKS","center":"NEW WAVE","amount":900,"rebate":450,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"ORB","title":"ORB - OIL RECORD BOOK","center":"NEW WAVE","amount":3500,"rebate":1750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PADAMS","title":"PADAMS - PREVENTION OF ALCOHOL AND DRUG ABUSE IN THE MARITIME SECTOR","center":"NEW WAVE","amount":700,"rebate":350,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"PAMA","title":"PAMA - PAINT MAINTENANCE","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PAP","title":"PAP - PREPARATION OF ARRIVAL IN PORT","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"PASSENGER SA","title":"PASSENGER SAFETY","center":"ALTITUDE MARITIME","amount":1200,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PASSENGER SA","title":"PASSENGER SAFETY","center":"GRANDLINE","amount":1200,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PASSENGER SA","title":"PASSENGER SAFETY","center":"NEW WAVE","amount":1200,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PASSENGER SA","title":"PASSENGER SAFETY","center":"RAJ","amount":1200,"rebate":300,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"PASSENGER SA","title":"PASSENGER SAFETY, CARGO SAFETY AND HULL INTEGRITY TRAINING","center":"PNTC","amount":2000,"rebate":200,"days":2.5,"duration":"2.5 days","modes":["Face-to-Face"]},
+  {"code":"PDS","title":"PDS - PRACTICAL DECK SKILL","center":"NEW WAVE","amount":2000,"rebate":1000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"PEME MEDICAL","title":"PEME MEDICAL","center":"GRAMCARE","amount":600,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PEME MEDICAL","title":"PEME MEDICAL","center":"HEALTHLINE","amount":1000,"rebate":640,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PEVF","title":"PEVF - PERSONAL EFFECTIVENESS AND VALUES FORMATION","center":"NEW WAVE","amount":1600,"rebate":800,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"PFRBC","title":"PFRBC - PROFICIENCY IN FAST RESCUE BOAT COXSWAIN","center":"NEW WAVE","amount":3000,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"PHS","title":"PHS - PUBLIC HEALTH AND SANITATION","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"PP","title":"PP - PASSAGE PLANNING","center":"NEW WAVE","amount":2500,"rebate":1250,"days":null,"duration":"","modes":["Face-to-Face"]},
+  {"code":"PPE","title":"PPE - PERSONAL PROTECTIVE EQUIPMENT","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PSA","title":"PSA - PERSONAL SAFETY AWARENESS","center":"NEW WAVE","amount":1500,"rebate":750,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"PSC","title":"PSC - PORT STATE CONTROL","center":"NEW WAVE","amount":900,"rebate":450,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"RAC","title":"RAC - RISK ASSESMENT COURSE","center":"NEW WAVE","amount":900,"rebate":450,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"RADAROC","title":"RADAROC - RADAR OPERATION COURSE","center":"NEW WAVE","amount":2500,"rebate":1250,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"RAIA","title":"RAIA - RISK ASSESSMENT, INCIDENT INVESTIGATION AND ANALYSIS","center":"NEW WAVE","amount":2500,"rebate":1250,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"RAM","title":"RAM - RISK ASSESSMENT AND MANAGEMENT","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"RBTMBRM","title":"RBTMBRM - REFRESHER FOR BRM AND BTM","center":"NEW WAVE","amount":3000,"rebate":1500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"RCSHM","title":"RCSHM - REFRESHER COURSE ON SHIP HANDLLING AND MANEUVERING","center":"NEW WAVE","amount":2000,"rebate":1000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"RNRPUA","title":"RNRPUA - RADAR NAVIGATION, RADAR PLOTTING AND USE OF ARPA","center":"NEW WAVE","amount":4000,"rebate":2000,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"ROPA","title":"ROPA - RADAR OBSERVATION AND PLOTTING","center":"NEW WAVE","amount":1500,"rebate":750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"RSDI","title":"RSDI - RIGHTSHIP INSPECTION","center":"NEW WAVE","amount":4000,"rebate":2000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"SAFE","title":"SAFE - CONTAINED BREATHING APPARATUS & FIRST AID FAMILIARIZATION","center":"RAJ","amount":4100,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"SAFETY, CROW","title":"SAFETY, CROWD, CRISIS - PACKAGE","center":"RAJ","amount":4200,"rebate":1000,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SAM","title":"SAM - STRESS AND ANGER MANAGEMENT","center":"NEW WAVE","amount":2000,"rebate":1000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"SARTA","title":"SARTA - SART AWARENESS","center":"NEW WAVE","amount":2000,"rebate":1000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SATSDSD","title":"SATSDSD","center":"ALTITUDE MARITIME","amount":600,"rebate":250,"days":4.5,"duration":"4.5 days","modes":["Face-to-Face"]},
+  {"code":"SATSDSD","title":"SATSDSD","center":"GRANDLINE","amount":600,"rebate":250,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SATSDSD","title":"SATSDSD","center":"NAUTICAL OPTIONS","amount":700,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SATSDSD","title":"SATSDSD","center":"NEW WAVE","amount":600,"rebate":200,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SATSDSD","title":"SATSDSD","center":"PNTC","amount":1500,"rebate":200,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SATSDSD","title":"SATSDSD","center":"RAJ","amount":600,"rebate":200,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SC","title":"SC - SHIPBOARD CULINARY","center":"NEW WAVE","amount":3500,"rebate":1750,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SCCM","title":"SCCM - SHIPBOARD CULINARY AND CATERING MANAGEMENT","center":"NEW WAVE","amount":3500,"rebate":1750,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB","center":"ALTITUDE MARITIME","amount":3600,"rebate":500,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB","center":"FAREAST","amount":3800,"rebate":100,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB","center":"FAREAST","amount":4500,"rebate":100,"days":5,"duration":"5 days","modes":["Distance Learning"]},
+  {"code":"SCRB","title":"SCRB","center":"NAUTICAL OPTIONS","amount":3900,"rebate":900,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB","center":"PNTC","amount":4200,"rebate":740,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB - R","center":"ALTITUDE MARITIME","amount":2400,"rebate":600,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB - R","center":"FAREAST","amount":3000,"rebate":200,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB - R","center":"NAUTICAL OPTIONS","amount":2600,"rebate":600,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SCRB","title":"SCRB - R","center":"PNTC","amount":3300,"rebate":450,"days":1.5,"duration":"1.5 days","modes":["Face-to-Face"]},
+  {"code":"SDC","title":"SDC - SMOKE DIVING COURSE","center":"NEW WAVE","amount":2000,"rebate":1000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SFH","title":"SFH - SAFE FOOD HANDLING","center":"NEW WAVE","amount":1800,"rebate":900,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"SGS","title":"SGS - SHIP GENERAL SAFETY","center":"NEW WAVE","amount":1500,"rebate":750,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SHIP STEERIN","title":"SHIP STEERING COURSE","center":"NEW WAVE","amount":1800,"rebate":900,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SHIPS COOK","title":"SHIPS COOK - NCIII","center":"UNITED INTERNATIONAL","amount":7500,"rebate":1000,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SHM","title":"SHM - SHIP HANDLING AND MANUEVERING","center":"NEW WAVE","amount":4500,"rebate":2250,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"SMAW ASS","title":"SMAW ASS","center":"JVV","amount":4500,"rebate":5000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SMAW WITH","title":"SMAW WITH ASS","center":"JVV","amount":7500,"rebate":8500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"SMC","title":"SMC - STRESS MANAGEMENT COURSE","center":"NEW WAVE","amount":2000,"rebate":1000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SMO","title":"SMO - SAFE-MOORING-OPERATIONS","center":"NEW WAVE","amount":2500,"rebate":1250,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SNC","title":"SNC - SAFE NAVIGATION COURSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"SNCA","title":"SNCA - COLLISION AVOIDANCE","center":"NEW WAVE","amount":2000,"rebate":1000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SNCA","title":"SNCA - SAFE NAVIGATION AND COLLISION AVOIDANCE","center":"NEW WAVE","amount":2000,"rebate":1000,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SNT","title":"SNT - SAFE NAVIGATION TRAINING","center":"NEW WAVE","amount":1500,"rebate":750,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"SOC","title":"SOC - SAFETY OFFICER COURSE","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SOPEP","title":"SOPEP - SHIPBOARD OIL POLLUTION EMERGENCY PLAN","center":"NEW WAVE","amount":1500,"rebate":750,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SOTC","title":"SOTC - SECURITY OFFICER TRAINING COURSE","center":"NEW WAVE","amount":1500,"rebate":750,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SSBT","title":"SSBT","center":"PNTC","amount":8000,"rebate":0,"days":null,"duration":"","modes":["Face-to-Face"]},
+  {"code":"SSO","title":"SSO - SHIP SECURITY OFFICER","center":"ALTITUDE MARITIME","amount":1000,"rebate":300,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SSO","title":"SSO - SHIP SECURITY OFFICER","center":"FAREAST","amount":2900,"rebate":200,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"SSO","title":"SSO - SHIP SECURITY OFFICER","center":"GRANDLINE","amount":1000,"rebate":0,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"SSO","title":"SSO - SHIP SECURITY OFFICER","center":"NAUTICAL OPTIONS","amount":2000,"rebate":700,"days":4,"duration":"4 days","modes":["Face-to-Face"]},
+  {"code":"SSO","title":"SSO - SHIP SECURITY OFFICER","center":"PNTC","amount":2700,"rebate":540,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SSO","title":"SSO - SHIP SECURITY OFFICER","center":"RAJ","amount":1500,"rebate":200,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"SSOC","title":"SSOC - SHIPBOARD SAFETY OFFICER COURSE","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"SSOR","title":"SSOR - SHIP'S SECURITY OFFICER - REFRESHER","center":"NEW WAVE","amount":1000,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"SV","title":"SV - SHIPBOARD VICTUALLING","center":"NEW WAVE","amount":2500,"rebate":1250,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"SVI","title":"SVI - SIRE AND VETTING INSPECTION","center":"NEW WAVE","amount":2000,"rebate":1000,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"TANKFAM","title":"TANKFAM - TANKER FAMILIARIZATION AND SAFETY","center":"NEW WAVE","amount":5000,"rebate":2500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"TAS","title":"TAS - TRIM AND STABILITY","center":"NEW WAVE","amount":5000,"rebate":2500,"days":3,"duration":"3 days","modes":["Face-to-Face"]},
+  {"code":"TI","title":"TI - TANK INSPECTION","center":"NEW WAVE","amount":1000,"rebate":500,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"TRIM AND","title":"TRIM AND STABILITY FOR BULKCARRIER","center":"RAJ","amount":7100,"rebate":500,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"VETTING INSP","title":"VETTING INSPECTION COURSE","center":"NEW WAVE","amount":2000,"rebate":1000,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"VICTUALLING","title":"VICTUALLING","center":"NEW WAVE","amount":2500,"rebate":1250,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"VOC","title":"VOC - VOLATILE ORGANIC COMPOUND","center":"NEW WAVE","amount":4000,"rebate":2000,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
+  {"code":"VP","title":"VP - VOYAGE PLANNING","center":"NEW WAVE","amount":3500,"rebate":1750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"VPCC","title":"VPCC - VOYAGE PLANNING AND CHART CORRECTION","center":"NEW WAVE","amount":3500,"rebate":1750,"days":2,"duration":"2 days","modes":["Face-to-Face"]},
+  {"code":"VRM","title":"VRM - VESSEL RESOURCE MANAGEMENT","center":"NEW WAVE","amount":5000,"rebate":2500,"days":5,"duration":"5 days","modes":["Face-to-Face"]},
+  {"code":"WH","title":"WH - WORKING AT HEIGHTS","center":"NEW WAVE","amount":2000,"rebate":1000,"days":2,"duration":"2 days","modes":["Face-to-Face"]}
 ];
 
 if(typeof module !== 'undefined') module.exports = { COURSE_CATALOGUE };
