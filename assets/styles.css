@@ -253,6 +253,9 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 .def{display:grid;grid-template-columns:145px 1fr;gap:7px 14px;font-size:13px}
 .def dt{color:var(--muted);font-weight:600}
 .def dd{margin:0;font-weight:500}
+/* A denser variant for read-only summaries, where the rows are facts to scan
+   rather than a form to fill. */
+.def-tight{grid-template-columns:120px 1fr;gap:4px 14px;font-size:12.5px}
 
 .split{display:flex;gap:8px;align-items:flex-end}
 .split > *{flex:1}

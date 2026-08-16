@@ -283,32 +283,52 @@ VIEWS.dashboard = () => {
   `;
 };
 
-/* ---------- Trainees ---------- */
+/* ---------- Trainees ----------
+   The list opens on one day, not on the whole registry. The desk works today's
+   sign-ups; a registry that grows without bound is not a working list.
+
+   Searching overrides the date. Somebody looking for a name needs to find them
+   whenever they signed up, and a search that silently only looked at today
+   would report "not found" for a trainee who is plainly on file. */
 VIEWS.trainees = () => {
-  const q = (state.q.trainee || '').toLowerCase();
-  const rows = D().trainees.filter(t =>
-    !q || [t.no,t.last,t.first,t.srn,t.rank,t.agency,t.mobile].join(' ').toLowerCase().includes(q));
+  const q = (state.q.trainee || '').toLowerCase().trim();
+  const day = state.q.tday || DB.today();
+  const all = D().trainees;
+
+  const matches = t => [t.no,t.last,t.first,t.srn,t.rank,t.agency,t.mobile]
+    .join(' ').toLowerCase().includes(q);
+  const rows = q ? all.filter(matches) : all.filter(t => t.registered === day);
+  const isToday = day === DB.today();
 
   return `
     <div class="toolbar">
-      <input type="search" data-q="trainee" value="${UI.esc(state.q.trainee||'')}" placeholder="Search name, SRN, company or mobile…" style="min-width:280px">
-      <span class="muted">${rows.length} of ${D().trainees.length} record(s)</span>
+      <input type="search" data-q="trainee" value="${UI.esc(state.q.trainee||'')}"
+             placeholder="Search name, SRN, company or mobile…" style="min-width:280px">
+      <label class="fld" style="margin:0">
+        <span>Signed up on</span>
+        <input type="date" data-q="tday" value="${day}" max="${DB.today()}" ${q ? 'disabled' : ''}>
+      </label>
+      <span class="muted">${q
+        ? `${rows.length} match(es) across all ${all.length} record(s)`
+        : `${rows.length} signed up ${isToday ? 'today' : 'on ' + UI.date(day)}`}</span>
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-trainee">+ Register trainee</button>
     </div>
     ${UI.card('', UI.table([
       { h:'Trainee No.', k:t => `<span class="mono">${UI.esc(t.no)}</span>`, w:'130px' },
       { h:'Name', k:t => `<b>${UI.esc(name(t))}</b>` },
-      { h:'Rank / Position', k:'rank' },
-      { h:'Company', k:'agency' },
       { h:'SRN', k:t => `<span class="mono">${UI.esc(t.srn)}</span>` },
       { h:'Mobile', k:'mobile' },
+      { h:'Signed up', k:t => UI.date(t.registered) },
       { h:'Courses', k:t => UI.int(D().enrollments.filter(e => e.traineeId === t.id).length), cls:'num' },
       { h:'Balance', k:t => { const b = traineeBalance(t.id);
           return b > 0 ? `<b style="color:var(--bad)">${UI.peso(b)}</b>` : `<span class="muted">—</span>`; }, cls:'num' },
       { h:'', k:t => `<button class="btn btn-accent btn-xs" data-act="enroll-trainee" data-id="${t.id}">Enroll</button>`, w:'90px' },
-    ], rows, { empty:'No trainee matches that search.', rowClass:'clickable',
-               rowAttrs:t => `data-act="view-trainee" data-id="${t.id}"` }), { flush:true })}
+    ], rows, { empty: q
+        ? 'Nobody matches that search.'
+        : `Nobody signed up ${isToday ? 'today' : 'on ' + UI.date(day)}. Type a name above to search the whole registry.`,
+        rowClass:'clickable',
+        rowAttrs:t => `data-act="view-trainee" data-id="${t.id}"` }), { flush:true })}
   `;
 };
 
@@ -1191,71 +1211,74 @@ function enrollmentForm(existing, presetTrainee){
   recalc();
 }
 
+/* One booking, read as a short report: who and what at the top, the money in a
+   single block underneath, receipts below that. No result or certificate — the
+   training center issues those — and no instructor or venue, which the center
+   assigns and we never hold. */
 function enrollmentModal(e){
   const t = T(e.traineeId), c = CRS(e.courseId), inv = invOf(e.id);
   const bal = inv ? ACC.balanceOf(ACC.recomputeInvoice(inv)) : 0;
+  const receipts = D().payments.filter(p => p.invoiceId === (inv && inv.id) && !p.voided);
+  const payable = e.centerPayable != null ? e.centerPayable : (e.fee || 0);
+  const rebate = e.rebate || 0;
+
+  /* One row of the money report: label, figure, and a note only where the
+     figure needs explaining. */
+  const line = (label, amount, note, strong) => `
+    <tr${strong ? ' style="font-weight:700"' : ''}>
+      <td style="padding:5px 0">${UI.esc(label)}
+        ${note ? `<span class="muted" style="font-weight:400"> · ${UI.esc(note)}</span>` : ''}</td>
+      <td class="num" style="padding:5px 0">${UI.num(amount)}</td>
+    </tr>`;
 
   UI.modal({
-    title:`Enrollment ${e.no}`, sub:`${name(t)} · ${c?.code}`, wide:true, hideSubmit:true,
+    title:`Booking ${e.no}`, sub:`${name(t)} · ${c ? c.title : ''}`, wide:true, hideSubmit:true,
     footExtra:`
-      ${!inv && e.status !== 'Cancelled' ? `<button type="button" class="btn btn-brass" id="billIt">Generate invoice</button>` : ''}
+      ${!inv && e.status !== 'Cancelled' ? `<button type="button" class="btn btn-brass" id="billIt">Bill this booking</button>` : ''}
       ${inv && bal > 0.004 && can('payments') ? `<button type="button" class="btn btn-accent" id="payIt">Record payment</button>` : ''}
-      ${inv ? `<button type="button" class="btn btn-ghost" id="openInv">Open invoice</button>` : ''}
-      ${e.status !== 'Cancelled' ? `<button type="button" class="btn btn-ghost" id="markResult">Record result</button>` : ''}
-      ${e.status !== 'Cancelled' ? `<button type="button" class="btn btn-danger" id="cancelEnr">Cancel enrollment</button>` : ''}`,
+      ${inv ? `<button type="button" class="btn btn-ghost" id="openInv">Open bill</button>` : ''}
+      ${e.status !== 'Cancelled' ? `<button type="button" class="btn btn-danger" id="cancelEnr">Cancel booking</button>` : ''}`,
     body: `
-      <div class="grid g2">
-        <dl class="def">
-          <dt>Trainee</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}</dd>
-          <dt>Rank / agency</dt><dd>${UI.esc(t?.rank||'—')} · ${UI.esc(t?.agency||'—')}</dd>
-          <dt>Course</dt><dd>${UI.esc(c?.title||'—')}<br><span class="muted">${UI.esc(c?.regulation||'')}</span></dd>
-          <dt>Training date</dt><dd>${e.start ? UI.dateRange(e.start, e.end) : '—'}</dd>
-          <dt>Training center</dt><dd>${UI.esc(e.center || '—')}</dd>
-        </dl>
-        <dl class="def">
-          <dt>Registered</dt><dd>${UI.date(e.date)}</dd>
-          <dt>Status</dt><dd>${UI.statusTag(e.status)}</dd>
-          <dt>Result</dt><dd>${e.result ? UI.statusTag(e.result) : '<span class="muted">Not yet assessed</span>'}</dd>
-          <dt>Certificate</dt><dd class="mono">${UI.esc(e.certificateNo || '—')}</dd>
-          <dt>Instructor</dt><dd>${UI.esc(e.instructor||'—')}</dd>
-          <dt>Venue</dt><dd>${UI.esc(e.room||'—')}</dd>
-        </dl>
-      </div>
-      ${e.remarks ? `<div class="note">${UI.esc(e.remarks)}</div>` : ''}
-      <div class="hr"></div>
-      ${e.fee ? `
-        <h4 style="margin:0 0 8px;font-size:13px">Settlement with ${UI.esc(e.center || 'the training center')}</h4>
-        <div class="grid g3" style="margin-bottom:14px">
-          ${UI.kpi('Payable to the center', UI.peso(e.centerPayable != null ? e.centerPayable : e.fee),
-                   e.deduct ? 'rebate deducted' : 'full fee', '')}
-          ${UI.kpi('Rebate', UI.peso(e.rebate || 0),
-                   e.deduct ? 'taken off the payable' : 'receivable from the center', 'sea')}
-          ${UI.kpi('Margin on this booking', UI.peso(e.rebate || 0),
-                   'earned when the seat was booked', (e.rebate || 0) > 0 ? 'ok' : '')}
-        </div>` : ''}
+      <dl class="def def-tight">
+        <dt>Trainee</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}
+          ${t?.rank ? `<span class="muted">· ${UI.esc(t.rank)}</span>` : ''}</dd>
+        <dt>Course</dt><dd>${UI.esc(c?.title || '—')}
+          ${(c?.modes||[]).length ? `<span class="muted">· ${UI.esc(c.modes.join(' + '))}</span>` : ''}</dd>
+        <dt>Training</dt><dd>${e.start ? UI.dateRange(e.start, e.end) : '—'}
+          ${e.center ? `<span class="muted">· ${UI.esc(e.center)}</span>` : ''}</dd>
+        <dt>Booked</dt><dd>${UI.date(e.date)} · ${UI.statusTag(e.status)}</dd>
+        ${e.remarks ? `<dt>Remarks</dt><dd>${UI.esc(e.remarks)}</dd>` : ''}
+      </dl>
 
-      <h4 style="margin:0 0 8px;font-size:13px">Billing</h4>
-      ${inv ? `
-        <div class="grid g3" style="margin-bottom:12px">
-          ${UI.kpi('Invoice total', UI.peso(inv.total), inv.no, '')}
-          ${UI.kpi('Paid', UI.peso(inv.paid||0), `${D().payments.filter(p => p.invoiceId === inv.id && !p.voided).length} receipt(s)`, 'ok')}
-          ${UI.kpi('Balance', UI.peso(bal), bal > 0.004 ? invStatus(inv) : 'Fully settled', bal > 0.004 ? 'bad' : 'ok')}
-        </div>
+      <div class="hr"></div>
+      <table style="width:100%;font-size:13px">
+        <tbody>
+          ${line('Charged to the trainee', inv ? inv.total : (e.fee || 0), inv ? inv.no : 'not billed yet')}
+          ${inv ? line('Paid', inv.paid || 0, `${receipts.length} receipt(s)`) : ''}
+          ${inv ? line('Left to pay', bal, bal > 0.004 ? invStatus(inv) : 'settled', true) : ''}
+          <tr><td colspan="2" style="border-top:1px solid var(--border);padding-top:6px"></td></tr>
+          ${line(`Owed to ${e.center || 'the center'}`, payable, e.deduct ? 'rebate deducted' : 'full fee')}
+          ${line('Rebate', rebate, e.deduct ? 'off the payable' : 'receivable from the center')}
+          ${line('Our margin', rebate, '', true)}
+        </tbody>
+      </table>
+
+      ${inv ? (receipts.length ? `
+        <div class="hr"></div>
         ${UI.table([
           { h:'OR No.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
           { h:'Date', k:p => UI.date(p.date) },
           { h:'Mode', k:'method' },
           { h:'Reference', k:p => UI.esc(p.ref||'—') },
           { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
-        ], D().payments.filter(p => p.invoiceId === inv.id && !p.voided), { empty:'No payments received yet.' })}`
-      : `<div class="note warn">This enrollment has <b>not been billed</b>. Reserved slots stay off the books until an invoice is generated.</div>`}`
+        ], receipts)}` : '')
+      : `<div class="note warn">Not billed yet — nothing is on the books for this booking.</div>`}`
   });
 
   const on = (id, fn) => { const el = document.getElementById(id); if(el) el.onclick = fn; };
   on('billIt', () => billEnrollment(e));
   on('payIt', () => paymentForm(inv));
   on('openInv', () => invoiceModal(inv));
-  on('markResult', () => resultForm(e));
   on('cancelEnr', () => UI.confirm(
     'Cancel this enrollment?',
     fd => {
@@ -1300,28 +1323,6 @@ function billEnrollment(e){
   });
 }
 
-function resultForm(e){
-  UI.modal({
-    title:'Record assessment result', sub:`${e.no} · ${name(T(e.traineeId))}`,
-    body: `
-      ${UI.f.select('result','Result', e.result || '', ['Passed','Failed'], { blank:'— not yet assessed —' })}
-      ${UI.f.text('certificateNo','Certificate no.', e.certificateNo, { ph:'Issued on passing' })}
-      ${UI.f.select('status','Enrollment status', e.status, ['Enrolled','Completed','Dropped'])}
-      ${UI.f.area('remarks','Remarks', e.remarks)}`,
-    submitLabel:'Save result',
-    onSubmit: fd => {
-      Object.assign(e, fd);
-      if(fd.result === 'Passed' && !fd.certificateNo){
-        e.certificateNo = `TBM-${CRS(e.courseId).code}-${String(9000 + D().enrollments.length).padStart(4,'0')}`;
-      }
-      DB.activity('Recorded result', `${e.no} — ${fd.result || 'cleared'}`);
-      UI.toast('Result recorded.');
-      refresh();
-    }
-  });
-}
-
-/* ----- invoice ----- */
 function invoiceModal(inv){
   ACC.recomputeInvoice(inv);
   const t = T(inv.traineeId), e = ENR(inv.enrollmentId), c = e && CRS(e.courseId);
