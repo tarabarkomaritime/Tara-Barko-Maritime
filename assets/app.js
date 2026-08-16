@@ -337,10 +337,10 @@ VIEWS.trainees = () => {
    the code the office uses for it, how long it runs, how it is delivered, which
    partner center runs it, what it costs and what the rebate on it is.
 
-   "Deduct" decides what the trainee is charged. A rebate that is deducted comes
-   off the price they pay; one that is not is the endorsement margin, recorded
-   against the booking but never shown to them. Getting that switch wrong
-   overcharges or undercharges a seafarer, so it is a column, not a footnote. */
+   "Deduct" decides what we remit to the center, never what the trainee is
+   charged. Deducted, the rebate comes off the payable; not deducted, we pay the
+   full fee and the center settles the rebate separately. Getting that switch
+   wrong misstates what we owe a partner, so it is a column, not a footnote. */
 VIEWS.courses = () => {
   const q = (state.q.crs || '').toLowerCase();
   const all = D().courses;
@@ -1219,8 +1219,6 @@ function enrollmentModal(e){
   const t = T(e.traineeId), c = CRS(e.courseId), inv = invOf(e.id);
   const bal = inv ? ACC.balanceOf(ACC.recomputeInvoice(inv)) : 0;
   const receipts = D().payments.filter(p => p.invoiceId === (inv && inv.id) && !p.voided);
-  const payable = e.centerPayable != null ? e.centerPayable : (e.fee || 0);
-  const rebate = e.rebate || 0;
 
   /* One row of the money report: label, figure, and a note only where the
      figure needs explaining. */
@@ -1256,10 +1254,6 @@ function enrollmentModal(e){
           ${line('Charged to the trainee', inv ? inv.total : (e.fee || 0), inv ? inv.no : 'not billed yet')}
           ${inv ? line('Paid', inv.paid || 0, `${receipts.length} receipt(s)`) : ''}
           ${inv ? line('Left to pay', bal, bal > 0.004 ? invStatus(inv) : 'settled', true) : ''}
-          <tr><td colspan="2" style="border-top:1px solid var(--border);padding-top:6px"></td></tr>
-          ${line(`Owed to ${e.center || 'the center'}`, payable, e.deduct ? 'rebate deducted' : 'full fee')}
-          ${line('Rebate', rebate, e.deduct ? 'off the payable' : 'receivable from the center')}
-          ${line('Our margin', rebate, '', true)}
         </tbody>
       </table>
 
