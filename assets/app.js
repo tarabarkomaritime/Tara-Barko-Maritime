@@ -2657,7 +2657,10 @@ function amountInWords(n){
 
 /* ----- expenses & journal ----- */
 function expenseForm(){
-  const exp = D().accounts.filter(a => a.type === 'Expense');
+  /* The system accounts are left out. Training Center Fees is charged when a
+     booking is made and settled from Payables — a hand-written voucher against
+     it would post the cost of a seat twice. */
+  const exp = D().accounts.filter(a => a.type === 'Expense' && !DB.SYSTEM_ACCOUNTS.includes(a.code));
   UI.modal({
     title:'Disbursement voucher', sub:'Records the expense and credits cash automatically',
     body: `

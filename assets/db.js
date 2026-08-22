@@ -24,13 +24,16 @@ const DB = (() => {
        own line so the month's sales can be read without it. */
     { code:'4300', name:'Overpayments',            type:'Revenue',   nature:'credit' },
     { code:'4900', name:'Discounts Given',         type:'Revenue',   nature:'debit'  }, // contra-revenue
-    { code:'5000', name:'Instructor Fees',         type:'Expense',   nature:'debit'  },
+    /* 5050 is not a category anybody picks: a seat at a center is charged here
+       automatically when the booking is made, and settled from the Payables
+       tab. It is a system account and the voucher form leaves it out. */
     { code:'5050', name:'Training Center Fees',    type:'Expense',   nature:'debit'  },
-    { code:'5100', name:'Training Materials',      type:'Expense',   nature:'debit'  },
-    { code:'5200', name:'Rent & Utilities',        type:'Expense',   nature:'debit'  },
-    { code:'5300', name:'Salaries & Wages',        type:'Expense',   nature:'debit'  },
-    { code:'5400', name:'Regulatory & Permits',    type:'Expense',   nature:'debit'  },
-    { code:'5900', name:'Miscellaneous Expense',   type:'Expense',   nature:'debit'  },
+    /* What a disbursement voucher may be charged to. The admin maintains this
+       list in Settings — these four are where the office starts. */
+    { code:'5100', name:'Office Supplies',         type:'Expense',   nature:'debit'  },
+    { code:'5200', name:'Salary / Wages',          type:'Expense',   nature:'debit'  },
+    { code:'5300', name:'Government',              type:'Expense',   nature:'debit'  },
+    { code:'5400', name:'Food and Drinks',         type:'Expense',   nature:'debit'  },
   ];
 
   /* Accounts the system posts to itself. The admin may rename these but not
@@ -173,6 +176,27 @@ const DB = (() => {
        not exist in an older store. */
     if(d.accounts && !d.accounts.some(a => a.code === '4300')){
       d.accounts.push({ code:'4300', name:'Overpayments', type:'Revenue', nature:'credit' });
+    }
+    /* The expense categories were rewritten to the four the office actually
+       uses. An account with history keeps its name and its balance — renaming
+       it would relabel entries that were posted under the old one — but the
+       ones nothing was ever charged to are dropped so the voucher form is not
+       still offering them. */
+    if(d.accounts && d.journal){
+      const CATS = [
+        { code:'5100', name:'Office Supplies' },
+        { code:'5200', name:'Salary / Wages' },
+        { code:'5300', name:'Government' },
+        { code:'5400', name:'Food and Drinks' },
+      ];
+      const posted = code => d.journal.some(j => j.lines.some(l => l.account === code));
+      d.accounts = d.accounts.filter(a =>
+        a.type !== 'Expense' || a.code === '5050' || posted(a.code) || CATS.some(c => c.code === a.code));
+      CATS.forEach(c => {
+        if(!d.accounts.some(a => a.code === c.code)){
+          d.accounts.push({ code:c.code, name:c.name, type:'Expense', nature:'debit' });
+        }
+      });
     }
     d.expenses     = d.expenses || [];
     d.refunds      = d.refunds || [];
@@ -555,13 +579,13 @@ const DB = (() => {
       data.expenses.push(v);
       ACC.postExpense(v);
     };
-    EX(dOff(-28),'Capt. R. Villanueva','5000',12000,'Instructor honorarium — BASIC TRAINING run','Bank');
-    EX(dOff(-26),'Seatech Supplies Inc.','5100',5450,'Lifejackets, flares and training consumables','Cash');
-    EX(dOff(-25),'Kalaw Realty Corp.','5200',22000,'Office and training room rent','Bank');
-    EX(dOff(-20),'Payroll','5300',18000,'Administrative staff salaries','Bank');
-    EX(dOff(-15),'City of Manila','5400',6500,'Business permit and licence renewal','Cash');
-    EX(dOff(-9), 'Dr. L. Sarmiento','5000',8000,'Instructor honorarium — MEFA run','Bank');
-    EX(dOff(-4), 'Meralco / Maynilad','5200',4800,'Electricity and water','Bank');
+    EX(dOff(-28),'National Book Store','5100',3450,'Bond paper, ink and folders','Cash');
+    EX(dOff(-26),'Payroll','5200',18000,'Administrative staff salaries','Bank');
+    EX(dOff(-25),'City of Manila','5300',6500,'Business permit and licence renewal','Cash');
+    EX(dOff(-20),'Kalaw Catering','5400',4200,'Lunch and snacks — BASIC TRAINING run','Cash');
+    EX(dOff(-15),'MARINA','5300',2800,'Accreditation filing fee','Bank');
+    EX(dOff(-9), 'Ermita Office Depot','5100',1950,'Printer toner and binder clips','Cash');
+    EX(dOff(-4), 'Aling Nena Carinderia','5400',1600,'Meals for the assessment day','Cash');
 
     /* People who registered on the public portal and have not been booked on
        anything yet. There is no approval queue any more: a public registration
