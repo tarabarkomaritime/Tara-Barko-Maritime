@@ -708,18 +708,42 @@ VIEWS.expenses = () => {
 const PAY_STATES = ['Enrolled','Completed'];
 
 /* One row per booking that still owes a center something. A booking leaves this
-   list when a voucher names it, and comes back if that voucher is rejected. */
+   list once nothing is left on it, and comes back if the voucher that covered
+   it is rejected.
+
+   Three numbers per booking, and they are not the same number:
+
+     fee        what the seat costs us. On a deduct course the rebate is already
+                out of it — that is the whole of what deduct means, and it is
+                settled once, here.
+     collected  what the trainee has handed over against their bill.
+     remittable what a voucher may pay right now: the collected money, capped at
+                what the seat owes, less whatever has already been sent.
+
+   The cap is why a rebate is never taken off a payment twice, and the collected
+   figure is why a seat the trainee has only part-paid is never remitted in
+   full. */
 function openPayables(){
   return D().enrollments
     .filter(e => e.center && !e.remitNo && PAY_STATES.includes(e.status))
-    .map(e => ({
-      e,
-      center:e.center,
-      payable:ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee),
-      rebate:ACC.r2(e.rebate || 0),
-      receivable:ACC.r2(e.rebateReceivable || 0),
-      deduct:!!e.deduct,
-    }))
+    .map(e => {
+      const fee  = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
+      const sent = ACC.r2(e.centerPaid || 0);
+      const inv  = invOf(e.id);
+      const collected = inv ? ACC.r2(ACC.recomputeInvoice(inv).paid || 0) : 0;
+      return {
+        e,
+        center:e.center,
+        fee,
+        sent,
+        collected,
+        payable:ACC.r2(fee - sent),
+        remittable:ACC.r2(Math.min(collected, fee) - sent),
+        rebate:ACC.r2(e.rebate || 0),
+        receivable:ACC.r2(e.rebateReceivable || 0),
+        deduct:!!e.deduct,
+      };
+    })
     .filter(r => r.payable > 0);
 }
 
@@ -738,10 +762,12 @@ function payablesByCenter(from, to){
        that owes one amount, however the row happened to be typed. */
     const key = r.center.toUpperCase();
     const m = map[key] || (map[key] = {
-      key, center:r.center, rows:[], payable:0, rebateDeducted:0, receivable:0, oldest:'9999-12-31',
+      key, center:r.center, rows:[], payable:0, remittable:0,
+      rebateDeducted:0, receivable:0, oldest:'9999-12-31',
     });
     m.rows.push(r);
     m.payable = ACC.r2(m.payable + r.payable);
+    m.remittable = ACC.r2(m.remittable + Math.max(0, r.remittable));
     if(r.deduct) m.rebateDeducted = ACC.r2(m.rebateDeducted + r.rebate);
     m.receivable = ACC.r2(m.receivable + r.receivable);
     if(when && when < m.oldest) m.oldest = when;
@@ -795,12 +821,10 @@ VIEWS.payables = () => {
          bill. The office reads this before deciding what to remit: a center
          being paid for a seat the trainee has not paid for is money out ahead
          of money in, and that is a decision, not an oversight. */
-      { h:'Trainee paid', k:r => {
-          const inv = invOf(r.e.id);
-          if(!inv) return '<span class="muted">—</span>';
-          ACC.recomputeInvoice(inv);
-          return UI.num(inv.paid || 0);
-        }, cls:'numc' },
+      /* The same figure the voucher pays from, so the two screens cannot
+         disagree about what has come in. */
+      { h:'Trainee paid', k:r => invOf(r.e.id) ? UI.num(r.collected) : '<span class="muted">—</span>',
+        cls:'numc' },
       { h:'Payment', k:r => {
           const inv = invOf(r.e.id);
           if(!inv) return UI.tag('Not billed','muted');
@@ -814,6 +838,7 @@ VIEWS.payables = () => {
     ], c.rows, { foot:['SUBTOTAL', '', '', '', '', UI.num(c.payable)] }), {
       flush:true,
       sub:`${c.rows.length} booking(s) · oldest training ${c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest)}`
+          + ` · ${UI.peso(c.remittable)} collected and ready to remit`
           + (c.receivable ? ` · ${UI.peso(c.receivable)} rebate still to collect` : ''),
       actions:can('payables')
         ? `<button class="btn btn-accent btn-xs" data-act="pay-center"
@@ -890,31 +915,42 @@ function centerVoucherForm(center){
   const whole = payablesByCenter().find(c => c.center.toUpperCase() === key) || group;
   const hidden = whole.rows.length - group.rows.length;
 
-  /* A booking is on the voucher or it is not. There is no partial amount to
-     type: what a seat costs is what the center is paid for it. */
+  /* Remitting is what the trainee has paid, capped at what the seat still owes.
+     A seat nobody has paid for cannot go on a voucher at all — there is no money
+     to send — so it is shown and locked rather than hidden, because the debt is
+     still real and the office should see why it cannot pay it yet. */
+  const ready = r => r.remittable > 0.004;
   const row = (r,i) => `
-    <tr>
-      <td style="padding:4px 0"><label style="display:flex;gap:8px;align-items:center;cursor:pointer">
-        <input type="checkbox" name="pick${i}" value="${r.e.id}" checked style="width:auto;margin:0">
+    <tr${ready(r) ? '' : ' style="opacity:.55"'}>
+      <td style="padding:4px 0"><label style="display:flex;gap:8px;align-items:center;${ready(r) ? 'cursor:pointer' : ''}">
+        <input type="checkbox" name="pick${i}" value="${r.e.id}" ${ready(r) ? 'checked' : 'disabled'} style="width:auto;margin:0">
         <span>${UI.esc(name(T(r.e.traineeId)))}</span></label></td>
       <td class="muted" style="padding:4px 0">${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
       <td class="muted" style="padding:4px 0">${r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—'}</td>
+      <td class="num" style="padding:4px 0">${UI.num(r.collected)}</td>
       <td class="num" style="padding:4px 0">${UI.num(r.payable)}</td>
+      <td class="num" style="padding:4px 0">${ready(r)
+        ? `<b>${UI.num(r.remittable)}</b>`
+        : '<span class="muted">nothing collected</span>'}</td>
     </tr>`;
 
   UI.modal({
     title:`Pay ${center.toUpperCase()}`,
-    sub:`${group.rows.length} booking(s) · ${UI.peso(group.payable)} outstanding`,
+    sub:`${group.rows.length} booking(s) · ${UI.peso(group.payable)} outstanding · ${UI.peso(group.remittable)} collected`,
     wide:true,
     body:`
       ${hidden > 0 ? `<div class="note warn">The date filter is hiding ${UI.int(hidden)}
         other outstanding booking(s) for ${UI.esc(key)}, worth
         ${UI.peso(ACC.r2(whole.payable - group.payable))}. They are not on this voucher.
         Clear the dates first if this should settle everything.</div>` : ''}
+      ${group.remittable > 0.004 ? '' : `<div class="note warn">Nothing has been collected
+        against these bookings yet, so there is nothing to remit. Take the trainees'
+        payments first — the voucher pays what has actually come in.</div>`}
       <table style="width:100%;font-size:12.5px;margin-bottom:12px">
         <thead><tr>
           <th style="text-align:left">Trainee</th><th style="text-align:left">Course</th>
-          <th style="text-align:left">Training</th><th class="num">Fee</th>
+          <th style="text-align:left">Training</th><th class="num">Trainee paid</th>
+          <th class="num">Owed</th><th class="num">Remitting</th>
         </tr></thead>
         <tbody>${group.rows.map(row).join('')}</tbody>
       </table>
@@ -930,9 +966,9 @@ function centerVoucherForm(center){
       <div id="voucherTotal"></div>`,
     submitLabel:'Post voucher',
     onSubmit: fd => {
-      const picked = group.rows.filter((r,i) => fd['pick'+i]);
-      if(!picked.length){ UI.toast('Choose at least one booking to pay.', 'bad'); return false; }
-      const amount = ACC.r2(picked.reduce((s,r) => s + r.payable, 0));
+      const picked = group.rows.filter((r,i) => fd['pick'+i] && r.remittable > 0.004);
+      if(!picked.length){ UI.toast('Choose at least one booking with money collected against it.', 'bad'); return false; }
+      const amount = ACC.r2(picked.reduce((s,r) => s + r.remittable, 0));
       if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
         UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
       }
@@ -947,16 +983,20 @@ function centerVoucherForm(center){
         particulars:(fd.particulars || `Remittance To ${center}`).trim(),
         method:fd.method, ref:String(fd.ref||'').trim(),
         amount, bookings:picked.map(r => r.e.id),
-        /* What each booking was paid on this voucher, so the document still
-           prints the right figure if a course price is edited afterwards. */
-        lines:picked.map(r => ({ id:r.e.id, amount:r.payable })),
+        /* What each booking is being paid on this voucher. A seat the trainee
+           has only part-paid contributes only that part, so the document prints
+           what actually left rather than what the seat costs. */
+        lines:picked.map(r => ({ id:r.e.id, amount:r.remittable })),
       };
       D().expenses.push(v);
-      /* The money is committed straight away so a second voucher cannot be
-         raised for the same amount while this one waits. A booking is only
-         closed once nothing is left on it. Nothing has posted: approval does
-         that. */
-      picked.forEach(r => { r.e.remitNo = v.no; r.e.remitDate = v.date; });
+      /* Committed straight away so a second voucher cannot be raised for the
+         same money while this one waits. A booking only closes once the whole
+         seat has been sent; part-paid seats stay on the list for the rest.
+         Nothing has posted yet: approval does that. */
+      picked.forEach(r => {
+        r.e.centerPaid = ACC.r2((r.e.centerPaid || 0) + r.remittable);
+        if(r.e.centerPaid >= r.fee - 0.004){ r.e.remitNo = v.no; r.e.remitDate = v.date; }
+      });
 
       DB.activity('Raised remittance', `${v.no} · ${center} · ${UI.peso(amount)}`);
       DB.save();
@@ -970,7 +1010,7 @@ function centerVoucherForm(center){
   const form = document.getElementById('mForm');
   const ticked = (r,i) => form['pick'+i] && form['pick'+i].checked;
   const total = () => {
-    const sum = group.rows.reduce((s,r,i) => s + (ticked(r,i) ? r.payable : 0), 0);
+    const sum = group.rows.reduce((s,r,i) => s + (ticked(r,i) ? r.remittable : 0), 0);
     const n = group.rows.filter(ticked).length;
     document.getElementById('voucherTotal').innerHTML = `
       <div style="display:flex;justify-content:flex-end">
@@ -1096,7 +1136,11 @@ function approveDoc(kind, id, ok, note){
     if(kind === 'expenses' && rec.kind === 'remittance'){
       (rec.bookings || []).forEach(id => {
         const e = ENR(id);
-        if(e && e.remitNo === rec.no){ delete e.remitNo; delete e.remitDate; }
+        if(!e) return;
+        const l = (rec.lines || []).find(x => x.id === id);
+        const back = l ? l.amount : (e.centerPayable != null ? e.centerPayable : e.fee);
+        e.centerPaid = ACC.r2(Math.max(0, (e.centerPaid || 0) - back));
+        if(e.remitNo === rec.no){ delete e.remitNo; delete e.remitDate; }
       });
     }
     rec.decidedBy = SESSION.name; rec.decidedOn = DB.today(); rec.decisionNote = note || '';
