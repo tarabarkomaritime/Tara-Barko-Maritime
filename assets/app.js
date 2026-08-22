@@ -615,9 +615,13 @@ function rebatesDue(){
       amount:ACC.r2(e.rebateReceivable),
       received:!!e.rebateReceivedOn,
     }))
-    .sort((a,b) => (a.received - b.received)
-      || String(a.e.start || '').localeCompare(String(b.e.start || ''))
-      || a.center.localeCompare(b.center));
+    /* Grouped under the center, because a rebate is chased one center at a
+       time — you ring PNTC about everything PNTC owes, not about one seafarer.
+       Inside a center the ones still outstanding come first, oldest training
+       first, which is the order they should be asked for in. */
+    .sort((a,b) => a.center.localeCompare(b.center)
+      || (a.received - b.received)
+      || String(a.e.start || '').localeCompare(String(b.e.start || '')));
 }
 
 /* Banking one. Once it is in, it is a fact rather than a plan: the entry is
@@ -677,7 +681,12 @@ VIEWS.payments = () => {
   const col = ACC.collections(from, to);
   const methods = Object.entries(col.byMethod).map(([m,v],i) =>
     ({ label:m, value:v, color:['#1d4571','#0f7b8a','#c9a227','#12805c','#7a8aa3'][i%5] }));
-  const rebates = rebatesDue();
+  const allRebates = rebatesDue();
+  /* Every center that owes a rebate stays in the picker whatever is selected —
+     a filter that empties its own control cannot be undone. */
+  const rebCenters = [...new Set(allRebates.map(r => r.center))].sort();
+  const rebPick = state.q.rebCenter || '';
+  const rebates = allRebates.filter(r => !rebPick || r.center === rebPick);
   const dueRebates    = ACC.r2(rebates.filter(r => !r.received).reduce((s,r) => s + r.amount, 0));
   const bankedRebates = ACC.r2(rebates.filter(r =>  r.received).reduce((s,r) => s + r.amount, 0));
 
@@ -719,9 +728,17 @@ VIEWS.payments = () => {
               : (can('payments')
                   ? `<button class="btn btn-accent btn-xs" data-act="receive-rebate" data-id="${r.e.id}">Receive</button>`
                   : '<span class="muted">—</span>'), w:'110px' },
-        ], rebates, { empty:'No rebate is owed by a center — every booking either deducts it or has been settled.' }),
+        ], rebates, { empty:rebPick
+            ? `Nothing recorded against ${rebPick}.`
+            : 'No rebate is owed by a center — every booking either deducts it or has been settled.' }),
           { flush:true,
-            sub:`${UI.peso(dueRebates)} still to collect${bankedRebates ? ` · ${UI.peso(bankedRebates)} already received` : ''}` })}</div>
+            sub:`${UI.peso(dueRebates)} still to collect${bankedRebates ? ` · ${UI.peso(bankedRebates)} already received` : ''}`
+                + (rebPick ? ` · ${rebPick}` : ''),
+            actions:rebCenters.length > 1 ? `
+              <select data-q="rebCenter" style="min-width:200px;font-size:12.5px">
+                <option value="">All training centers</option>
+                ${rebCenters.map(c => `<option value="${UI.esc(c)}" ${c === rebPick ? 'selected' : ''}>${UI.esc(c)}</option>`).join('')}
+              </select>` : '' })}</div>
       <div>
         ${UI.card('Collections This Period', `
           <div class="kpi" style="border:none;box-shadow:none;padding:0;margin-bottom:14px">
