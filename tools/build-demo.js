@@ -16,7 +16,11 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const ASSETS = path.join(ROOT, 'assets');
-const read = f => fs.readFileSync(path.join(ASSETS, f), 'utf8');
+/* Line endings are normalised on the way in. Git rewrites them on checkout, and
+   every marker below is written with newlines — a CRLF working copy would fail
+   the build for no reason a reader could see. */
+const lf = s => s.split('\r\n').join('\n');
+const read = f => lf(fs.readFileSync(path.join(ASSETS, f), 'utf8'));
 const out = process.argv[2] || path.join(ROOT, 'tara-barko-demo.html');
 
 const problems = [];
@@ -57,7 +61,7 @@ must(codes.length === 3, `three access codes (found ${codes.length})`);
 db = db.replace(USER_CODE, "$1code:''");
 
 /* ---------- the page ---------- */
-let html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+let html = lf(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'));
 const logo = 'data:image/svg+xml;base64,'
   + Buffer.from(read('logo.svg'), 'utf8').toString('base64');
 

@@ -303,7 +303,28 @@ const DB = (() => {
   /* The public portal writes into the same store from a second tab. Re-reading
      before a write keeps the registrar's screen from clobbering a fresh application. */
   function reload(){ data = null; return load(); }
-  function save(){ localStorage.setItem(KEY, JSON.stringify(data)); return data; }
+  /* Storage can refuse: private browsing, a full quota, or a frame with no
+     origin to store against. load() already tolerated that; save() did not, so
+     the very first save on a fresh store threw and took the sign-in list with
+     it — an empty user picker and a Sign in button that did nothing. The
+     records now live in memory instead, which keeps the session usable, and
+     the office is told once that nothing is being kept. */
+  let storageToasted = false, storageLogged = false;
+  function save(){
+    try{ localStorage.setItem(KEY, JSON.stringify(data)); }
+    catch(e){
+      const msg = 'This browser will not let the system save. You can work normally, '
+        + 'but nothing will be there when the page is closed.';
+      /* The first failure happens while the store is being seeded, before ui.js
+         has loaded, so it can only reach the console. Keep offering it until
+         there is a screen to put it on — sign-in saves again, which is the
+         first moment anybody is there to read it. */
+      if(typeof UI !== 'undefined' && UI.toast){
+        if(!storageToasted){ storageToasted = true; UI.toast(msg, 'bad'); }
+      }else if(!storageLogged){ storageLogged = true; console.warn('Tara Barko: ' + msg); }
+    }
+    return data;
+  }
   function get(){ return data || load(); }
 
   function reset(withSeed){
