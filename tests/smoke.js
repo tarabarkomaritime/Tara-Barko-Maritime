@@ -429,11 +429,64 @@ check('the public portal never lists the catalogue', () =>
 check('the public portal formats no money', () =>
   !/UI\.peso|\bpeso\s*\(/.test(publicSrc) || 'register.js formats an amount');
 
+console.log('\n- a trainee who pays too much -');
+/* The counter takes what is handed over. The bill is the charge; the payment is
+   the money. Conflating them either turns a trainee away or writes down a figure
+   that is not what is in the drawer. */
+run(`globalThis.OVER = (() => {
+  const t = DB.get().trainees[0];
+  const inv = { id:'inv-over', no:'INV-OVER', traineeId:t.id, enrollmentId:null, date:DB.today(),
+                items:[], subtotal:2000, discount:0, total:2000, paid:0, status:'Unpaid', voided:false };
+  DB.get().invoices.push(inv);
+  const p = ACC.buildPayment({ invoiceId:inv.id, traineeId:t.id, date:DB.today(),
+                               tenders:[{ method:'Cash', ref:'', amount:2500 }] });
+  DB.get().payments.push(p);
+  const je = ACC.postPayment(p, inv);
+  return { t, inv, p, je };
+})()`);
+
+check('an overpayment is taken, not refused', () =>
+  run('OVER.p.amount') === 2500 || 'the receipt was written for ' + run('OVER.p.amount'));
+check('the bill is settled and never goes below zero', () =>
+  (run('ACC.balanceOf(OVER.inv)') === 0) || 'balance ' + run('ACC.balanceOf(OVER.inv)'));
+check('the excess is held as trainee credit', () =>
+  (run('ACC.creditOn(OVER.inv)') === 500 && run('ACC.creditBalance(OVER.t.id)') >= 500)
+  || 'creditOn ' + run('ACC.creditOn(OVER.inv)'));
+check('receivables are credited only as far as the bill was owed', () => {
+  const l = run('OVER.je.lines').find(x => x.account === '1200');
+  return (l && l.credit === 2000) || JSON.stringify(run('OVER.je.lines'));
+});
+check('the excess lands in Trainee Credits, not in receivables', () => {
+  const l = run('OVER.je.lines').find(x => x.account === '2210');
+  return (l && l.credit === 500) || JSON.stringify(run('OVER.je.lines'));
+});
+check('the whole amount received hits cash', () => {
+  const l = run('OVER.je.lines').find(x => x.account === '1000');
+  return (l && l.debit === 2500) || JSON.stringify(run('OVER.je.lines'));
+});
+check('the books still balance after an overpayment', () => {
+  const tb = run('ACC.trialBalance(DB.today())');
+  return Math.abs(tb.totalDr - tb.totalCr) < 0.01 || `${tb.totalDr} vs ${tb.totalCr}`;
+});
+/* Refunding a credit has to reduce the credit. It once only netted against the
+   cancelled-booking half, which left an overpayment refundable again and again. */
+check('refunding an overpayment reduces what is left to refund', () => {
+  const t = run('OVER.t.id');
+  const before = run(`ACC.creditBalance('${t}')`);
+  run(`DB.get().refunds.push({ id:'ref-over', no:'RF-OVER', date:DB.today(), traineeId:'${t}',
+    amount:200, method:'Cash', state:'Approved' })`);
+  const after = run(`ACC.creditBalance('${t}')`);
+  return (Math.round((before - after) * 100) / 100 === 200) || `${before} -> ${after}`;
+});
+
 console.log('\n- money out waits for approval -');
-check('a refund posts against receivables, not against revenue', () => {
+/* A refund hands back money we were holding, so it discharges the credit. Not
+   revenue — the training was never sold twice. Not receivables either: debiting
+   that would say the trainee now owes us what we just gave them. */
+check('a refund discharges the trainee credit, not revenue or receivables', () => {
   run('globalThis.RF = { id:"ref-t", no:"RF-TEST", date:DB.today(), amount:1200, method:"Cash", reason:"test" }');
   const je = run('ACC.postRefund(RF)');
-  return (je.lines[0].account === '1200' && je.lines[0].debit === 1200
+  return (je.lines[0].account === '2210' && je.lines[0].debit === 1200
     && je.lines[1].account === '1000' && je.lines[1].credit === 1200) || JSON.stringify(je.lines);
 });
 check('it never touches a revenue account', () =>

@@ -15,6 +15,10 @@ const DB = (() => {
     { code:'1250', name:'Rebates Receivable',      type:'Asset',     nature:'debit'  },
     { code:'2000', name:'Payable to Training Centers', type:'Liability', nature:'credit' },
     { code:'2200', name:'Unearned Training Fees',  type:'Liability', nature:'credit' },
+    /* Money a trainee has handed over beyond what their bill asked for. Ours
+       to hold, not ours to keep: it goes against their next booking or comes
+       back to them as a refund. */
+    { code:'2210', name:'Trainee Credits',         type:'Liability', nature:'credit' },
     { code:'3000', name:"Owner's Equity",          type:'Equity',    nature:'credit' },
     { code:'4000', name:'Training Fees Revenue',   type:'Revenue',   nature:'credit' },
     { code:'4100', name:'Assessment & Other Fees', type:'Revenue',   nature:'credit' },
@@ -32,7 +36,7 @@ const DB = (() => {
   /* Accounts the system posts to itself. The admin may rename these but not
      delete them: remove one and a booking, a remittance or a refund would have
      nowhere to land. */
-  const SYSTEM_ACCOUNTS = ['1000','1010','1020','1200','1250','2000','4000','4100','4200','4900','5050'];
+  const SYSTEM_ACCOUNTS = ['1000','1010','1020','1200','1250','2000','2210','4000','4100','4200','4900','5050'];
 
 
   /* Accounts are maintained by the admin in Settings. `code` is the sign-in
@@ -165,6 +169,11 @@ const DB = (() => {
      collection gets a default here rather than a version-bump migration script. */
   function migrate(d){
     d.applications = d.applications || [];
+    /* Overpayment used to land in receivables; the account it belongs in may
+       not exist in an older store. */
+    if(d.accounts && !d.accounts.some(a => a.code === '2210')){
+      d.accounts.push({ code:'2210', name:'Trainee Credits', type:'Liability', nature:'credit' });
+    }
     d.expenses     = d.expenses || [];
     d.refunds      = d.refunds || [];
     if(d.seq && d.seq.refund == null) d.seq.refund = d.refunds.length;

@@ -69,6 +69,13 @@ body{
    column being totted up, so there is no decimal point to line up on. */
 .numc{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap}
 
+/* One tender: the mode, the amount, the reference. Three fields the width of
+   what they hold rather than the width of the dialog — a mode picker as wide as
+   a page reads as the most important thing on it, and it is not. */
+.tender-row{display:grid;grid-template-columns:150px 150px minmax(0,1fr);gap:8px;margin-bottom:8px}
+.tender-row .t-amt{text-align:right;font-family:var(--mono)}
+@media(max-width:560px){ .tender-row{grid-template-columns:1fr 1fr;} .tender-row .t-ref{grid-column:1/-1} }
+
 /* ---------- Login ---------- */
 .login-screen{
   position:fixed;inset:0;display:grid;place-items:center;padding:20px;

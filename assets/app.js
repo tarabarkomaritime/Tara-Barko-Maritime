@@ -1239,7 +1239,8 @@ VIEWS.refunds = () => {
       { h:'Mobile', k:x => UI.esc(x.t.mobile || '—') },
       { h:'Credit', k:x => `<b>${UI.num(x.credit)}</b>`, cls:'num' },
       { h:'', k:x => `<button class="btn btn-accent btn-xs" data-act="refund-trainee" data-id="${x.t.id}">Refund</button>`, w:'110px' },
-    ], held), { flush:true, sub:'Paid to us on bookings that were cancelled' }) : ''}
+    ], held), { flush:true,
+        sub:'Paid on bookings that were cancelled, or handed over beyond what the bill asked for' }) : ''}
 
     <div style="height:18px"></div>
     ${UI.card('Refunds', UI.table([
@@ -2287,6 +2288,8 @@ function invoiceModal(inv){
         ${inv.discount ? `<tr><td>Less: Discount</td><td class="num">(${UI.num(inv.discount)})</td></tr>` : ''}
         <tr class="grand"><td>TOTAL AMOUNT DUE</td><td class="num">${UI.peso(inv.total)}</td></tr>
         <tr><td>Payments Received</td><td class="num">(${UI.num(inv.paid||0)})</td></tr>
+        ${ACC.creditOn(inv) > 0.004 ? `<tr><td>Held As Trainee Credit</td>
+            <td class="num">(${UI.num(ACC.creditOn(inv))})</td></tr>` : ''}
         <tr class="grand"><td>BALANCE</td><td class="num">${UI.peso(bal)}</td></tr>
       </table></div>
       ${pays.length ? `<div class="hr"></div><h4 style="margin:0 0 6px;font-size:13px">Payments Applied</h4>
@@ -2352,7 +2355,8 @@ function paymentForm(inv){
             : UI.f.select('invoiceId','Apply to invoice','', open.map(i =>
                 ({ v:i.id, l:`${i.no} · ${name(T(i.traineeId))} · balance ${UI.peso(ACC.balanceOf(i))}` })), { req:true, blank:'— select invoice —' })}
 
-      ${UI.f.text('note','Notes','')}
+      ${UI.f.text('note','Notes','', { attr:'style="max-width:360px"',
+                                       ph:'what this payment is for, if it needs saying' })}
       <p class="muted" style="margin:-6px 0 4px;font-size:12px">Received today,
          ${UI.date(DB.today())} — an acknowledgement receipt carries the date it is issued.</p>
 
@@ -2387,9 +2391,12 @@ function paymentForm(inv){
       if(!tenders.length){ UI.toast('Enter how much was received.', 'bad'); return false; }
 
       const amt = ACC.r2(tenders.reduce((s,t) => s + t.amount, 0));
-      const due = ACC.balanceOf(ACC.recomputeInvoice(target));
       if(amt <= 0){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
-      if(amt - due > 0.004){ UI.toast(`Amount exceeds the balance of ${UI.peso(due)}.`, 'bad'); return false; }
+      /* More than the bill asks for is not an error. The bill is the charge;
+         this is the money that came in. Refusing it would mean either turning a
+         trainee away at the counter or writing down a figure that is not what
+         is in the drawer, and the second one is how a cash count stops
+         matching the books. The excess is held as their credit. */
 
       const p = ACC.buildPayment({ invoiceId:target.id, traineeId:target.traineeId,
                                    date:DB.today(), tenders, note:fd.note });
@@ -2431,7 +2438,9 @@ function paymentForm(inv){
     const due = dueNow(), amt = tendered();
     const box = document.getElementById('payWarn');
     box.innerHTML = !amt ? ''
-      : amt - due > 0.004 ? `<div class="note bad">Amount exceeds the balance of ${UI.peso(due)}.</div>`
+      : amt - due > 0.004 ? `<div class="note warn">Settles this bill in full and leaves
+          <b>${UI.peso(ACC.r2(amt - due))}</b> over. The excess is held as trainee credit —
+          it can go against their next booking, or be refunded.</div>`
       : amt < due ? `<div class="note warn">Part payment of <b>${UI.peso(amt)}</b>.
           Balance after this receipt: <b>${UI.peso(ACC.r2(due - amt))}</b>.</div>`
       : `<div class="note"><b>Full settlement of ${UI.peso(amt)}.</b> This invoice will be marked Paid.</div>`;
@@ -2487,9 +2496,15 @@ function receiptModal(p){
       </dl>
       <div class="doc-total"><table>
         <tr><td>Amount Received</td><td class="num">${UI.num(p.amount)}</td></tr>
-        ${inv ? `<tr><td>Invoice Total</td><td class="num">${UI.num(inv.total)}</td></tr>
-                 <tr><td>Total Paid To Date</td><td class="num">${UI.num(inv.paid||0)}</td></tr>
-                 <tr class="grand"><td>REMAINING BALANCE</td><td class="num">${UI.peso(ACC.balanceOf(ACC.recomputeInvoice(inv)))}</td></tr>` : ''}
+        ${inv ? (() => {
+          ACC.recomputeInvoice(inv);
+          const over = ACC.creditOn(inv);
+          return `<tr><td>Invoice Total</td><td class="num">${UI.num(inv.total)}</td></tr>
+            <tr><td>Total Paid To Date</td><td class="num">${UI.num(inv.paid||0)}</td></tr>
+            ${over > 0.004 ? `<tr><td>Applied To This Bill</td><td class="num">${UI.num(inv.total)}</td></tr>
+              <tr><td>Held As Trainee Credit</td><td class="num">${UI.num(over)}</td></tr>` : ''}
+            <tr class="grand"><td>REMAINING BALANCE</td><td class="num">${UI.peso(ACC.balanceOf(inv))}</td></tr>`;
+        })() : ''}
       </table></div>
       ${p.note ? `<div class="note" style="margin-top:14px">${UI.esc(p.note)}</div>` : ''}
       <div class="doc-sign"><div>Cashier</div><div>Received The Above Amount</div></div>
