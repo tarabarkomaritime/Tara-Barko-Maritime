@@ -601,6 +601,72 @@ VIEWS.invoices = () => {
 };
 
 /* ---------- Payments ---------- */
+/* Rebates on the bookings marked "do not deduct". The center owes us that money
+   separately, so it has to be chased and then banked — until now it was posted
+   as a receivable at booking time and had no way of ever being cleared, which
+   meant 1250 only ever grew. One row per booking, because that is the level the
+   center's statement is written at. */
+function rebatesDue(){
+  return D().enrollments
+    .filter(e => (e.rebateReceivable || 0) > 0)
+    .map(e => ({
+      e,
+      center:String(e.center || '').toUpperCase(),
+      amount:ACC.r2(e.rebateReceivable),
+      received:!!e.rebateReceivedOn,
+    }))
+    .sort((a,b) => (a.received - b.received)
+      || String(a.e.start || '').localeCompare(String(b.e.start || ''))
+      || a.center.localeCompare(b.center));
+}
+
+/* Banking one. Once it is in, it is a fact rather than a plan: the entry is
+   posted and the row locks, so nobody can quietly restate what a center paid or
+   when it arrived. Correcting a mistake means a journal entry, which leaves a
+   trail. */
+function rebateReceiveForm(enrId){
+  const e = ENR(enrId);
+  if(!e){ UI.toast('That booking is gone.', 'bad'); return; }
+  if(e.rebateReceivedOn){ UI.toast('That rebate is already recorded as received.', 'bad'); return; }
+  const amount = ACC.r2(e.rebateReceivable || 0);
+  if(amount <= 0){ UI.toast('Nothing outstanding on that booking.', 'bad'); return; }
+
+  UI.modal({
+    title:'Receive rebate',
+    sub:`${UI.esc(String(e.center||'').toUpperCase())} · ${UI.peso(amount)}`,
+    body:`
+      <div class="note"><b>${UI.esc(name(T(e.traineeId)))}</b><br>
+        ${UI.esc((CRS(e.courseId)||{}).title || '')} · ${UI.esc(e.no)}<br>
+        Rebate owed by ${UI.esc(String(e.center||'').toUpperCase())}: <b>${UI.peso(amount)}</b></div>
+      ${UI.row(UI.f.date('on','Date received', DB.today(), { req:true }),
+               UI.f.select('method','Received in', ACC.methodNames()[0], ACC.methodNames()))}
+      ${UI.f.text('ref','Reference no.','',{ ph:'cheque or transaction no.' })}
+      <div class="note warn">This banks the rebate and clears the receivable. Once
+        recorded it cannot be edited — a correction has to be a journal entry.</div>`,
+    submitLabel:'Mark received',
+    onSubmit: fd => {
+      if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+      const on = fd.on || DB.today();
+      if(on > DB.today()){ UI.toast('A rebate cannot arrive in the future.', 'bad'); return false; }
+
+      e.rebateReceivedOn = on;
+      e.rebateMethod = fd.method;
+      e.rebateRef = String(fd.ref||'').trim();
+      e.rebateReceivedBy = SESSION.name;
+      ACC.postRebateReceipt({
+        date:on, memo:`Rebate received — ${String(e.center||'').toUpperCase()} · ${e.no}`,
+        refNo:e.no, refId:e.id, amount, method:fd.method,
+      });
+      DB.activity('Received rebate', `${e.no} · ${String(e.center||'').toUpperCase()} · ${UI.peso(amount)}`);
+      DB.save();
+      UI.toast(`${UI.peso(amount)} rebate banked.`);
+      refresh();
+    }
+  });
+}
+
 VIEWS.payments = () => {
   const q = (state.q.pay || '').toLowerCase();
   const from = state.q.payFrom || firstOfMonth(), to = state.q.payTo || DB.today();
@@ -611,6 +677,9 @@ VIEWS.payments = () => {
   const col = ACC.collections(from, to);
   const methods = Object.entries(col.byMethod).map(([m,v],i) =>
     ({ label:m, value:v, color:['#1d4571','#0f7b8a','#c9a227','#12805c','#7a8aa3'][i%5] }));
+  const rebates = rebatesDue();
+  const dueRebates    = ACC.r2(rebates.filter(r => !r.received).reduce((s,r) => s + r.amount, 0));
+  const bankedRebates = ACC.r2(rebates.filter(r =>  r.received).reduce((s,r) => s + r.amount, 0));
 
   return `
     <div class="toolbar">
@@ -633,7 +702,26 @@ VIEWS.payments = () => {
         { h:'Amount', k:p => p.voided ? `<s class="muted">${UI.num(p.amount)}</s>` : `<b>${UI.peso(p.amount)}</b>`, cls:'num' },
         { h:'', k:p => p.voided ? UI.tag('Void','muted') : '' },
       ], rows, { empty:'No collections in this period.', rowClass:'clickable',
-                 rowAttrs:p => `data-act="view-receipt" data-id="${p.id}"` }), { flush:true })}</div>
+                 rowAttrs:p => `data-act="view-receipt" data-id="${p.id}"` }), { flush:true })}
+
+        <div style="height:18px"></div>
+        ${UI.card('Rebates From Training Centers', UI.table([
+          { h:'Training center', k:r => `<b>${UI.esc(r.center)}</b>` },
+          { h:'Trainee', k:r => UI.esc(name(T(r.e.traineeId))) },
+          { h:'Course', k:r => UI.esc((CRS(r.e.courseId)||{}).title || '—') },
+          { h:'Training', k:r => r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—' },
+          { h:'Rebate', k:r => `<b>${UI.num(r.amount)}</b>`, cls:'num' },
+          { h:'Received', k:r => r.received
+              ? `${UI.date(r.e.rebateReceivedOn)}<br><span class="muted" style="font-size:11px">${UI.esc(r.e.rebateMethod||'')}${r.e.rebateRef ? ' · ' + UI.esc(r.e.rebateRef) : ''}</span>`
+              : '<span class="muted">—</span>', cls:'center', w:'150px' },
+          { h:'', k:r => r.received
+              ? UI.tag('Received','ok')
+              : (can('payments')
+                  ? `<button class="btn btn-accent btn-xs" data-act="receive-rebate" data-id="${r.e.id}">Receive</button>`
+                  : '<span class="muted">—</span>'), w:'110px' },
+        ], rebates, { empty:'No rebate is owed by a center — every booking either deducts it or has been settled.' }),
+          { flush:true,
+            sub:`${UI.peso(dueRebates)} still to collect${bankedRebates ? ` · ${UI.peso(bankedRebates)} already received` : ''}` })}</div>
       <div>
         ${UI.card('Collections This Period', `
           <div class="kpi" style="border:none;box-shadow:none;padding:0;margin-bottom:14px">
@@ -648,6 +736,7 @@ VIEWS.payments = () => {
             <dt>Cash on hand</dt><dd class="mono">${UI.peso(g('1000'))}</dd>
             <dt>Cash in bank</dt><dd class="mono">${UI.peso(g('1010'))}</dd>
             <dt>Receivables</dt><dd class="mono">${UI.peso(g('1200'))}</dd>
+            <dt>Rebates to collect</dt><dd class="mono">${UI.peso(g('1250'))}</dd>
           </dl>`;
         })())}
       </div>
@@ -2898,6 +2987,7 @@ document.addEventListener('click', ev => {
     'view-invoice':  () => invoiceModal(INV(id)),
     'new-payment':   () => paymentForm(null),
     'view-receipt':  () => receiptModal(PAY(id)),
+    'receive-rebate':() => { ev.stopPropagation(); rebateReceiveForm(id); },
     'new-expense':   () => expenseForm(),
     'new-refund':    () => refundForm(),
     'refund-trainee':() => { ev.stopPropagation(); refundForm(id); },

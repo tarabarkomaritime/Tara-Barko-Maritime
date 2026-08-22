@@ -140,6 +140,23 @@ const ACC = (() => {
     return { entry:post({ date, memo, refType:'Booking', refNo, refId, lines }), ...s };
   }
 
+  /* A center paying back a rebate we did not deduct. The income was recognised
+     when the booking was made — 1250 was debited and 4200 credited then — so
+     this is not income a second time. It only turns a receivable into cash:
+       debit  whichever cash account the money arrived in
+       credit 1250 Rebates Receivable
+     Crediting revenue here instead would count the same rebate twice and
+     overstate the month. */
+  function postRebateReceipt({ date, memo, refNo, refId, amount, method }){
+    return post({
+      date, memo, refType:'Rebate', refNo, refId,
+      lines:[
+        { account:cashAccount(method), debit:r2(amount), credit:0 },
+        { account:'1250', debit:0, credit:r2(amount) },
+      ],
+    });
+  }
+
   /* Paying a training center. The cost went to the books when the seat was
      booked, so remitting is not an expense — it discharges the debt:
        debit  2000 Payable to Training Centers
@@ -433,7 +450,7 @@ const ACC = (() => {
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
     postRefund, creditBalance,
     recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
-    centerSettlement, postCenterPayable, postCenterRemittance,
+    centerSettlement, postCenterPayable, postCenterRemittance, postRebateReceipt,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
   };
 })();
