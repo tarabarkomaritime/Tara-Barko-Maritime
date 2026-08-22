@@ -240,12 +240,14 @@ const ACC = (() => {
 
        Dr  cash / GCash / bank      the whole amount received
        Cr  1200 Accounts Receivable only as far as the bill was owed
-       Cr  2210 Trainee Credits     the rest
+       Cr  4300 Overpayments        the rest, which the office keeps
 
      Crediting the excess to receivables instead would drive that account
-     negative — receivables understated, no liability shown for money we are
-     holding on somebody's behalf, and a balance sheet that quietly disagrees
-     with the drawer. */
+     negative, and understate what is genuinely owed to us. It is not a
+     liability either: the office keeps it, so it is income, and it is posted to
+     an account of its own rather than buried in training fees — management can
+     then see how much of the month's sales came from overpayment rather than
+     from selling a seat. */
   function postPayment(p, inv){
     const owed = balanceOf(inv);
     const applied = r2(Math.min(p.amount, owed));
@@ -254,10 +256,10 @@ const ACC = (() => {
     inv.status = inv.paid <= 0 ? 'Unpaid' : (inv.paid + 0.005 >= inv.total ? 'Paid' : 'Partial');
     const lines = [...paymentLines(p)];
     if(applied) lines.push({ account:'1200', debit:0, credit:applied });
-    if(excess)  lines.push({ account:'2210', debit:0, credit:excess });
+    if(excess)  lines.push({ account:'4300', debit:0, credit:excess });
     return post({
       date:p.date, memo:`Collection — ${p.no} vs ${inv.no}`
-        + (excess ? ` · ${excess.toFixed(2)} held as credit` : ''),
+        + (excess ? ` · ${excess.toFixed(2)} over the bill` : ''),
       refType:'Receipt', refNo:p.no, refId:p.id,
       lines,
     });
@@ -283,15 +285,15 @@ const ACC = (() => {
      This is deliberately not a contra-revenue entry. The revenue was already
      reversed when the invoice was voided; taking it off again would understate
      income by the amount of every refund. */
-  /* Giving back money we were holding: the credit is discharged, cash leaves.
-     Debiting receivables instead would say the trainee now owes us what we just
-     handed them. */
+  /* Giving back money taken on a booking that was afterwards cancelled. The
+     invoice was reversed, so that payment is sitting in receivables as a credit
+     balance; the refund clears it and the cash leaves. */
   function postRefund(r){
     return post({
       date:r.date, memo:`Refund — ${r.no}${r.reason ? ' · ' + r.reason : ''}`,
       refType:'Refund', refNo:r.no, refId:r.id,
       lines:[
-        { account:'2210', debit:r2(r.amount), credit:0 },
+        { account:'1200', debit:r2(r.amount), credit:0 },
         { account:cashAccount(r.method), debit:0, credit:r2(r.amount) },
       ],
     });
@@ -308,14 +310,10 @@ const ACC = (() => {
         .reduce((t,p) => t + p.amount, 0), 0);
     const refunded = d.refunds.filter(r => r.traineeId === traineeId && r.state === 'Approved')
       .reduce((s,r) => s + r.amount, 0);
-    /* Money taken on a bill beyond what the bill asked for. */
-    const over = d.invoices.filter(i => i.traineeId === traineeId && !i.voided)
-      .reduce((s,i) => s + creditOn(recomputeInvoice(i)), 0);
-    /* Everything being held, less everything handed back. Netting the refunds
-       against only the cancelled-booking half would leave an overpayment
-       refundable over and over, because giving it back would not reduce the
-       figure the refund screen reads. */
-    return r2(Math.max(0, paidOnVoided + over - refunded));
+    /* Only money taken on a booking that was afterwards cancelled. Paying over
+       the odds on a live booking is not a credit the trainee can call on — the
+       office keeps it as income — so it is deliberately not counted here. */
+    return r2(Math.max(0, paidOnVoided - refunded));
   }
 
   function recomputeInvoice(inv){
@@ -328,14 +326,14 @@ const ACC = (() => {
       : inv.paid + 0.005 >= inv.total ? 'Paid' : 'Partial';
     return inv;
   }
-  /* What a bill is still owed. A trainee who hands over more than the bill asks
-     for has not made the bill worth less than nothing — the excess is their
-     money, held as credit, and creditOn is where it lives. Keeping the two
-     apart is what stops an overpayment on one bill silently cancelling a real
-     debt on another, and what keeps a negative from appearing in a balance
-     column and being read as a refund owed. */
-  const balanceOf = inv => r2(Math.max(0, inv.total - (inv.paid||0)));
-  const creditOn  = inv => r2(Math.max(0, (inv.paid||0) - inv.total));
+  /* What a bill is still owed, and what came in over the top of it. A trainee
+     who hands over more than the bill asks for has not made the bill worth less
+     than nothing, so the balance stops at zero and the excess is reported
+     separately. Keeping the two apart is what stops an overpayment on one bill
+     silently cancelling a real debt on another, and what keeps a negative from
+     appearing in a balance column and being read as a refund owed. */
+  const balanceOf  = inv => r2(Math.max(0, inv.total - (inv.paid||0)));
+  const overpaidOn = inv => r2(Math.max(0, (inv.paid||0) - inv.total));
 
   /* ---------- reports ---------- */
   const inRange = (d,from,to) => (!from || d >= from) && (!to || d <= to);
@@ -434,7 +432,7 @@ const ACC = (() => {
     methods, methodNames, needsRef, DEFAULT_METHODS,
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
     postRefund, creditBalance,
-    recomputeInvoice, balanceOf, creditOn, cashAccount, paymentLines,
+    recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
     centerSettlement, postCenterPayable, postCenterRemittance,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
   };

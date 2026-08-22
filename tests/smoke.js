@@ -449,15 +449,18 @@ check('an overpayment is taken, not refused', () =>
   run('OVER.p.amount') === 2500 || 'the receipt was written for ' + run('OVER.p.amount'));
 check('the bill is settled and never goes below zero', () =>
   (run('ACC.balanceOf(OVER.inv)') === 0) || 'balance ' + run('ACC.balanceOf(OVER.inv)'));
-check('the excess is held as trainee credit', () =>
-  (run('ACC.creditOn(OVER.inv)') === 500 && run('ACC.creditBalance(OVER.t.id)') >= 500)
-  || 'creditOn ' + run('ACC.creditOn(OVER.inv)'));
+check('the excess is reported as an overpayment on the bill', () =>
+  run('ACC.overpaidOn(OVER.inv)') === 500 || 'overpaidOn ' + run('ACC.overpaidOn(OVER.inv)'));
+/* The office keeps it, so the trainee has no claim on it and the refund
+   screen must not offer it back. */
+check('it is not offered back to the trainee as credit', () =>
+  run('ACC.creditBalance(OVER.t.id)') === 0 || 'credit ' + run('ACC.creditBalance(OVER.t.id)'));
 check('receivables are credited only as far as the bill was owed', () => {
   const l = run('OVER.je.lines').find(x => x.account === '1200');
   return (l && l.credit === 2000) || JSON.stringify(run('OVER.je.lines'));
 });
-check('the excess lands in Trainee Credits, not in receivables', () => {
-  const l = run('OVER.je.lines').find(x => x.account === '2210');
+check('the excess lands in Overpayments, not in receivables', () => {
+  const l = run('OVER.je.lines').find(x => x.account === '4300');
   return (l && l.credit === 500) || JSON.stringify(run('OVER.je.lines'));
 });
 check('the whole amount received hits cash', () => {
@@ -468,25 +471,15 @@ check('the books still balance after an overpayment', () => {
   const tb = run('ACC.trialBalance(DB.today())');
   return Math.abs(tb.totalDr - tb.totalCr) < 0.01 || `${tb.totalDr} vs ${tb.totalCr}`;
 });
-/* Refunding a credit has to reduce the credit. It once only netted against the
-   cancelled-booking half, which left an overpayment refundable again and again. */
-check('refunding an overpayment reduces what is left to refund', () => {
-  const t = run('OVER.t.id');
-  const before = run(`ACC.creditBalance('${t}')`);
-  run(`DB.get().refunds.push({ id:'ref-over', no:'RF-OVER', date:DB.today(), traineeId:'${t}',
-    amount:200, method:'Cash', state:'Approved' })`);
-  const after = run(`ACC.creditBalance('${t}')`);
-  return (Math.round((before - after) * 100) / 100 === 200) || `${before} -> ${after}`;
-});
 
 console.log('\n- money out waits for approval -');
-/* A refund hands back money we were holding, so it discharges the credit. Not
-   revenue — the training was never sold twice. Not receivables either: debiting
-   that would say the trainee now owes us what we just gave them. */
-check('a refund discharges the trainee credit, not revenue or receivables', () => {
+/* A refund hands back money taken on a booking that was cancelled. The invoice
+   was reversed, so that payment sits in receivables as a credit balance and the
+   refund clears it. Never against revenue — the training was never sold. */
+check('a refund posts against receivables, not against revenue', () => {
   run('globalThis.RF = { id:"ref-t", no:"RF-TEST", date:DB.today(), amount:1200, method:"Cash", reason:"test" }');
   const je = run('ACC.postRefund(RF)');
-  return (je.lines[0].account === '2210' && je.lines[0].debit === 1200
+  return (je.lines[0].account === '1200' && je.lines[0].debit === 1200
     && je.lines[1].account === '1000' && je.lines[1].credit === 1200) || JSON.stringify(je.lines);
 });
 check('it never touches a revenue account', () =>
