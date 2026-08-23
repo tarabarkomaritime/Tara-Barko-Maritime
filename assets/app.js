@@ -1190,10 +1190,11 @@ function voucherModal(v){
   UI.modal({
     title:`Voucher ${v.no}`, sub:`${String(v.payee).toUpperCase()} · ${UI.peso(v.amount)}`, wide:true,
     hideSubmit:true,
-    footExtra:`<button type="button" class="btn btn-primary" id="printVoucher">Print</button>`,
+    footExtra:`<button type="button" class="btn btn-primary" id="printVoucher">Print / PDF</button>`,
     body: twoUp(sheet),
   });
-  document.getElementById('printVoucher').onclick = () => UI.print();
+  document.getElementById('printVoucher').onclick = () =>
+    UI.printDoc(`${v.no} — Disbursement Voucher`);
 }
 
 /* ---------- approvals ----------
@@ -1368,8 +1369,8 @@ function refundForm(traineeId){
     wide:true,
     body:`
       ${UI.f.select('traineeId','Trainee', traineeId || '', roster.map(t => {
-          const c = ACC.creditBalance(t.id);
-          return { v:t.id, l:`${name(t)} — ${t.no}${c > 0 ? ` · holding ${UI.peso(c)}` : ''}` };
+          const f = ACC.refundable(t.id);
+          return { v:t.id, l:`${name(t)} — ${t.no}${f.total > 0 ? ` · ${UI.peso(f.total)} refundable` : ''}` };
         }), { req:true, blank:'— select trainee —' })}
       <div class="note" id="creditNote"></div>
       ${UI.row(UI.f.num('amount','Amount to refund (₱)','',{ req:true, min:0.01 }),
@@ -1384,9 +1385,12 @@ function refundForm(traineeId){
       if(!t){ UI.toast('Select a trainee.', 'bad'); return false; }
       const amount = ACC.r2(fd.amount);
       if(amount <= 0){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
-      const credit = ACC.creditBalance(t.id);
-      if(amount - credit > 0.004){
-        UI.toast(`We are only holding ${UI.peso(credit)} for ${name(t)}.`, 'bad'); return false;
+      const f = ACC.refundable(t.id);
+      if(amount - f.total > 0.004){
+        UI.toast(`Only ${UI.peso(f.total)} can be refunded to ${name(t)}.`, 'bad'); return false;
+      }
+      if(!String(fd.reason||'').trim()){
+        UI.toast('Say what the refund is for — an admin has to approve it on that.', 'bad'); return false;
       }
       if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
         UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
@@ -1395,6 +1399,9 @@ function refundForm(traineeId){
       const r = {
         id:DB.uid('ref'), no:`RF-${new Date().getFullYear()}-${String(D().seq.refund).padStart(4,'0')}`,
         date:DB.today(), traineeId:t.id, amount,
+        /* Which pocket it comes out of, decided when it is raised so the
+           approver sees the same split that will be posted. */
+        ...ACC.splitRefund(t.id, amount),
         method:fd.method, ref:String(fd.ref||'').trim(), reason:String(fd.reason||'').trim(),
         state:'Pending', raisedBy:SESSION.name,
       };
@@ -1410,10 +1417,16 @@ function refundForm(traineeId){
     const t = T(form.traineeId.value);
     const box = document.getElementById('creditNote');
     if(!t){ box.textContent = 'Pick the trainee to see what we are holding for them.'; return; }
-    const c = ACC.creditBalance(t.id);
-    box.innerHTML = c > 0
-      ? `We are holding <b>${UI.peso(c)}</b> for ${UI.esc(name(t))} — paid on a booking that was cancelled.`
-      : `<b>Nothing is owed back to ${UI.esc(name(t))}.</b> Cancel the booking first: cancelling reverses the bill and leaves what they paid as a credit.`;
+    const f = ACC.refundable(t.id);
+    const parts = [];
+    if(f.credit)   parts.push(`<b>${UI.peso(f.credit)}</b> paid on a booking that was cancelled`);
+    if(f.overpaid) parts.push(`<b>${UI.peso(f.overpaid)}</b> handed over above the bill`);
+    box.innerHTML = f.total > 0
+      ? `${UI.peso(f.total)} can go back to ${UI.esc(name(t))}: ${parts.join(', and ')}.
+         ${f.overpaid ? 'The overpayment was booked as income, so refunding it takes that income off again — an admin approves before anything moves.' : ''}`
+      : `<b>Nothing can be refunded to ${UI.esc(name(t))}.</b> They have not paid over the odds,
+         and nothing they paid for has been cancelled — cancelling a booking reverses the bill
+         and leaves what they paid refundable.`;
   };
   form.addEventListener('change', showCredit);
   showCredit();
@@ -1445,6 +1458,11 @@ VIEWS.daily = () => {
   const inBy = tally();
   receipts.forEach(p => (p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, amount:p.amount }])
     .forEach(t => put(inBy, t.method, t.amount)));
+  /* A rebate banked from a center is cash through the same window as a trainee's
+     payment. Leaving it out understated the day and made the drawer disagree
+     with the report. */
+  const rebatesIn = d.enrollments.filter(e => e.rebateReceivedOn === on && (e.rebateReceivable || 0) > 0);
+  rebatesIn.forEach(e => put(inBy, e.rebateMethod, ACC.r2(e.rebateReceivable)));
   const totalIn = ACC.r2(Object.values(inBy).reduce((s,v) => s + v, 0));
 
   /* ---- out, approved only ---- */
@@ -1490,7 +1508,8 @@ VIEWS.daily = () => {
     </div>
 
     <div class="grid g4" style="margin-bottom:18px">
-      ${UI.kpi('Received', UI.peso(totalIn), `${receipts.length} payment(s)`, 'ok')}
+      ${UI.kpi('Received', UI.peso(totalIn),
+               `${receipts.length} payment(s)${rebatesIn.length ? ` · ${rebatesIn.length} rebate(s)` : ''}`, 'ok')}
       ${UI.kpi('Paid out', UI.peso(totalOut),
                `${vouchers.length + remits.length + refunds.length} approved document(s)`, totalOut ? 'warn' : '')}
       ${UI.kpi('Net movement', UI.peso(ACC.r2(totalIn - totalOut)),
@@ -1516,6 +1535,15 @@ VIEWS.daily = () => {
         { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
       ], receipts, { empty:'Nothing collected on this date.',
           foot:['','','TOTAL', UI.num(sum(receipts))] }), { flush:true })}
+
+      ${UI.card('Rebates Collected', UI.table([
+        { h:'Training center', k:e => UI.esc(String(e.center || '').toUpperCase()) },
+        { h:'Trainee', k:e => UI.esc(name(T(e.traineeId))) },
+        { h:'Mode', k:e => UI.tag(e.rebateMethod || '—', e.rebateMethod === 'Cash' ? 'ok' : 'sea') },
+        { h:'Amount', k:e => UI.num(e.rebateReceivable), cls:'num' },
+      ], rebatesIn, { empty:'No rebate came in on this date.',
+        foot:rebatesIn.length ? ['TOTAL','','', UI.num(ACC.r2(rebatesIn.reduce((s,e) => s + e.rebateReceivable, 0)))] : null }),
+        { flush:true, sub:'paid back by the centers' })}
 
       ${UI.card('Refunds', UI.table([
         { h:'No.', k:r => `<span class="mono">${UI.esc(r.no)}</span>` },
@@ -2583,7 +2611,8 @@ function receiptModal(p){
   UI.modal({
     title:'Acknowledgement Receipt', sub:UI.date(p.date), hideSubmit:true, wide:true,
     footExtra:`${!p.voided && can('payments') ? `<button type="button" class="btn btn-danger" id="voidPay">Void payment</button>` : ''}
-               <button type="button" class="btn btn-primary" onclick="UI.print()">Print</button>`,
+               <button type="button" class="btn btn-primary"
+                 onclick="UI.printDoc('${UI.esc(p.no)} — Acknowledgement Receipt')">Print / PDF</button>`,
     body: `<div class="doc">
       <div class="doc-head">
         ${docCompany()}

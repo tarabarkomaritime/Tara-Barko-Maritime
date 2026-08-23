@@ -488,6 +488,33 @@ check('the books still balance after an overpayment', () => {
   return Math.abs(tb.totalDr - tb.totalCr) < 0.01 || `${tb.totalDr} vs ${tb.totalCr}`;
 });
 
+/* An overpayment is the office's income and the trainee is never offered it —
+   but an admin can still decide to hand it back, and then the income it was
+   booked as has to come off again. */
+check('an overpayment is refundable even though it is not a credit', () => {
+  const f = run('ACC.refundable(OVER.t.id)');
+  return (f.credit === 0 && f.overpaid === 500 && f.total === 500) || JSON.stringify(f);
+});
+check('a refund is split before it is raised', () => {
+  const sp = run('ACC.splitRefund(OVER.t.id, 300)');
+  return (sp.fromCredit === 0 && sp.fromOver === 300) || JSON.stringify(sp);
+});
+check('refunding an overpayment takes the income back off', () => {
+  run(`globalThis.RO = { id:'ref-ov', no:'RF-OV', date:DB.today(), traineeId:OVER.t.id,
+    amount:300, fromCredit:0, fromOver:300, method:'Cash', reason:'overpaid' }`);
+  const je = run('ACC.postRefund(RO)');
+  const over = je.lines.find(l => l.account === '4300');
+  const cash = je.lines.find(l => l.account === '1000');
+  return (over && over.debit === 300 && cash && cash.credit === 300
+    && !je.lines.some(l => l.account === '1200')) || JSON.stringify(je.lines);
+});
+check('what has been given back cannot be given back again', () => {
+  run(`DB.get().refunds.push({ ...RO, state:'Approved' })`);
+  const f = run('ACC.refundable(OVER.t.id)');
+  return (f.overpaid === 200 && f.total === 200) || JSON.stringify(f);
+});
+check('ledger balances after refunding an overpayment', balanced);
+
 console.log('\n- money out waits for approval -');
 /* A refund hands back money taken on a booking that was cancelled. The invoice
    was reversed, so that payment sits in receivables as a credit balance and the

@@ -302,35 +302,71 @@ const ACC = (() => {
      This is deliberately not a contra-revenue entry. The revenue was already
      reversed when the invoice was voided; taking it off again would understate
      income by the amount of every refund. */
-  /* Giving back money taken on a booking that was afterwards cancelled. The
-     invoice was reversed, so that payment is sitting in receivables as a credit
-     balance; the refund clears it and the cash leaves. */
+  /* Money going back, out of whichever account it went into.
+
+       from a cancelled booking  the invoice was reversed, so the payment is
+                                 sitting in receivables — debit 1200 to clear it
+       from an overpayment       it was booked as income when it was taken, so
+                                 debit 4300 to take that income off again
+
+     A refund with no split is an old one, from before an overpayment could be
+     given back; those were all against cancelled bookings. */
   function postRefund(r){
+    const total = r2(r.amount);
+    const fromOver = r2(r.fromOver || 0);
+    const fromCredit = r2(r.fromCredit != null ? r.fromCredit : total - fromOver);
+    const lines = [];
+    if(fromCredit) lines.push({ account:'1200', debit:fromCredit, credit:0 });
+    if(fromOver)   lines.push({ account:'4300', debit:fromOver, credit:0 });
+    lines.push({ account:cashAccount(r.method), debit:0, credit:total });
     return post({
-      date:r.date, memo:`Refund — ${r.no}${r.reason ? ' · ' + r.reason : ''}`,
-      refType:'Refund', refNo:r.no, refId:r.id,
-      lines:[
-        { account:'1200', debit:r2(r.amount), credit:0 },
-        { account:cashAccount(r.method), debit:0, credit:r2(r.amount) },
-      ],
+      date:r.date, memo:`Refund — ${r.no}${r.reason ? ' · ' + r.reason : ''}`
+        + (fromOver ? ` · ${fromOver.toFixed(2)} of overpayment` : ''),
+      refType:'Refund', refNo:r.no, refId:r.id, lines,
     });
   }
 
-  /* What a trainee has overpaid, across every invoice on their file and every
-     refund already given back. A positive figure is money we are holding that
-     is not ours. */
-  function creditBalance(traineeId){
+  /* Two different things can be given back, and they come out of two different
+     accounts, so they are counted apart:
+
+       credit    paid on a booking that was afterwards cancelled. The invoice was
+                 reversed, so the money is sitting in receivables. Unambiguously
+                 the trainee's, and the refund screen offers it.
+       overpaid  handed over beyond what a live bill asked for. The office keeps
+                 this as income and the trainee is never told they have it — but
+                 an admin can still decide to hand it back, and then the income
+                 it was booked as has to come off again.
+
+     Each is net of the refunds already drawn against it, so nothing can be
+     refunded twice. */
+  function refundable(traineeId){
     const d = DB.get();
+    const mine = r => r.traineeId === traineeId && r.state === 'Approved';
     const paidOnVoided = d.invoices.filter(i => i.traineeId === traineeId && i.voided)
       .reduce((s,i) => s + d.payments
         .filter(p => p.invoiceId === i.id && !p.voided)
         .reduce((t,p) => t + p.amount, 0), 0);
-    const refunded = d.refunds.filter(r => r.traineeId === traineeId && r.state === 'Approved')
-      .reduce((s,r) => s + r.amount, 0);
-    /* Only money taken on a booking that was afterwards cancelled. Paying over
-       the odds on a live booking is not a credit the trainee can call on — the
-       office keeps it as income — so it is deliberately not counted here. */
-    return r2(Math.max(0, paidOnVoided - refunded));
+    const overpaid = d.invoices.filter(i => i.traineeId === traineeId && !i.voided)
+      .reduce((s,i) => s + overpaidOn(recomputeInvoice(i)), 0);
+    /* Older refunds carry no split. They were all against cancelled bookings,
+       which is the only thing that could be refunded then. */
+    const drawn = k => d.refunds.filter(mine)
+      .reduce((s,r) => s + (r[k] != null ? r[k] : (k === 'fromCredit' ? r.amount : 0)), 0);
+    const credit = r2(Math.max(0, paidOnVoided - drawn('fromCredit')));
+    const over   = r2(Math.max(0, overpaid - drawn('fromOver')));
+    return { credit, overpaid:over, total:r2(credit + over) };
+  }
+
+  /* What we are holding that is plainly the trainee's. Kept as its own name
+     because the refund screen and the daily report ask different questions. */
+  function creditBalance(traineeId){ return refundable(traineeId).credit; }
+
+  /* Splitting a refund across the two. The unambiguous money goes first: if only
+     part is given back, it should be the part that was never ours. */
+  function splitRefund(traineeId, amount){
+    const f = refundable(traineeId);
+    const fromCredit = r2(Math.min(amount, f.credit));
+    return { fromCredit, fromOver:r2(amount - fromCredit) };
   }
 
   function recomputeInvoice(inv){
@@ -448,7 +484,7 @@ const ACC = (() => {
     r2, computeInvoice, post, reverse, acct,
     methods, methodNames, needsRef, DEFAULT_METHODS,
     buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
-    postRefund, creditBalance,
+    postRefund, creditBalance, refundable, splitRefund,
     recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
     centerSettlement, postCenterPayable, postCenterRemittance, postRebateReceipt,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,

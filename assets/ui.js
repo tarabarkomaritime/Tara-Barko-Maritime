@@ -223,6 +223,19 @@ const UI = (() => {
 
   const print = () => window.print();
 
+  /* Print, or save as PDF — the browser's own dialog does both, and in a page
+     with no libraries it is the only thing that can. What it cannot do by
+     itself is name the file: a voucher saved from here would be filed as
+     "Tara Barko Maritime — Integrated System.pdf", which is the difference
+     between a folder you can search and a folder you cannot. The title is
+     borrowed for the length of the dialog and put back after. */
+  function printDoc(name){
+    const was = document.title;
+    if(name) document.title = name;
+    window.print();
+    setTimeout(() => { document.title = was; }, 800);
+  }
+
   return { esc, peso, num, int, date, dateShort, dateRange, days, tag, statusTag, table, card, kpi,
-           f, row, modal, close, confirm, toast, barChart, columns, donut, shortMoney, print };
+           f, row, modal, close, confirm, toast, barChart, columns, donut, shortMoney, print, printDoc };
 })();
