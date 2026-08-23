@@ -22,17 +22,16 @@
    Importing one is how that quietly stops being true. */
 const esc = UI.esc;
 
-/* A seafarer's papers are in capitals, so the registry is too — it is the
-   same name on the SRN record, the PEME form and the certificate, and a
-   registry that stores "dela cruz" next to "DELA CRUZ" is a registry you
-   cannot search.
+/* A seafarer's papers are in capitals, so the registry is too — it is the same
+   name on the SRN record, the PEME form and the certificate, and a registry
+   that stores "dela cruz" next to "DELA CRUZ" is a registry you cannot search.
 
-   Three fields are deliberately left alone. An email address and a Facebook
-   or Messenger link can have a case-sensitive path, and shouting them can
-   turn a working link into a dead one. */
-const NO_CAPS = ['email', 'facebook', 'messenger'];
-const caps = (name, value) =>
-  NO_CAPS.includes(name) ? value : String(value == null ? '' : value).toUpperCase();
+   Everything, including the email address. A mail domain is case-insensitive by
+   the standard, and no provider a seafarer is likely to use treats the half in
+   front of the @ as case-sensitive either, so JUAN@GMAIL.COM reaches the same
+   inbox as juan@gmail.com. It also means two people cannot register the same
+   address twice in two different cases. */
+const caps = (name, value) => String(value == null ? '' : value).toUpperCase();
 
 const CO   = () => DB.get().company;
 
@@ -97,7 +96,6 @@ const req = `<span class="p-req">*</span>`;
 /* ----- step 1 · details ----- */
 function stepDetails(){
   const d = P.draft;
-  const agencies = [...new Set(DB.get().trainees.map(t => t.agency).filter(Boolean))].sort();
   const ranks = ['Master','Chief Mate','2nd Officer','3rd Officer','Deck Cadet','Bosun',
     'Able Seaman','Ordinary Seaman','Chief Engineer','2nd Engineer','3rd Engineer',
     '4th Engineer','Engine Cadet','Oiler','Fitter','Electrician','Pumpman','Chief Cook',
@@ -112,7 +110,7 @@ function stepDetails(){
     return `<label class="fld ${bad(n)}">
       <span>${esc(label)} ${opts.req?req:''} ${opts.hint?`<small>${esc(opts.hint)}</small>`:''}</span>
       <input type="${opts.type||'text'}"
-             ${!NO_CAPS.includes(n) && (opts.type || 'text') === 'text' ? 'class="caps"' : ''}
+             ${['text','email','tel'].includes(opts.type || 'text') ? 'class="caps"' : ''}
              ${attrs}></label>`;
   };
 
@@ -143,12 +141,7 @@ function stepDetails(){
       </div>
 
       <h4 class="p-group">Personal Information</h4>
-      <div class="grid g3">
-        <label class="fld"><span>Sex</span>
-          <select name="sex">
-            <option value="M" ${d.sex!=='F'?'selected':''}>Male</option>
-            <option value="F" ${d.sex==='F'?'selected':''}>Female</option>
-          </select></label>
+      <div class="grid g2">
         ${F('birth','Date of Birth', { req:true, type:'date', attr:`max="${DB.today()}"` })}
         ${F('birthPlace','Place of Birth', { req:true, ph:'City / municipality, province' })}
       </div>
@@ -159,23 +152,14 @@ function stepDetails(){
       </div>
       ${F('address','Home Address', { req:true, ph:'House/unit, street, barangay, city, province',
                                       attr:'autocomplete="street-address"' })}
-      <p class="p-note-inline">The Registrar replies on Facebook, so give us a link we can
-         open &mdash; not just your display name.</p>
-      <div class="grid g2">
-        ${F('facebook','Facebook Profile Link', { req:true,
-             ph:'facebook.com/your.profile' })}
-        ${F('messenger','Messenger / Meta Chat Link', { hint:'optional',
-             ph:'m.me/your.profile' })}
-      </div>
 
       <h4 class="p-group">Employment</h4>
       <div class="grid g2">
         ${F('rank','Rank / Position', { req:true, list:'rankList', ph:'e.g. Able Seaman' })}
-        ${F('agency','Company', { req:true, list:'agencyList',
-                                  hint:'manning agency or employer', ph:'Direct hire / walk-in' })}
+        ${F('agency','Company', { req:true,
+             hint:'manning agency or employer — type it in full', ph:'DIRECT HIRE / WALK-IN' })}
       </div>
       <datalist id="rankList">${ranks.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
-      <datalist id="agencyList">${agencies.map(a => `<option value="${esc(a)}">`).join('')}</datalist>
 
       <h4 class="p-group">In Case of Emergency</h4>
       <p class="p-note-inline">Required before you may join any practical or sea-survival exercise.</p>
@@ -211,7 +195,6 @@ function stepReview(){
     <h4 class="p-group">Personal and Contact</h4>
     <div class="p-review">
       <dl class="def">
-        ${L('Sex', d.sex==='F'?'Female':'Male')}
         ${L('Date of Birth', UI.date(d.birth))}
         ${L('Place of Birth', esc(d.birthPlace))}
       </dl>
@@ -219,8 +202,6 @@ function stepReview(){
         ${L('Mobile', esc(d.mobile))}
         ${L('Email', esc(d.email))}
         ${L('Address', esc(d.address))}
-        ${L('Facebook', esc(d.facebook))}
-        ${L('Messenger', esc(d.messenger))}
       </dl>
     </div>
 
@@ -332,7 +313,7 @@ function paneDone(){
           <dt>Rank / position</dt><dd>${esc(t.rank)}</dd>
           <dt>Company</dt><dd>${esc(t.agency)}</dd>
           <dt>Mobile</dt><dd>${esc(t.mobile)}</dd>
-          <dt>Facebook</dt><dd>${esc(t.facebook)}</dd>
+          <dt>Email</dt><dd>${esc(t.email)}</dd>
         </dl>
         <dl class="def">
           <dt>Course</dt><dd><span class="muted">To be settled with the Registrar</span></dd>

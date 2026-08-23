@@ -64,9 +64,17 @@ check('starts with no money moved', () =>
 /* What it does lay down, because the system cannot take a booking without it. */
 check('the price list is there', () => run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
 check('the chart of accounts is there', () => run('DB.get().accounts.length') > 10 || run('DB.get().accounts.length'));
-check('the staff can sign in', () => run('DB.get().users.length') === 4 || run('DB.get().users.length'));
-check('every staff account has a code', () =>
-  run('DB.get().users.every(u => !!u.code)') === true || 'an account has no code');
+check('the staff can sign in', () => run('DB.get().users.length') === 3 || run('DB.get().users.length'));
+check('every staff account has a password', () =>
+  run('DB.get().users.every(u => !!u.code)') === true || 'an account has no password');
+/* The email address is the username, so an account without one cannot be
+   signed into at all, and two accounts sharing one cannot be told apart. */
+check('every staff account has an email to sign in with', () =>
+  run('DB.get().users.every(u => !!u.email)') === true || 'an account has no email');
+check('no two accounts share an email', () => {
+  const e = run('DB.get().users.map(u => u.email.toLowerCase())');
+  return new Set(e).size === e.length || e.join(' ');
+});
 check('no schedules collection remains', () => run('DB.get().batches === undefined') === true || 'batches still present');
 check('no seat capacity on enrollments', () =>
   run('DB.get().enrollments.every(e => e.capacity === undefined)') === true || 'capacity found');

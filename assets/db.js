@@ -49,29 +49,29 @@ const DB = (() => {
      is what makes these worth hashing; until then the password is a way of
      keeping the wrong desk out of the wrong screen, not a security boundary. */
   const USERS = [
-    /* The two admin codes below were generated once and are meant to be changed
-       the first time each of them signs in — Settings → User accounts → Edit.
-       They are in the source, which means they are in the repository and in
-       every deploy, so treat them as a way in for the first day and not as a
-       secret. Changing them here changes them for a new install; changing them
-       in Settings changes them for the browser that is already running. */
-    /* Email is left blank on purpose. The deployed site serves this file to
-       anyone who opens it, so a private repository would not have kept a real
-       address off the internet — only keeping it out of the source does. Each
-       person adds their own under Settings → User accounts, where it stays in
-       that browser. */
-    { id:'u1', name:'Kyla Esguerra',   role:'admin',      code:'tb-Nd0uuaxA', initials:'KE', email:'' },
-    { id:'u4', name:'Kate Esguerra',   role:'admin',      code:'tb-XbbhnxDc', initials:'KA', email:'' },
-    /* Registration and the cash window are one job at this office, which is what
-       the frontdesk role is. */
-    { id:'u2', name:'Jocelyn Eala',    role:'frontdesk',  code:'tb-lGStmI1g', initials:'JE', email:'' },
-    { id:'u3', name:'Accounting',      role:'accounting', code:'accounting', initials:'AC', email:'' },
+    /* The email address is the username, so unlike the other fields it has to be
+       here — sign-in has nothing to match against otherwise. That means these
+       addresses are in the repository and in every deploy, and the deployed site
+       hands assets/db.js to anyone who opens the URL. There is no way to have
+       both email sign-in and addresses that are not public while the whole
+       system runs in the browser; moving authentication to Supabase is what
+       ends that, and the schema for it is already written.
+
+       The passwords are temporary and are meant to be changed the first time
+       each person signs in — Settings → User accounts → Edit. */
+    { id:'u1', name:'Kyla Esguerra', role:'owner',      code:'@mismo123',
+      initials:'KE', email:'kyla.esguerra24@gmail.com' },
+    { id:'u4', name:'Kate Esguerra', role:'admin',      code:'tb-XbbhnxDc',
+      initials:'KA', email:'pkmesguerra.ph@gmail.com' },
+    { id:'u2', name:'Jocelyn Eala',  role:'frontdesk',  code:'@mismo123',
+      initials:'JE', email:'ealajocelyn.qaplamaritime@gmail.com' },
   ];
 
   /* What each role is called on screen. The key is what the code checks and
      what a stored account carries; this is what a person reads, and "frontdesk"
      is not a job anybody at this office would say they do. */
   const ROLE_LABEL = {
+    owner:      'Admin & Accounting',
     admin:      'Admin',
     frontdesk:  'Registration & Cashier',
     accounting: 'Accounting',
@@ -83,6 +83,11 @@ const DB = (() => {
     /* The admin maintains the price list and the accounts but does not work the
        journal — that is accounting's screen, and two people posting entries by
        hand into the same ledger is how a ledger stops being trustworthy. */
+    /* Admin and accounting in one person. It exists because the plain admin
+       role deliberately has no ledger — two people posting entries by hand into
+       the same journal is how a journal stops being trustworthy — and somebody
+       who does both jobs needs the one screen the other admins do not get. */
+    owner:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','payroll','approvals','ledger','reports','settings'],
     admin:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','payroll','approvals','reports','settings'],
     /* Registration and the cash window are one job at this office — the same
        person takes the enrollment and then takes the money for it — so they are

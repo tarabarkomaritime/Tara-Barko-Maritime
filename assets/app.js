@@ -216,24 +216,23 @@ function traineeBalance(tid){
 }
 
 /* ================= LOGIN ================= */
-/* The sign-in list is rebuilt rather than written once: an account added in
-   Settings has to be usable without reloading the page. */
-function fillLoginList(){
-  const sel = document.getElementById('loginUser');
-  if(!sel) return;
-  const keep = sel.value;
-  sel.innerHTML = D().users.map(u => `<option value="${u.id}">${UI.esc(u.name)} — ${UI.esc(DB.roleName(u.role))}</option>`).join('');
-  if(keep && D().users.some(u => u.id === keep)) sel.value = keep;
-}
+/* Nothing to rebuild any more — the form is two boxes. Kept so callers that
+   refreshed the old list do not have to know that. */
+function fillLoginList(){}
 
 function initLogin(){
-  const sel = document.getElementById('loginUser');
-  fillLoginList();
+  const box = document.getElementById('loginUser');
   const go = () => {
-    const u = D().users.find(x => x.id === sel.value);
+    const typed = String(box.value || '').trim().toLowerCase();
     const pass = document.getElementById('loginPass').value.trim();
-    if(!u) return;
-    if(pass !== u.code) return UI.toast('Incorrect access code.', 'bad');
+    const say = m => { const el = document.getElementById('loginMsg'); if(el) el.textContent = m; };
+    if(!typed) return say('Enter your email address.');
+    const u = D().users.find(x => String(x.email || '').trim().toLowerCase() === typed);
+    /* One message for a wrong address and a wrong password alike. Telling a
+       stranger which half they got right tells them the other half is worth
+       guessing, and which addresses are real accounts here. */
+    if(!u || pass !== u.code) return say('That email and password do not match an account.');
+    say('');
     window.SESSION = u;
     document.getElementById('login').classList.add('hidden');
     document.getElementById('shell').classList.remove('hidden');
@@ -246,6 +245,7 @@ function initLogin(){
     route();
   };
   document.getElementById('loginBtn').onclick = go;
+  box.onkeydown = e => { if(e.key === 'Enter') document.getElementById('loginPass').focus(); };
   document.getElementById('loginPass').onkeydown = e => { if(e.key === 'Enter') go(); };
 }
 
@@ -1384,7 +1384,7 @@ function payrollForm(){
 /* Seeing the queue and deciding it are different jobs. Accounting keeps the
    tab — they are the ones chasing what is held up — but the decision that
    releases money belongs to the admin and to nobody else. */
-const canApprove = () => !!(SESSION && SESSION.role === 'admin');
+const canApprove = () => !!(SESSION && ['admin','owner'].includes(SESSION.role));
 
 const MONEY_OUT = [
   { key:'expenses', label:'Disbursement', post:v => ACC.postExpense(v) },
@@ -3007,7 +3007,8 @@ function userForm(u){
     wide:true,
     body:`
       ${UI.row(UI.f.text('name','Full name', u.name, { req:true, ph:'e.g. Maria Santos' }),
-               UI.f.text('email','Email address', u.email, { type:'email', ph:'name@tarabarkomaritime.com' }))}
+               UI.f.text('email','Email address', u.email, { req:true, type:'email',
+                          hint:'this is what they sign in with', ph:'name@example.com' }))}
       ${UI.row(UI.f.text('code','Password', u.code, { req:true, hint:'used to sign in' }),
                UI.f.select('role','Role', u.role, roles, { req:true }))}
       ${UI.f.text('initials','Initials', u.initials, { hint:'shown on the avatar — blank fills itself in', ph:'MS' })}
@@ -3068,8 +3069,9 @@ function userForm(u){
   const del = document.getElementById('delUser');
   if(del) del.onclick = () => {
     if(SESSION && SESSION.id === u.id) return UI.toast('You cannot remove the account you are signed in with.', 'bad');
-    if(u.role === 'admin' && D().users.filter(x => x.role === 'admin').length === 1)
-      return UI.toast('This is the only admin account — make another one first.', 'bad');
+    const admins = D().users.filter(x => (DB.PERMS[x.role] || []).includes('settings'));
+    if(admins.length === 1 && admins[0].id === u.id)
+      return UI.toast('This is the only account that can administer — make another one first.', 'bad');
     UI.confirm(`Remove ${u.name}?`, () => {
       D().users = D().users.filter(x => x.id !== u.id);
       DB.activity('Removed user account', u.name);

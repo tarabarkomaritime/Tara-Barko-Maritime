@@ -44,7 +44,7 @@ const APPS = (() => {
     'srn',
     'last','first',
     'birth','birthPlace',
-    'mobile','email','address','facebook',
+    'mobile','email','address',
     'rank','agency',
     'emergencyName','emergencyMobile',
   ];
