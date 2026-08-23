@@ -55,10 +55,13 @@ const DB = (() => {
        every deploy, so treat them as a way in for the first day and not as a
        secret. Changing them here changes them for a new install; changing them
        in Settings changes them for the browser that is already running. */
-    { id:'u1', name:'Kyla Esguerra',   role:'admin',      code:'tb-Nd0uuaxA', initials:'KE',
-      email:'kylae.esguerra24@gmail.com' },
-    { id:'u4', name:'Kate Esguerra',   role:'admin',      code:'tb-XbbhnxDc', initials:'KA',
-      email:'pkmesguerra.ph@gmail.com' },
+    /* Email is left blank on purpose. The deployed site serves this file to
+       anyone who opens it, so a private repository would not have kept a real
+       address off the internet — only keeping it out of the source does. Each
+       person adds their own under Settings → User accounts, where it stays in
+       that browser. */
+    { id:'u1', name:'Kyla Esguerra',   role:'admin',      code:'tb-Nd0uuaxA', initials:'KE', email:'' },
+    { id:'u4', name:'Kate Esguerra',   role:'admin',      code:'tb-XbbhnxDc', initials:'KA', email:'' },
     { id:'u2', name:'Jocelyn Eala',    role:'frontdesk',  code:'registrar',  initials:'JE', email:'' },
     { id:'u3', name:'Accounting',      role:'accounting', code:'accounting', initials:'AC', email:'' },
   ];
