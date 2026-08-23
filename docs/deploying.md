@@ -69,12 +69,12 @@ wrong tab is a bad afternoon.
 ### What it costs
 
 A Supabase project, and a rewrite of `assets/db.js`. The schema is written and
-waiting in `supabase/migrations/0001_schema.sql`.
+waiting in `supabase/migrations/20260823000000_schema.sql`.
 
 ### Running the schema
 
 In the new project: **SQL Editor → New query**, paste the whole of
-`supabase/migrations/0001_schema.sql`, run it once. Then **Settings → API** and
+`supabase/migrations/20260823000000_schema.sql`, run it once. Then **Settings → API** and
 copy the project URL and the `anon` public key.
 
 ### What still has to be written
