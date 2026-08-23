@@ -357,15 +357,31 @@ check('a Blended row maps to the two deliveries it is made of', () => {
   return (hit && hit.modes.includes('Face-to-Face') && hit.modes.includes('Distance Learning'))
     || 'no blended entry found';
 });
+/* The ID column already shows the acronym, so the title should not repeat it —
+   but only where there is a title left underneath. A course whose whole name is
+   its acronym keeps that name rather than going blank. */
+check('a title no longer repeats the course ID', () =>
+  run(`DB.get().courses.every(c => {
+    const t = c.title.toUpperCase(), k = c.code.toUpperCase();
+    return t === k || !/^\s*[-–—]\s*/.test(t.slice(k.length)) || !t.startsWith(k);
+  })`) === true
+  || run(`DB.get().courses.filter(c => c.title.toUpperCase().startsWith(c.code.toUpperCase())
+       && /^\s*[-–—]\s*/.test(c.title.slice(c.code.length))).slice(0,3).map(c => c.title).join(' | ')`));
+check('a course named only by its acronym keeps its name', () =>
+  run(`DB.get().courses.every(c => c.title.trim().length > 0)`) === true || 'a title went blank');
+check('the descriptive half survives', () =>
+  run(`!!DB.get().courses.find(c => c.code === 'ABC' && c.title === 'AWARENESS ON BASIC COMPUTER')`) === true
+  || run(`(DB.get().courses.find(c => c.code === 'ABC')||{}).title`));
+
 check('the same course at two centers is two entries at two prices', () => {
-  const rows = run('DB.get().courses.filter(c => c.title === "BT - PSSR")' +
+  const rows = run('DB.get().courses.filter(c => c.title === "PSSR")' +
     '.map(c => c.center + ":" + c.amount)');
   return (rows.length >= 5 && new Set(rows.map(r => r.split(":")[1])).size > 1) || rows.join(' | ');
 });
-/* Only one center offers BT - PSSR by distance learning; the rest teach it in
-   the room. The delivery belongs to the center's row, not to the course name. */
+/* Only one center offers PSSR by distance learning; the rest teach it in the
+   room. The delivery belongs to the center's row, not to the course name. */
 check('distance learning survives on the center that offers it', () => {
-  const rows = run('DB.get().courses.filter(c => c.title === "BT - PSSR")');
+  const rows = run('DB.get().courses.filter(c => c.title === "PSSR")');
   const dl = rows.filter(c => c.modes.includes('Distance Learning'));
   return (dl.length === 1 && dl[0].center === 'MARIANA')
     || rows.map(c => c.center + ':' + c.modes.join('+')).join(' | ');

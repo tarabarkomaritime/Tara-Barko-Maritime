@@ -1975,7 +1975,7 @@ function traineeProfile(t){
       </div>
       ${copyRow('Copy details')}
       <div class="hr"></div>
-      <div class="grid g3" style="margin-bottom:16px">
+      <div class="kpi-row" style="margin-bottom:16px">
         ${UI.kpi('Courses booked', UI.int(enr.length),
                  enr.length ? 'with us so far' : 'none yet', '')}
         ${UI.kpi('Total charged', UI.peso(invs.filter(i=>!i.voided).reduce((s,i)=>s+i.total,0)),
@@ -2147,8 +2147,8 @@ function enrollmentForm(existing, presetTrainee){
         { req:true, blank:'— select course —' })}
     ${UI.f.date('start','Training starts', DB.today(), { req:true })}
     <div class="note" id="endsNote" style="margin:-4px 0 14px"></div>
-    ${UI.f.num('fee','Agreed fee (₱)', '0', { req:true, min:0,
-         hint:'from the price list — change it only if this booking was agreed at another figure' })}
+    ${UI.f.num('fee','Fee (₱)', '0', { req:true, min:0, ro:true,
+         hint:'from the price list — the admin sets it on the course' })}
 
     <div class="hr"></div>
     <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
@@ -2199,11 +2199,13 @@ function enrollmentForm(existing, presetTrainee){
     if(!c) return;
     /* The trainee pays the course amount. The rebate is settled between us
        and the center and never reaches this figure. */
-    if(c.amount && !form.fee.dataset.touched) form.fee.value = ACC.r2(c.amount).toFixed(2);
+    /* Always the list price. The desk does not negotiate here — a different
+       figure is a change to the course, which is the admin's screen. A discount
+       on this one booking is what the discount field below is for. */
+    form.fee.value = ACC.r2(c.amount || 0).toFixed(2);
     fillEnd();
     recalc();
   };
-  form.fee.onchange = () => { form.fee.dataset.touched = '1'; };
 
   /* Typing the start date is the common case, so fill the end date from the
      course length and let the desk overrule it. */

@@ -150,6 +150,25 @@ const DB = (() => {
   }
 
   /* ---------- helpers ---------- */
+  /* The course ID already carries the acronym, so the title does not need to say
+     it again: next to an ID of AI, "AI - ACCIDENT INVESTIGATION" is just
+     "ACCIDENT INVESTIGATION". Only stripped when the prefix really is the ID and
+     something is left after it — a course called ATCT with an ID of ATCT keeps
+     its name rather than becoming blank. */
+  function titleWithoutCode(code, title){
+    const c = String(code || '').trim(), t = String(title || '').trim();
+    if(!c || !t || !t.toUpperCase().startsWith(c.toUpperCase())) return t;
+    const sep = t.slice(c.length).match(/^\s*[-–—]\s*/);
+    if(!sep) return t;
+    const rest = t.slice(c.length + sep[0].length).trim();
+    /* "AFF - R" is Advanced Fire Fighting, refresher. Strip the AFF and what is
+       left is "R", which names nothing — so a remainder too short to stand on
+       its own means the title was never an ID plus a description, and the whole
+       name stays. "BT - PSSR" and "COOKERY - NCII" survive the cut; the
+       refreshers do not get mangled. */
+    return rest.length >= 3 ? rest : t;
+  }
+
   const today = () => new Date().toISOString().slice(0,10);
   const uid   = p => p + '-' + Math.random().toString(36).slice(2,9);
   const r2    = n => Math.round((Number(n)||0) * 100) / 100;
@@ -177,6 +196,10 @@ const DB = (() => {
     if(d.accounts && !d.accounts.some(a => a.code === '4300')){
       d.accounts.push({ code:'4300', name:'Overpayments', type:'Revenue', nature:'credit' });
     }
+    /* Titles used to repeat the course ID. Renaming the catalogue leaves any
+       invoice line already written alone: a document says what it said when it
+       was issued. */
+    (d.courses || []).forEach(c => { c.title = titleWithoutCode(c.code, c.title); });
     /* The expense categories were rewritten to the four the office actually
        uses. An account with history keeps its name and its balance — renaming
        it would relabel entries that were posted under the old one — but the
@@ -405,7 +428,7 @@ const DB = (() => {
       const { modes, options } = normalizeDelivery([...(c.modes || []), ...(c.options || [])]);
       return {
         id:uid('crs'),
-        code:c.code, title:c.title,
+        code:c.code, title:titleWithoutCode(c.code, c.title),
         days:c.days ?? null, duration:c.duration || '',
         modes, options,
         center:c.center || '',
@@ -438,14 +461,14 @@ const DB = (() => {
        give the seeded enrollments somewhere realistic to have been booked. */
     const RUNS = [
       ['BASIC TRAINING',              -30, 'Nautical Options',  'Pool / Rm 201', 'Capt. R. Villanueva',  5500],
-      ['SSO - SHIP SECURITY OFFICER', -18, 'PNTC',              'Rm 305',        'Capt. M. Delos Reyes', 2700],
-      ['MEFA - MEDICAL FIRST AID',     -6, 'Altitude Maritime', 'Rm 202',        'Dr. L. Sarmiento',     1600],
+      ['SHIP SECURITY OFFICER',       -18, 'PNTC',              'Rm 305',        'Capt. M. Delos Reyes', 2700],
+      ['MEDICAL FIRST AID',            -6, 'Altitude Maritime', 'Rm 202',        'Dr. L. Sarmiento',     1600],
       ['BASIC TRAINING',               -2, 'Fareast',           'Pool / Rm 201', 'Capt. R. Villanueva',  6500],
       ['AFF',                           1, 'Nautical Options',  'Fire Ground',   'CE J. Bautista',       4200],
       ['SCRB',                          2, 'Altitude Maritime', 'Pool / Rm 204', 'Capt. R. Villanueva',  3600],
       ['DECK WATCHKEEPING',            15, 'PNTC',              'Simulator A',   'Capt. A. Ocampo',      3700],
       ['SATSDSD',                      21, 'Great Seas',        'Rm 305',        'Capt. M. Delos Reyes',  700],
-      ['MECA - MEDICAL CARE',          28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400],
+      ['MEDICAL CARE',                 28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400],
     ].map(([title, off, center, room, instr, fee], ri) => {
       const c = crs(title, center);
       /* The seed names real catalogue entries. If one stops matching, the import

@@ -94,6 +94,22 @@ function courseId(title){
   return title.split(/\s+/).slice(0,2).join(' ').slice(0,12).toUpperCase();
 }
 
+/* The ID carries the acronym; the title need not repeat it. Kept in step with
+   the same function in db.js, which cleans catalogues generated before this. */
+function titleWithoutCode(code, title){
+  const c = String(code || '').trim(), t = String(title || '').trim();
+  if(!c || !t || !t.toUpperCase().startsWith(c.toUpperCase())) return t;
+  const sep = t.slice(c.length).match(/^\s*[-–—]\s*/);
+  if(!sep) return t;
+  const rest = t.slice(c.length + sep[0].length).trim();
+  /* "AFF - R" is Advanced Fire Fighting, refresher. Strip the AFF and what is
+     left is "R", which names nothing — so a remainder too short to stand on
+     its own means the title was never an ID plus a description, and the whole
+     name stays. "BT - PSSR" and "COOKERY - NCII" survive the cut; the
+     refreshers do not get mangled. */
+  return rest.length >= 3 ? rest : t;
+}
+
 function parseDays(raw){
   const s = clean(raw).toUpperCase().replace(/D\s+AYS/,'DAYS');
   const m = s.match(/([\d.]+)\s*(?:DAYS?|D)/);
@@ -173,7 +189,7 @@ rows.forEach((r, n) => {
   seen.set(key, line);
 
   out.push({
-    code:courseId(title), title, center,
+    code:courseId(title), title:titleWithoutCode(courseId(title), title), center,
     amount:fee == null ? 0 : fee,
     rebate:rebate == null ? 0 : rebate,
     days, duration, modes,
