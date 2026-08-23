@@ -2131,7 +2131,8 @@ function traineeForm(t, onDone){
       ${UI.f.text('address','Home address', t.address)}
       ${H('Employment')}
       ${UI.row(UI.f.text('rank','Rank / position', t.rank, { ph:'e.g. Able Seaman' }),
-               UI.f.text('agency','Company', t.agency, { hint:'manning agency or employer' }))}
+               UI.f.text('agency','Company', t.agency, { hint:'manning agency or employer',
+                          attr:'class="caps"' }))}
       ${H('In case of emergency')}
       ${UI.row(UI.f.text('emergencyName','Contact person', t.emergencyName),
                UI.f.text('emergencyRelation','Relationship', t.emergencyRelation, { ph:'e.g. Spouse' }),
@@ -3305,10 +3306,14 @@ document.addEventListener('click', ev => {
     'print':         () => UI.print(),
     'backup':        () => { DB.exportJSON(); UI.toast('Backup downloaded.'); },
     'restore':       () => document.getElementById('restoreFile').click(),
+    /* Reset rather than blank. Wiping used to leave a store with no courses in
+       it, which is not a fresh start — it is a system that cannot take a
+       booking until somebody types 341 prices back in. */
     'wipe':          () => UI.confirm('Erase every record in this system?', () => {
-                        DB.reset(false); UI.toast('All records erased.'); location.hash = '#/dashboard'; render();
+                        DB.reset(true); UI.toast('All records erased. The price list is intact.');
+                        location.hash = '#/dashboard'; render();
                       }, { danger:true, yes:'Erase everything',
-                           detail:'Trainees, enrollments, invoices, receipts and the entire journal will be deleted. Download a backup first — this cannot be undone.' }),
+                           detail:'Trainees, bookings, bills, receipts, vouchers and the entire journal will be deleted. The course price list, the chart of accounts, the staff accounts and the company profile stay. Download a backup first — this cannot be undone.' }),
   }[act];
   if(A){ ev.preventDefault(); A(); }
 });

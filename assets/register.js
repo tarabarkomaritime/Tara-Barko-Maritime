@@ -21,6 +21,19 @@
 /* No peso formatter here on purpose: the public portal prints no amounts.
    Importing one is how that quietly stops being true. */
 const esc = UI.esc;
+
+/* A seafarer's papers are in capitals, so the registry is too — it is the
+   same name on the SRN record, the PEME form and the certificate, and a
+   registry that stores "dela cruz" next to "DELA CRUZ" is a registry you
+   cannot search.
+
+   Three fields are deliberately left alone. An email address and a Facebook
+   or Messenger link can have a case-sensitive path, and shouting them can
+   turn a working link into a dead one. */
+const NO_CAPS = ['email', 'facebook', 'messenger'];
+const caps = (name, value) =>
+  NO_CAPS.includes(name) ? value : String(value == null ? '' : value).toUpperCase();
+
 const CO   = () => DB.get().company;
 
 const P = {
@@ -90,13 +103,17 @@ function stepDetails(){
     '4th Engineer','Engine Cadet','Oiler','Fitter','Electrician','Pumpman','Chief Cook',
     'Messman','Steward','Laundryman','Radio Officer'];
 
+
+
   const F = (n, label, opts = {}) => {
     const v = esc(d[n] || '');
     const attrs = `name="${n}" value="${v}" ${opts.req?'required':''} ${opts.attr||''}
                    placeholder="${esc(opts.ph||'')}" ${opts.list?`list="${opts.list}"`:''}`;
     return `<label class="fld ${bad(n)}">
       <span>${esc(label)} ${opts.req?req:''} ${opts.hint?`<small>${esc(opts.hint)}</small>`:''}</span>
-      <input type="${opts.type||'text'}" ${attrs}></label>`;
+      <input type="${opts.type||'text'}"
+             ${!NO_CAPS.includes(n) && (opts.type || 'text') === 'text' ? 'class="caps"' : ''}
+             ${attrs}></label>`;
   };
 
   return `
@@ -474,7 +491,11 @@ function render(){
 /* Capture the details step without validating, so Back never loses typing. */
 function captureDetails(){
   const form = document.getElementById('detailForm');
-  if(form) Object.assign(P.draft, Object.fromEntries(new FormData(form).entries()));
+  if(form){
+    const entries = Object.fromEntries(new FormData(form).entries());
+    Object.keys(entries).forEach(k => { entries[k] = caps(k, entries[k]); });
+    Object.assign(P.draft, entries);
+  }
 }
 
 function wire(){

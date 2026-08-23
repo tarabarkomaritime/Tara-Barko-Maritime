@@ -53,11 +53,20 @@ const balanced = () => {
 
 console.log('\n- seed -');
 run('DB.load()');
-check('seeds the trainee registry', () => run('DB.get().trainees.length') === 23 || 'got ' + run('DB.get().trainees.length'));
-check('seeds people who registered online but are not booked', () =>
-  run(`DB.get().trainees.filter(t => t.source === 'Public portal').length`) === 5 ||
-  run(`DB.get().trainees.filter(t => t.source === 'Public portal').length`));
-check('seeds enrollments', () => run('DB.get().enrollments.length') > 20 || run('DB.get().enrollments.length'));
+/* The office starts empty. A seeded month of invented trainees made the first
+   screen look busy and every figure on it a lie, so the seed now lays down what
+   the system needs to work and nothing that pretends to be business. */
+check('starts with no trainees', () => run('DB.get().trainees.length') === 0 || 'got ' + run('DB.get().trainees.length'));
+check('starts with no bookings', () => run('DB.get().enrollments.length') === 0 || run('DB.get().enrollments.length'));
+check('starts with no money moved', () =>
+  run('DB.get().invoices.length + DB.get().payments.length + DB.get().journal.length') === 0
+  || 'the books are not empty');
+/* What it does lay down, because the system cannot take a booking without it. */
+check('the price list is there', () => run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
+check('the chart of accounts is there', () => run('DB.get().accounts.length') > 10 || run('DB.get().accounts.length'));
+check('the staff can sign in', () => run('DB.get().users.length') === 4 || run('DB.get().users.length'));
+check('every staff account has a code', () =>
+  run('DB.get().users.every(u => !!u.code)') === true || 'an account has no code');
 check('no schedules collection remains', () => run('DB.get().batches === undefined') === true || 'batches still present');
 check('no seat capacity on enrollments', () =>
   run('DB.get().enrollments.every(e => e.capacity === undefined)') === true || 'capacity found');
@@ -571,7 +580,10 @@ check('net income = revenue less expenses', () =>
 console.log('\n- backup and restore -');
 run('globalThis.SNAP = JSON.stringify(DB.get())');
 check('an export re-imports cleanly', () => { run('DB.importJSON(SNAP)'); return run('DB.get().trainees.length') > 0 || 'lost trainees'; });
-check('enrollments survive the round trip', () => run('DB.get().enrollments.length') > 20 || run('DB.get().enrollments.length'));
+check('enrollments survive the round trip', () => {
+  const before = run('JSON.parse(SNAP).enrollments.length');
+  return run('DB.get().enrollments.length') === before || `${before} -> ${run('DB.get().enrollments.length')}`;
+});
 check('a pre-schedule backup still opens', () => {
   const legacy = JSON.stringify({
     meta:{ version:1 }, company:{ vatRate:12, vatInclusive:true }, users:[], accounts:[],

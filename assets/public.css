@@ -311,3 +311,8 @@ body.portal{ background:var(--bg); display:flex; flex-direction:column; min-heig
   .p-acts .btn, .p-acts-right{ width:100%; }
   .p-acts-right .btn{ flex:1; }
 }
+
+/* Typed in capitals, the way the papers are written. The value is uppercased
+   again when the form is read, because this only changes how it looks — a
+   pasted or autofilled value would otherwise be stored as it came. */
+.caps{text-transform:uppercase}

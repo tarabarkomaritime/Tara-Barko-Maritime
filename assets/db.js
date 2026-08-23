@@ -62,7 +62,9 @@ const DB = (() => {
        that browser. */
     { id:'u1', name:'Kyla Esguerra',   role:'admin',      code:'tb-Nd0uuaxA', initials:'KE', email:'' },
     { id:'u4', name:'Kate Esguerra',   role:'admin',      code:'tb-XbbhnxDc', initials:'KA', email:'' },
-    { id:'u2', name:'Jocelyn Eala',    role:'frontdesk',  code:'registrar',  initials:'JE', email:'' },
+    /* Registration and the cash window are one job at this office, which is what
+       the frontdesk role is. */
+    { id:'u2', name:'Jocelyn Eala',    role:'frontdesk',  code:'tb-lGStmI1g', initials:'JE', email:'' },
     { id:'u3', name:'Accounting',      role:'accounting', code:'accounting', initials:'AC', email:'' },
   ];
 
@@ -466,220 +468,15 @@ const DB = (() => {
     });
     data.seq.course = data.courses.length;
 
-    /* Several centers run the same course at different prices, so the seeded
-       bookings name both. */
-    const crs = (t, center) => data.courses.find(c =>
-      c.title.toUpperCase() === t.toUpperCase() &&
-      (!center || c.center.toUpperCase() === center.toUpperCase()))
-      || data.courses.find(c => c.title.toUpperCase() === t.toUpperCase());
-    const dOff = n => { const d = new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
-    const end  = (s,days) => { const d = new Date(s); d.setDate(d.getDate()+days-1); return d.toISOString().slice(0,10); };
-    /* Trainees register shortly before a batch opens — and never in the future, so the
-       seeded ledger, the ageing report and the as-of trial balance all agree. */
-    const before = (date,n) => { const d = new Date(date); d.setDate(d.getDate()-n); const s = d.toISOString().slice(0,10); return s > today() ? today() : s; };
-    const after  = (date,n) => { const d = new Date(date); d.setDate(d.getDate()+n); const s = d.toISOString().slice(0,10); return s > today() ? today() : s; };
+    /* The office starts empty. Everything above is what the system needs to
+       work at all — the price list, the chart of accounts, the people who sign
+       in, the company's own details. Everything below used to be an invented
+       month of trainees, bookings, bills and receipts, and it is gone: it made
+       the first screen look busy and every figure on it a lie.
 
-    /* A booking is a dated run of one course at one partner center, at the price
-       agreed for it. There is no seat inventory and no shared schedule: the
-       registrar books each trainee individually, so these rows exist only to
-       give the seeded enrollments somewhere realistic to have been booked. */
-    const RUNS = [
-      ['BASIC TRAINING',              -30, 'Nautical Options',  'Pool / Rm 201', 'Capt. R. Villanueva',  5500],
-      ['SHIP SECURITY OFFICER',       -18, 'PNTC',              'Rm 305',        'Capt. M. Delos Reyes', 2700],
-      ['MEDICAL FIRST AID',            -6, 'Altitude Maritime', 'Rm 202',        'Dr. L. Sarmiento',     1600],
-      ['BASIC TRAINING',               -2, 'Fareast',           'Pool / Rm 201', 'Capt. R. Villanueva',  6500],
-      ['AFF',                           1, 'Nautical Options',  'Fire Ground',   'CE J. Bautista',       4200],
-      ['SCRB',                          2, 'Altitude Maritime', 'Pool / Rm 204', 'Capt. R. Villanueva',  3600],
-      ['DECK WATCHKEEPING',            15, 'PNTC',              'Simulator A',   'Capt. A. Ocampo',      3700],
-      ['SATSDSD',                      21, 'Great Seas',        'Rm 305',        'Capt. M. Delos Reyes',  700],
-      ['MEDICAL CARE',                 28, 'Fareast',           'Rm 306',        'Dr. L. Sarmiento',     4400],
-    ].map(([title, off, center, room, instr, fee], ri) => {
-      const c = crs(title, center);
-      /* The seed names real catalogue entries. If one stops matching, the import
-         renamed it — fail loudly rather than seeding a half-empty demo. */
-      if(!c) throw new Error(`seed: no catalogue entry titled "${title}" — check tools/import-courses.js output`);
-      /* Put a third of the seeded courses on deduct terms. Both settlement paths
-         have to appear on the payables screen or only half of it is ever seen. */
-      if(ri % 3 === 0) c.deduct = true;
-      const start = dOff(off);
-      /* Take the center's name from the price list rather than repeating it
-         here: two spellings of one center split it in two on the payables
-         screen, and half the debt goes missing from each. */
-      return { course:c, start, end:end(start, Math.ceil(c.days || 1)),
-               center:c.center || center, room, instructor:instr, fee };
-    });
-
-    const names = [
-      ['Juan Miguel','Dela Cruz','M','Able Seaman'], ['Ramon','Bautista','M','Oiler'],
-      ['Maria Cristina','Reyes','F','Messman'],      ['Jose Antonio','Santiago','M','3rd Officer'],
-      ['Ferdinand','Aquino','M','Bosun'],            ['Angelo','Mercado','M','4th Engineer'],
-      ['Rowena','Villareal','F','Steward'],          ['Christian Paul','Lim','M','Deck Cadet'],
-      ['Nestor','Pangilinan','M','Chief Cook'],      ['Arnel','Sarmiento','M','2nd Officer'],
-      ['Grace','Manalo','F','Engine Cadet'],         ['Rodolfo','Cabrera','M','Fitter'],
-      ['Emmanuel','Yap','M','3rd Engineer'],         ['Jerome','Alcantara','M','Ordinary Seaman'],
-      ['Lorna','Castillo','F','Laundryman'],         ['Benjamin','Tolentino','M','Master'],
-      ['Alvin','Domingo','M','Electrician'],         ['Rico','Fernandez','M','Pumpman'],
-    ];
-    const agencies = ['Magsaysay Maritime Corp.','Philippine Transmarine Carriers','Anglo-Eastern Crew Mgmt','Wallem Maritime Services','Direct Hire / Walk-in','Scanmar Maritime Services'];
-
-    const TOWNS = ['Tondo, Manila','Cavite City, Cavite','Iloilo City, Iloilo',
-                   'Cebu City, Cebu','Bacolod City, Negros Occidental','Zamboanga City, Zamboanga del Sur'];
-    const NEXTOFKIN = ['Spouse','Mother','Father','Sister','Brother','Spouse'];
-
-    data.trainees = names.map(([fn,ln,sex,rank],i) => {
-      data.seq.trainee++;
-      const y = 1978 + (i*3) % 25;
-      const town = TOWNS[i%6];
-      return {
-        id:uid('trn'),
-        no:`TRN-${new Date().getFullYear()}-${String(data.seq.trainee).padStart(4,'0')}`,
-        srn:`SRN-${100000+i*137}`,
-        last:ln, first:fn, middle:['Santos','Cruz','Reyes','Garcia','Lopez','Torres'][i%6],
-        suffix:(i % 7 === 3) ? 'Jr.' : '',
-        sex, birth:`${y}-0${(i%9)+1}-1${i%9}`, birthPlace:town,
-        sirb:`B${2000000+i*911}`, passport:`P${3000000+i*733}A`,
-        rank, agency:agencies[i%agencies.length],
-        mobile:`09${17+(i%3)}${String(1000000+i*54321).slice(0,7)}`,
-        email:`${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase()}@mail.com`,
-        facebook:`facebook.com/${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase().replace(/\s+/g,'')}`,
-        messenger:'',
-        address:town,
-        emergencyName:`${['Maria','Ana','Josefa','Elena','Teresita','Luzviminda'][i%6]} ${ln}`,
-        emergencyRelation:NEXTOFKIN[i%6],
-        emergencyMobile:`0919${String(4000000+i*31415).slice(0,7)}`,
-        registered:dOff(-90 + i*4),
-        remarks:'',
-      };
-    });
-
-    /* Enrollments across the completed/ongoing/open batches, each with an invoice. */
-    const enrollPlan = [
-      [0,0,'Completed','Passed'],[0,1,'Completed','Passed'],[0,2,'Completed','Passed'],[0,3,'Completed','Failed'],[0,4,'Completed','Passed'],
-      [1,5,'Completed','Passed'],[1,6,'Completed','Passed'],[1,7,'Completed','Passed'],
-      [2,8,'Enrolled',''],[2,9,'Enrolled',''],[2,10,'Enrolled',''],[2,0,'Enrolled',''],
-      [3,11,'Enrolled',''],[3,12,'Enrolled',''],[3,13,'Enrolled',''],[3,14,'Enrolled',''],[3,1,'Enrolled',''],
-      [4,15,'Reserved',''],[4,16,'Enrolled',''],[4,2,'Enrolled',''],
-      [5,17,'Reserved',''],[5,3,'Enrolled',''],[5,4,'Reserved',''],
-      [6,5,'Enrolled',''],[6,15,'Enrolled',''],
-      [7,6,'Reserved',''],[7,7,'Reserved',''],
-      [8,16,'Enrolled',''],
-    ];
-
-    enrollPlan.forEach(([bi,ti,status,result],i) => {
-      const b = RUNS[bi], t = data.trainees[ti], c = b.course;
-      const discount = (i % 7 === 0) ? r2(b.fee * 0.10) : 0;   // occasional company discount
-      const regDate = before(b.start, 4 + (i % 9));
-      data.seq.enrollment++;
-      const enr = {
-        id:uid('enr'),
-        no:`ENR-${new Date().getFullYear()}-${String(data.seq.enrollment).padStart(4,'0')}`,
-        traineeId:t.id, courseId:c.id,
-        center:b.center, start:b.start, end:b.end, room:b.room, instructor:b.instructor,
-        date: regDate, status, result,
-        fee:b.fee, discount, discountNote: discount ? 'Company package rate' : '',
-        certificateNo: result === 'Passed' ? `TBM-${c.code}-${String(9000+i)}` : '',
-        remarks:'',
-      };
-      data.enrollments.push(enr);
-
-      // Reservations are not yet billed — matches how a registrar actually works.
-      if(status === 'Reserved') return;
-
-      const items = [{ desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee }];
-      if(i % 3 === 0) items.push({ desc:'Course manual / workbook', account:'4100', qty:1, price:350 });
-
-      const inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:t.id, date:enr.date, items, discount });
-      data.invoices.push(inv);
-      ACC.postInvoice(inv);
-      enr.invoiceId = inv.id;
-
-      /* The seat cost something. Without this the seeded books show fees as
-         pure profit and the payables screen opens empty on a fresh install.
-         The rebate and its treatment come off the course's price-list entry;
-         every other course keeps the do-not-deduct default. */
-      enr.rebate = r2(c.rebate || 0);
-      enr.deduct = !!c.deduct;
-      const st = ACC.postCenterPayable({
-        date:enr.date, memo:`${c.title} — ${b.center} · ${enr.no}`,
-        refNo:enr.no, refId:enr.id, fee:b.fee, rebate:enr.rebate, deduct:enr.deduct,
-      });
-      enr.centerPayable = st.payable;
-      enr.rebateReceivable = st.receivable;
-
-      // Payment behaviour: most pay in full, some partially, a few not at all.
-      const mode = i % 5;
-      if(mode !== 4){
-        const amt = mode === 3 ? r2(inv.total * 0.5) : inv.total;
-        const p = ACC.buildPayment({ invoiceId:inv.id, traineeId:t.id, date:after(enr.date, i % 5),
-          amount:amt, method:['Cash','GCash','Bank','Cash'][i%4],
-          ref:['','GC-' + (700000+i*37),'BT-' + (880000+i*53),''][i%4] });
-        data.payments.push(p);
-        ACC.postPayment(p, inv);
-      }
-    });
-
-    /* A few operating expenses so the income statement is not revenue-only. */
-    const EX = (date, payee, acct, amount, particulars, method) => {
-      data.seq.voucher++;
-      /* Posted the moment it is written, so it is approved by definition. Without
-         the stamp the money sits in the ledger while every screen that reads
-         `state === 'Approved'` — the daily report, the payroll totals — reports
-         nothing went out, and the two disagree from the first day. */
-      const v = { id:uid('exp'), no:`DV-${new Date().getFullYear()}-${String(data.seq.voucher).padStart(4,'0')}`,
-                  date, payee, account:acct, amount, particulars, method,
-                  state:'Approved', raisedBy:'Seeded', approvedBy:'Seeded', approvedOn:date };
-      data.expenses.push(v);
-      ACC.postExpense(v);
-    };
-    EX(dOff(-28),'National Book Store','5100',3450,'Bond paper, ink and folders','Cash');
-    EX(dOff(-26),'Payroll','5200',18000,'Administrative staff salaries','Bank');
-    EX(dOff(-25),'City of Manila','5300',6500,'Business permit and licence renewal','Cash');
-    EX(dOff(-20),'Kalaw Catering','5400',4200,'Lunch and snacks — BASIC TRAINING run','Cash');
-    EX(dOff(-15),'MARINA','5300',2800,'Accreditation filing fee','Bank');
-    EX(dOff(-9), 'Ermita Office Depot','5100',1950,'Printer toner and binder clips','Cash');
-    EX(dOff(-4), 'Aling Nena Carinderia','5400',1600,'Meals for the assessment day','Cash');
-
-    /* People who registered on the public portal and have not been booked on
-       anything yet. There is no approval queue any more: a public registration
-       creates the seafarer's master record straight away, and the registrar
-       finds them by searching Trainees and encodes an enrollment. */
-    const PLACES = ['Navotas, Metro Manila','Lucena City, Quezon','Dumaguete City, Negros Oriental',
-                    'Tacloban City, Leyte','Iloilo City, Iloilo'];
-    const KIN = [['Marilou','Spouse'],['Rosario','Mother'],['Editha','Spouse'],
-                 ['Ligaya','Sister'],['Corazon','Mother']];
-
-    const WALKUP = (i, [fn,ln,mn,sfx,sex,rank,agency], daysAgo) => {
-      const [kin, rel] = KIN[i % KIN.length];
-      const handle = `${fn.split(' ')[0].toLowerCase()}.${ln.toLowerCase().replace(/s+/g,'')}`;
-      data.seq.trainee++;
-      data.trainees.push({
-        id:uid('trn'),
-        no:`TRN-${new Date().getFullYear()}-${String(data.seq.trainee).padStart(4,'0')}`,
-        srn:`SRN-${400000 + daysAgo*311}`,
-        last:ln, first:fn, middle:mn, suffix:sfx,
-        sex, birth:`199${daysAgo%10}-0${(daysAgo%9)+1}-1${daysAgo%9}`,
-        birthPlace:PLACES[i % PLACES.length],
-        sirb:'', passport:'',
-        rank, agency,
-        mobile:`0917${String(2000000 + daysAgo*13579).slice(0,7)}`,
-        email:`${handle}@mail.com`,
-        facebook:`facebook.com/${handle}`,
-        messenger:i % 2 ? `m.me/${handle}` : '',
-        address:PLACES[i % PLACES.length],
-        emergencyName:`${kin} ${ln}`, emergencyRelation:rel,
-        emergencyMobile:`0918${String(3000000 + daysAgo*24680).slice(0,7)}`,
-        registered:dOff(-daysAgo),
-        source:'Public portal',
-        remarks:'',
-      });
-    };
-    WALKUP(0, ['Dante','Herrera','Cruz','Jr.','M','Able Seaman','Magsaysay Maritime Corp.'],   2);
-    WALKUP(1, ['Melchor','Bagtas','Reyes','','M','2nd Officer','Anglo-Eastern Crew Mgmt'],     3);
-    WALKUP(2, ['Ivy Rose','Del Rosario','Santos','','F','Messman','Direct Hire / Walk-in'],    5);
-    WALKUP(3, ['Warren','Ocampo','Lim','III','M','Bosun','Wallem Maritime Services'],          6);
-    WALKUP(4, ['Elmer','Bacani','Torres','','M','Radio Officer','Scanmar Maritime Services'],  8);
-
-    activity('Seeded demo data','');
+       This is also what "Erase everything" now returns you to. Wiping used to
+       leave a store with no courses in it, which is not a fresh start, it is a
+       system that cannot take a booking. */
   }
 
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
