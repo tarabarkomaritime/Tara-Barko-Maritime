@@ -511,7 +511,12 @@ VIEWS.courses = () => {
       { h:'', k:c => admin
           ? `<button class="btn btn-ghost btn-xs" data-act="edit-course" data-id="${c.id}">Edit</button>`
           : '', w:'70px' },
-    ], rows, { empty:'No course matches that search.' }), { flush:true })}
+    ], rows, { empty:'No course matches that search.',
+        /* Nine columns means the Edit button sits off the right edge on most
+           screens, so the row opens it too — every other list here works that
+           way and this one looked read-only because of it. */
+        rowClass: admin ? 'clickable' : '',
+        rowAttrs: c => admin ? `data-act="edit-course" data-id="${c.id}"` : '' }), { flush:true })}
   `;
 };
 
@@ -1214,13 +1219,6 @@ VIEWS.payroll = () => {
   const waiting = ACC.r2(rows.filter(v => v.state === 'Pending').reduce((s,v) => s + v.amount, 0));
 
   return `
-    <div class="grid g3" style="margin-bottom:18px">
-      ${UI.kpi('Paid out', UI.peso(paid), `${rows.filter(v => v.state === 'Approved').length} run(s)`, 'ok')}
-      ${UI.kpi('Waiting for approval', UI.peso(waiting),
-               waiting ? 'not on the books yet' : 'nothing outstanding', waiting ? 'warn' : '')}
-      ${UI.kpi('Runs on file', UI.int(rows.length), 'since the books opened', '')}
-    </div>
-
     ${UI.card('Payroll', UI.table([
       { h:'Voucher No.', k:v => `<b class="mono">${UI.esc(v.no)}</b>`, w:'135px' },
       { h:'Date', k:v => UI.date(v.date), w:'115px' },
@@ -1690,7 +1688,6 @@ VIEWS.ledger = () => {
   if(tab === 'coa'){
     const tb = ACC.trialBalance(DB.today());
     return nav + UI.card('Chart Of Accounts — Balances As Of ' + UI.date(DB.today()), UI.table([
-      { h:'Code', k:a => `<b class="mono">${UI.esc(a.code)}</b>`, w:'80px' },
       { h:'Account Name', k:'name' },
       { h:'Type', k:a => UI.tag(a.type, { Asset:'sea', Liability:'warn', Equity:'info', Revenue:'ok', Expense:'bad' }[a.type] || 'muted') },
       { h:'Normal Balance', k:a => UI.esc(a.nature === 'debit' ? 'Debit' : 'Credit') },
@@ -1738,7 +1735,7 @@ VIEWS.ledger = () => {
           ${idx===0 ? `<td rowspan="${j.lines.length}">${UI.date(j.date)}</td>
                        <td rowspan="${j.lines.length}"><b class="mono">${UI.esc(j.no)}</b>${j.voided?'<br>'+UI.tag('Voided','muted'):''}</td>
                        <td rowspan="${j.lines.length}">${UI.esc(j.memo)}${j.refNo?`<br><span class="muted mono" style="font-size:11px">${UI.esc(j.refNo)}</span>`:''}</td>` : ''}
-          <td><span class="mono">${UI.esc(l.account)}</span> <span class="muted">${UI.esc(ACC.acct(l.account).name)}</span></td>
+          <td>${UI.esc(ACC.acct(l.account).name)}</td>
           <td class="num">${l.debit ? UI.num(l.debit) : ''}</td>
           <td class="num">${l.credit ? UI.num(l.credit) : ''}</td>
         </tr>`).join('')).join('')}</tbody>
@@ -1783,7 +1780,6 @@ VIEWS.reports = () => {
       (balanced ? `<div class="note"><b>In balance.</b> Total debits equal total credits — ${UI.peso(tb.totalDr)}.</div>`
                 : `<div class="note bad"><b>Out of balance</b> by ${UI.peso(Math.abs(tb.totalDr-tb.totalCr))}. Review the journal.</div>`) +
       UI.table([
-        { h:'Code', k:r => `<span class="mono">${UI.esc(r.code)}</span>`, w:'80px' },
         { h:'Account', k:'name' },
         { h:'Type', k:'type', w:'110px' },
         { h:'Debit', k:r => r.dr ? UI.num(r.dr) : '', cls:'num' },
@@ -1948,7 +1944,6 @@ VIEWS.settings = () => {
             sub:'Offered at the collection window' })}
 
         ${UI.card('Expense Categories', UI.table([
-          { h:'Code', k:a => `<span class="mono">${UI.esc(a.code)}</span>`, w:'70px' },
           { h:'Category', k:'name' },
         ], d.accounts.filter(a => a.type === 'Expense').sort((a,b) => a.code.localeCompare(b.code)),
           { empty:'No expense category yet.' }), { flush:true,
@@ -2084,7 +2079,7 @@ function traineeProfile(t){
                 ${t.emergencyMobile ? `<br><span class="mono">${UI.esc(t.emergencyMobile)}</span>` : ''}</dd>
         </dl>
       </div>
-      ${copyRow('Copy details')}
+      ${copyRow('COPY DETAILS')}
       <div class="hr"></div>
       <div class="kpi-row" style="margin-bottom:16px">
         ${UI.kpi('Courses booked', UI.int(enr.length),
@@ -2400,7 +2395,7 @@ function enrollmentModal(e){
           <span class="muted">· ${UI.statusTag(e.status)}</span></dd>
       </dl>
       ${e.remarks ? `<div class="note">${UI.esc(e.remarks)}</div>` : ''}
-      ${copyRow('Copy details')}
+      ${copyRow('COPY DETAILS')}
 
       <div class="hr"></div>
       <table style="width:100%;font-size:13px">
@@ -2448,7 +2443,7 @@ function billEnrollment(e){
   UI.modal({
     title:'Generate invoice', sub:`${e.no} · ${name(T(e.traineeId))}`,
     body: `
-      <div class="note"><b>${UI.esc(c.title)}</b><br>${UI.esc(b.center)} · ${UI.esc(c.duration || '')} · fee ${UI.peso(b.fee)}</div>
+      <div class="note"><b>${UI.esc(c.title)}</b><br>${UI.esc(e.center || '—')} · ${UI.esc(c.duration || '')} · fee ${UI.peso(e.fee || 0)}</div>
       <div class="chips" style="margin-bottom:12px">
 ${addons().map((a,i) => `
         <div class="addon-row">
@@ -2462,9 +2457,8 @@ ${addons().map((a,i) => `
                UI.f.num('discount','Discount (₱)', e.discount || 0, { min:0 }))}
       ${UI.f.text('terms','Terms','Due on or before first day of training')}`,
     submitLabel:'Issue invoice',
-    /* eslint-disable-next-line no-unused-vars */
     onSubmit: fd => {
-      const items = [{ desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee }];
+      const items = [{ desc:`${c.title} — ${e.center}`, account:'4000', qty:1, price:e.fee }];
       addons().forEach((a,i) => { if(fd['addon'+i]) items.push({ desc:a.desc, account:a.account, qty:1,
         price:ACC.r2(fd['addonAmt'+i] != null ? fd['addonAmt'+i] : a.price) }); });
       const inv = ACC.buildInvoice({ enrollmentId:e.id, traineeId:e.traineeId, date:fd.date, items, discount:ACC.r2(fd.discount), terms:fd.terms });
@@ -2476,6 +2470,17 @@ ${addons().map((a,i) => `
       refresh();
     }
   });
+
+  /* A charge's amount box follows its tick. A disabled field is not submitted,
+     so without this the typed figure never reaches the invoice and the list
+     price goes on it instead — silently, which is the worst way to be wrong
+     about money. */
+  const form = document.getElementById('mForm');
+  const syncAddons = () => addons().forEach((a,i) => {
+    if(form['addonAmt'+i]) form['addonAmt'+i].disabled = !(form['addon'+i] && form['addon'+i].checked);
+  });
+  form.addEventListener('change', syncAddons);
+  syncAddons();
 }
 
 function invoiceModal(inv){
@@ -2802,7 +2807,7 @@ function expenseForm(){
     title:'Disbursement voucher', sub:'Records the expense and credits cash automatically',
     body: `
       ${UI.row(UI.f.text('payee','Payee', '', { req:true }), UI.f.date('date','Date', DB.today(), { req:true }))}
-      ${UI.f.select('account','Expense account','5100', exp.map(a => ({ v:a.code, l:`${a.code} — ${a.name}` })), { req:true })}
+      ${UI.f.select('account','Expense account','5100', exp.map(a => ({ v:a.code, l:a.name })), { req:true })}
       ${UI.f.text('particulars','Particulars','',{ req:true, ph:'What was this for?' })}
       ${UI.row(UI.f.num('amount','Amount (₱)','',{ req:true, min:0.01 }),
                UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()))}
@@ -2821,7 +2826,7 @@ function expenseForm(){
 }
 
 function journalForm(){
-  const opts = D().accounts.map(a => ({ v:a.code, l:`${a.code} — ${a.name}` }));
+  const opts = D().accounts.map(a => ({ v:a.code, l:a.name }));
   const line = i => `
     <div class="split" style="margin-bottom:8px">
       ${UI.f.select('acct'+i, i===0 ? 'Account' : '', '', opts, { blank:'— select —' })}
@@ -2966,7 +2971,6 @@ function categoriesForm(){
     footExtra:`<button type="button" class="btn btn-primary" id="addCat">+ Add category</button>`,
     body:`
       ${UI.table([
-        { h:'Code', k:a => `<b class="mono">${UI.esc(a.code)}</b>`, w:'90px' },
         { h:'Category', k:'name' },
         { h:'Vouchers', k:a => UI.int(D().expenses.filter(v => v.account === a.code).length), cls:'num' },
         { h:'Posted', k:a => { const t = D().journal.reduce((s,j) =>
@@ -3024,8 +3028,8 @@ function categoriesForm(){
     UI.modal({
       title:'Add expense category',
       body:`
-        ${UI.row(UI.f.text('code','Code', String(next), { req:true, hint:'5000–5999' }),
-                 UI.f.text('name','Category name', '', { req:true, ph:'e.g. Transport and delivery' }))}
+        ${UI.f.text('name','Category name', '', { req:true, ph:'e.g. Transport and delivery' })}
+        <input type="hidden" name="code" value="${next}">
         <div class="note">Charged as an expense when a voucher naming it is approved.</div>`,
       submitLabel:'Add category',
       onSubmit: fd => {
@@ -3046,7 +3050,7 @@ function categoriesForm(){
 function methodsForm(){
   const list = ACC.methods();
   const assets = D().accounts.filter(a => a.type === 'Asset')
-    .map(a => ({ v:a.code, l:`${a.code} — ${a.name}` }));
+    .map(a => ({ v:a.code, l:a.name }));
   const rows = [0,1,2,3,4,5];
   const line = i => {
     const m = list[i] || { name:'', account:'', ref:false };
