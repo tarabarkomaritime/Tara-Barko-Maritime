@@ -1,0 +1,17 @@
+# Vercel serves the repository root as a static site, which means anything left
+# here is fetchable by anyone who guesses the path. The site is index.html,
+# register.html and assets/ — everything else is how the site is built and
+# maintained, and has no business being downloadable.
+
+supabase/
+tests/
+tools/
+docs/
+design/
+
+*.md
+!index.html
+
+# Generated share build — 339 KB of inlined source, and the deployed site is
+# already the real thing.
+tara-barko-demo.html
