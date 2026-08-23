@@ -68,18 +68,30 @@ const DB = (() => {
     { id:'u3', name:'Accounting',      role:'accounting', code:'accounting', initials:'AC', email:'' },
   ];
 
+  /* What each role is called on screen. The key is what the code checks and
+     what a stored account carries; this is what a person reads, and "frontdesk"
+     is not a job anybody at this office would say they do. */
+  const ROLE_LABEL = {
+    admin:      'Admin',
+    frontdesk:  'Registration & Cashier',
+    accounting: 'Accounting',
+  };
+  const roleName = r => ROLE_LABEL[r] || r;
+
   /* Which modules each role may open. Admin sees everything. */
   const PERMS = {
     /* The admin maintains the price list and the accounts but does not work the
        journal — that is accounting's screen, and two people posting entries by
        hand into the same ledger is how a ledger stops being trustworthy. */
     admin:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','payroll','approvals','reports','settings'],
-    /* One person covers registration and the cash window at this office, so the
-       two jobs are one role rather than two accounts to sign in and out of.
-       Neither touches the course list: prices and rebates are the admin's. */
+    /* Registration and the cash window are one job at this office — the same
+       person takes the enrollment and then takes the money for it — so they are
+       one role rather than two accounts to sign in and out of between a
+       trainee's two sentences. There were once spare registrar and cashier
+       roles as well; nobody was ever on them, and three names for one desk is
+       three chances to give somebody the wrong one.
+       It does not touch the course list: prices and rebates are the admin's. */
     frontdesk:  ['dashboard','daily','trainees','enrollments','invoices','payments','refunds','reports'],
-    registrar:  ['dashboard','daily','trainees','enrollments','invoices','reports'],
-    cashier:    ['dashboard','daily','trainees','enrollments','invoices','payments','refunds','reports'],
     accounting: ['dashboard','daily','invoices','payments','payables','refunds','expenses','approvals','ledger','reports','settings'],
   };
 
@@ -480,5 +492,5 @@ const DB = (() => {
   }
 
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
-           PERMS, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS };
+           PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS };
 })();

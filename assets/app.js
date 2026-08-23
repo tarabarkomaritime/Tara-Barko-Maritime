@@ -222,7 +222,7 @@ function fillLoginList(){
   const sel = document.getElementById('loginUser');
   if(!sel) return;
   const keep = sel.value;
-  sel.innerHTML = D().users.map(u => `<option value="${u.id}">${UI.esc(u.name)} — ${u.role}</option>`).join('');
+  sel.innerHTML = D().users.map(u => `<option value="${u.id}">${UI.esc(u.name)} — ${UI.esc(DB.roleName(u.role))}</option>`).join('');
   if(keep && D().users.some(u => u.id === keep)) sel.value = keep;
 }
 
@@ -238,7 +238,7 @@ function initLogin(){
     document.getElementById('login').classList.add('hidden');
     document.getElementById('shell').classList.remove('hidden');
     document.getElementById('userName').textContent = u.name;
-    document.getElementById('userRole').textContent = u.role;
+    document.getElementById('userRole').textContent = DB.roleName(u.role);
     document.getElementById('userAvatar').textContent = u.initials;
     DB.activity('Signed in'); DB.save();
     renderNav();
@@ -2040,7 +2040,7 @@ VIEWS.settings = () => {
       <div>
         ${UI.card('User Accounts', UI.table([
           { h:'Name', k:u => `<b>${UI.esc(u.name)}</b><br><span class="muted" style="font-size:11.5px">${UI.esc(u.email || 'no email on file')}</span>` },
-          { h:'Role', k:u => UI.tag(u.role, 'info') },
+          { h:'Role', k:u => UI.tag(DB.roleName(u.role), 'info') },
           { h:'Modules', k:u => `<span class="muted">${DB.PERMS[u.role].length} of ${Object.keys(TITLES).length}</span>` },
           { h:'', k:u => `<button class="btn btn-ghost btn-xs" data-act="edit-user" data-id="${u.id}">Edit</button>`, w:'70px' },
         ], d.users, { empty:'No accounts.' }), { flush:true,
@@ -3000,7 +3000,7 @@ function journalForm(){
 function userForm(u){
   const isNew = !u;
   u = u || { name:'', email:'', code:'', role:'registrar', initials:'' };
-  const roles = Object.keys(DB.PERMS).map(r => ({ v:r, l:`${r} — ${DB.PERMS[r].length} module(s)` }));
+  const roles = Object.keys(DB.PERMS).map(r => ({ v:r, l:`${DB.roleName(r)} — ${DB.PERMS[r].length} module(s)` }));
 
   UI.modal({
     title: isNew ? 'Add user account' : 'Edit account — ' + u.name,
@@ -3012,7 +3012,7 @@ function userForm(u){
                UI.f.select('role','Role', u.role, roles, { req:true }))}
       ${UI.f.text('initials','Initials', u.initials, { hint:'shown on the avatar — blank fills itself in', ph:'MS' })}
       <div class="note">
-        <b>${UI.esc(u.role || 'registrar')}</b> can open:
+        <b>${UI.esc(DB.roleName(u.role || 'frontdesk'))}</b> can open:
         <span id="roleMods">${DB.PERMS[u.role] ? DB.PERMS[u.role].map(m => (TITLES[m]||[m])[0]).join(' · ') : ''}</span>
       </div>
       <div class="note warn">Passwords are kept in clear text in this browser's storage.
@@ -3050,7 +3050,7 @@ function userForm(u){
         /* Editing yourself should not leave the header showing the old name. */
         if(SESSION && SESSION.id === u.id){
           document.getElementById('userName').textContent = u.name;
-          document.getElementById('userRole').textContent = u.role;
+          document.getElementById('userRole').textContent = DB.roleName(u.role);
           document.getElementById('userAvatar').textContent = u.initials;
         }
       }

@@ -36,3 +36,6 @@ tmp/
 
 # Shareable demo build — regenerate with tools/build-demo.js, do not commit 300 KB of inlined source
 tara-barko-demo.html
+
+.vercel
+.env*
