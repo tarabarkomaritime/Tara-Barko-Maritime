@@ -31,6 +31,7 @@ const NAV = [
   { id:'payables',    label:'Center Payables',ico:'⇄' },
   { id:'refunds',     label:'Refunds',      ico:'↩' },
   { id:'expenses',    label:'Disbursements',ico:'▼' },
+  { id:'payroll',     label:'Payroll',      ico:'₱' },
   { id:'approvals',   label:'Approvals',    ico:'✔' },
   { id:'ledger',      label:'General Ledger',ico:'≡' },
   { id:'reports',     label:'Reports',      ico:'▲' },
@@ -49,6 +50,7 @@ const TITLES = {
   invoices:['Billing','Statements of account issued to trainees'],
   payments:['Collections','Payments taken and cash position'],
   payables:['Payables To Training Centers','What each center is owed, and the vouchers that settle it'],
+  payroll:['Payroll','Salaries and wages — admin only'],
   expenses:['Disbursements','Vouchers for operating expenses'],
   ledger:['General Ledger','Journal entries and chart of accounts'],
   reports:['Reports','Financial statements and enrollment analytics'],
@@ -1197,6 +1199,72 @@ function voucherModal(v){
     UI.printDoc(`${v.no} — Disbursement Voucher`);
 }
 
+/* ---------- payroll ----------
+   Salaries run through the same voucher machinery as any other money out —
+   raised pending, approved by an admin, posted on approval — but they are kept
+   on their own screen because the amounts are nobody else's business. The
+   totals still reach the daily report: what left the account left the account,
+   and a report that quietly omits a payment is worse than one that shows it. */
+const PAYROLL_ACCOUNT = '5200';
+
+VIEWS.payroll = () => {
+  const rows = D().expenses.filter(v => v.account === PAYROLL_ACCOUNT)
+    .sort((a,b) => b.date.localeCompare(a.date) || b.no.localeCompare(a.no));
+  const paid = ACC.r2(rows.filter(v => v.state === 'Approved').reduce((s,v) => s + v.amount, 0));
+  const waiting = ACC.r2(rows.filter(v => v.state === 'Pending').reduce((s,v) => s + v.amount, 0));
+
+  return `
+    <div class="grid g3" style="margin-bottom:18px">
+      ${UI.kpi('Paid out', UI.peso(paid), `${rows.filter(v => v.state === 'Approved').length} run(s)`, 'ok')}
+      ${UI.kpi('Waiting for approval', UI.peso(waiting),
+               waiting ? 'not on the books yet' : 'nothing outstanding', waiting ? 'warn' : '')}
+      ${UI.kpi('Runs on file', UI.int(rows.length), 'since the books opened', '')}
+    </div>
+
+    ${UI.card('Payroll', UI.table([
+      { h:'Voucher No.', k:v => `<b class="mono">${UI.esc(v.no)}</b>`, w:'135px' },
+      { h:'Date', k:v => UI.date(v.date), w:'115px' },
+      { h:'Paid to', k:v => UI.esc(v.payee) },
+      { h:'Particulars', k:v => UI.esc(v.particulars || '—') },
+      { h:'Mode', k:v => UI.tag(v.method, v.method === 'Cash' ? 'ok' : 'sea') },
+      { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
+      { h:'State', k:v => UI.statusTag(v.state) },
+    ], rows, { empty:'No payroll has been raised yet.' }), {
+      flush:true,
+      sub:'Only an admin can open this screen. The totals still appear on the daily report.',
+      actions:'<button class="btn btn-primary btn-xs" data-act="new-payroll">+ Record payroll</button>',
+    })}`;
+};
+
+function payrollForm(){
+  UI.modal({
+    title:'Payroll', sub:'Raised as pending — posts once an admin approves it',
+    body:`
+      ${UI.row(UI.f.text('payee','Paid to', 'Payroll', { req:true }),
+               UI.f.date('date','Date', DB.today(), { req:true }))}
+      ${UI.f.text('particulars','Particulars','',{ req:true, ph:'e.g. August 1–15 salaries' })}
+      ${UI.row(UI.f.num('amount','Amount (₱)','',{ req:true, min:0.01 }),
+               UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()))}
+      <div class="note warn">Nothing posts yet. On approval this debits Salary / Wages
+        and credits whichever cash account the mode names. The amount reaches the
+        daily report on the day it is approved; the payee and the particulars stay
+        on this screen.</div>`,
+    submitLabel:'Raise payroll',
+    onSubmit: fd => {
+      const amount = ACC.r2(fd.amount);
+      if(amount <= 0){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
+      const v = { id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), kind:'payroll',
+                  date:fd.date || DB.today(), payee:String(fd.payee||'Payroll').trim(),
+                  account:PAYROLL_ACCOUNT, particulars:String(fd.particulars||'').trim(),
+                  amount, method:fd.method, state:'Pending', raisedBy:SESSION.name };
+      D().expenses.push(v);
+      DB.activity('Raised payroll', v.no);
+      UI.toast(`Voucher ${v.no} raised — waiting for approval.`);
+      refresh();
+    }
+  });
+}
+
 /* ---------- approvals ----------
    Nothing that takes money out of the business posts itself. A voucher, a
    remittance to a training center and a refund are all written as pending, and
@@ -1206,7 +1274,10 @@ function voucherModal(v){
 
    Approving is an admin job. Whoever raised it cannot approve it — the point of
    the step is that a second pair of eyes sees the money before it goes. */
-const canApprove = () => can('approvals');
+/* Seeing the queue and deciding it are different jobs. Accounting keeps the
+   tab — they are the ones chasing what is held up — but the decision that
+   releases money belongs to the admin and to nobody else. */
+const canApprove = () => !!(SESSION && SESSION.role === 'admin');
 
 const MONEY_OUT = [
   { key:'expenses', label:'Disbursement', post:v => ACC.postExpense(v) },
@@ -1309,7 +1380,7 @@ VIEWS.approvals = () => {
       { h:'', k:d => canApprove()
           ? `<button class="btn btn-accent btn-xs" data-act="approve-doc" data-id="${d._kind}:${d.id}">Approve</button>
              <button class="btn btn-ghost btn-xs" data-act="reject-doc" data-id="${d._kind}:${d.id}">Reject</button>`
-          : '<span class="muted">admin only</span>', w:'170px' },
+          : '<span class="muted">the admin decides</span>', w:'170px' },
     ], pend, { empty:'Nothing is waiting — every voucher and refund has been decided.' }), { flush:true })}
 
     <div style="height:18px"></div>
@@ -1468,6 +1539,17 @@ VIEWS.daily = () => {
   /* ---- out, approved only ---- */
   const approvedOn = x => x.state === 'Approved' && (x.approvedOn || x.date) === on;
   const vouchers = d.expenses.filter(v => approvedOn(v) && v.kind !== 'remittance');
+  /* Payroll left the account like anything else, so it is in every total on this
+     page. Who was paid and what for is on the Payroll screen, which is the
+     admin's — so for everyone else the individual runs collapse into one line.
+     The total still reconciles with the rows above it; it just does not name
+     anybody. */
+  const payrollRows = vouchers.filter(v => v.account === PAYROLL_ACCOUNT);
+  const otherOut = canApprove() ? vouchers : [
+    ...vouchers.filter(v => v.account !== PAYROLL_ACCOUNT),
+    ...(payrollRows.length ? [{ no:'—', payee:'—', account:PAYROLL_ACCOUNT, _masked:true,
+        amount:ACC.r2(payrollRows.reduce((t,v) => t + v.amount, 0)) }] : []),
+  ];
   const remits   = d.expenses.filter(v => approvedOn(v) && v.kind === 'remittance');
   const refunds  = d.refunds.filter(approvedOn);
 
@@ -1567,11 +1649,12 @@ VIEWS.daily = () => {
 
       ${UI.card('Other Disbursements', UI.table([
         { h:'Voucher', k:v => `<span class="mono">${UI.esc(v.no)}</span>` },
-        { h:'Payee', k:'payee' },
+        { h:'Payee', k:v => v._masked ? '<span class="muted">not shown</span>' : UI.esc(v.payee || '—') },
         { h:'Category', k:v => UI.esc(ACC.acct(v.account).name) },
         { h:'Amount', k:v => UI.num(v.amount), cls:'num' },
-      ], vouchers, { empty:'No other disbursement on this date.',
-          foot:['','','TOTAL', UI.num(sum(vouchers))] }), { flush:true })}
+      ], otherOut, { empty:'No other disbursement on this date.',
+          foot:['','','TOTAL', UI.num(sum(vouchers))] }), { flush:true,
+          sub:otherOut.some(v => v._masked) ? 'Payroll is counted but not itemised' : '' })}
     </div>
 
     <div style="height:18px"></div>
@@ -2181,8 +2264,13 @@ function enrollmentForm(existing, presetTrainee){
     <div class="hr"></div>
     <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
     <div class="chips" id="addonBox" style="margin-bottom:12px">
-      ${addons().map((a,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
-          <input type="checkbox" name="addon${i}" value="${i}" style="width:auto;margin:0"> ${UI.esc(a.desc)} — ${UI.peso(a.price)}</label>`).join('')}
+${addons().map((a,i) => `
+        <div class="addon-row">
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="checkbox" name="addon${i}" ${'value="' + i + '"'} > ${UI.esc(a.desc)}</label>
+          <input type="number" name="addonAmt${i}" class="a-amt" step="0.01" min="0"
+            value="${ACC.r2(a.price).toFixed(2)}" disabled>
+        </div>`).join('')}
     </div>
     ${UI.row(UI.f.num('discount','Discount (₱)','0',{ min:0 }),
              UI.f.text('discountNote','Reason for discount','',{ ph:'e.g. agency package rate' }))}
@@ -2196,7 +2284,10 @@ function enrollmentForm(existing, presetTrainee){
     onSubmit: fd => {
       const trainee = T(fd.traineeId);
       if(!trainee){ UI.toast('Select a trainee.', 'bad'); return false; }
-      const chosen = addons().filter((a,i) => fd['addon'+i]);
+      /* The price list is the default; what is billed is what was typed. */
+      const chosen = addons()
+        .map((a,i) => ({ ...a, price:ACC.r2(fd['addonAmt'+i] != null ? fd['addonAmt'+i] : a.price) }))
+        .filter((a,i) => fd['addon'+i]);
       try{
         const out = APPS.enroll(trainee, {
           /* The center comes from the course entry — one course at one center
@@ -2254,7 +2345,11 @@ function enrollmentForm(existing, presetTrainee){
   const recalc = () => {
     fillEnd();
     const items = [{ qty:1, price:form.fee.value }];
-    addons().forEach((a,i) => { if(form['addon'+i] && form['addon'+i].checked) items.push({ qty:1, price:a.price }); });
+    addons().forEach((a,i) => {
+      const on = form['addon'+i] && form['addon'+i].checked;
+      if(form['addonAmt'+i]) form['addonAmt'+i].disabled = !on;
+      if(on) items.push({ qty:1, price:form['addonAmt'+i] ? form['addonAmt'+i].value : a.price });
+    });
     const t = ACC.computeInvoice(items, form.discount.value);
     document.getElementById('summary').innerHTML = `
       <div style="display:flex;justify-content:flex-end">
@@ -2305,7 +2400,7 @@ function enrollmentModal(e){
           <span class="muted">· ${UI.statusTag(e.status)}</span></dd>
       </dl>
       ${e.remarks ? `<div class="note">${UI.esc(e.remarks)}</div>` : ''}
-      ${copyRow('Copy details for the training center')}
+      ${copyRow('Copy details')}
 
       <div class="hr"></div>
       <table style="width:100%;font-size:13px">
@@ -2355,16 +2450,23 @@ function billEnrollment(e){
     body: `
       <div class="note"><b>${UI.esc(c.title)}</b><br>${UI.esc(b.center)} · ${UI.esc(c.duration || '')} · fee ${UI.peso(b.fee)}</div>
       <div class="chips" style="margin-bottom:12px">
-        ${addons().map((a,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
-            <input type="checkbox" name="addon${i}" style="width:auto;margin:0"> ${UI.esc(a.desc)} — ${UI.peso(a.price)}</label>`).join('')}
+${addons().map((a,i) => `
+        <div class="addon-row">
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="checkbox" name="addon${i}" ${''} > ${UI.esc(a.desc)}</label>
+          <input type="number" name="addonAmt${i}" class="a-amt" step="0.01" min="0"
+            value="${ACC.r2(a.price).toFixed(2)}" disabled>
+        </div>`).join('')}
       </div>
       ${UI.row(UI.f.date('date','Invoice date', DB.today(), { req:true }),
                UI.f.num('discount','Discount (₱)', e.discount || 0, { min:0 }))}
       ${UI.f.text('terms','Terms','Due on or before first day of training')}`,
     submitLabel:'Issue invoice',
+    /* eslint-disable-next-line no-unused-vars */
     onSubmit: fd => {
       const items = [{ desc:`${c.title} — ${b.center}`, account:'4000', qty:1, price:b.fee }];
-      addons().forEach((a,i) => { if(fd['addon'+i]) items.push({ desc:a.desc, account:a.account, qty:1, price:a.price }); });
+      addons().forEach((a,i) => { if(fd['addon'+i]) items.push({ desc:a.desc, account:a.account, qty:1,
+        price:ACC.r2(fd['addonAmt'+i] != null ? fd['addonAmt'+i] : a.price) }); });
       const inv = ACC.buildInvoice({ enrollmentId:e.id, traineeId:e.traineeId, date:fd.date, items, discount:ACC.r2(fd.discount), terms:fd.terms });
       D().invoices.push(inv); ACC.postInvoice(inv);
       e.invoiceId = inv.id; e.discount = ACC.r2(fd.discount);
@@ -2691,7 +2793,11 @@ function expenseForm(){
   /* The system accounts are left out. Training Center Fees is charged when a
      booking is made and settled from Payables — a hand-written voucher against
      it would post the cost of a seat twice. */
-  const exp = D().accounts.filter(a => a.type === 'Expense' && !DB.SYSTEM_ACCOUNTS.includes(a.code));
+  /* Payroll is not on this list. What the office pays its people is raised on
+     the Payroll screen, which only an admin can open — a salary that anybody at
+     the counter can read is a salary the whole office knows by lunchtime. */
+  const exp = D().accounts.filter(a =>
+    a.type === 'Expense' && !DB.SYSTEM_ACCOUNTS.includes(a.code) && a.code !== PAYROLL_ACCOUNT);
   UI.modal({
     title:'Disbursement voucher', sub:'Records the expense and credits cash automatically',
     body: `
@@ -3040,6 +3146,7 @@ document.addEventListener('click', ev => {
     'view-receipt':  () => receiptModal(PAY(id)),
     'receive-rebate':() => { ev.stopPropagation(); rebateReceiveForm(id); },
     'new-expense':   () => expenseForm(),
+    'new-payroll':   () => payrollForm(),
     'new-refund':    () => refundForm(),
     'refund-trainee':() => { ev.stopPropagation(); refundForm(id); },
     'approve-doc':   () => { const [k,i] = id.split(':');

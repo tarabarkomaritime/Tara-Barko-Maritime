@@ -69,6 +69,14 @@ body{
    column being totted up, so there is no decimal point to line up on. */
 .numc{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap}
 
+/* A charge: the tick and its amount. The amount starts at the configured price
+   and can be typed over, because a make-up class is not always the same money.
+   Greyed out until the charge is actually ticked. */
+.addon-row{display:flex;gap:8px;align-items:center;background:var(--surface-2);
+  border:1px solid var(--border);padding:5px 9px;border-radius:7px;font-size:12.5px}
+.addon-row input[type=checkbox]{width:auto;margin:0}
+.addon-row .a-amt{width:96px;padding:3px 7px;text-align:right;font-family:var(--mono);font-size:12.5px}
+
 /* One tender: the mode, the amount, the reference. Three fields the width of
    what they hold rather than the width of the dialog — a mode picker as wide as
    a page reads as the most important thing on it, and it is not. */

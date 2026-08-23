@@ -59,7 +59,7 @@ const DB = (() => {
     /* The admin maintains the price list and the accounts but does not work the
        journal — that is accounting's screen, and two people posting entries by
        hand into the same ledger is how a ledger stops being trustworthy. */
-    admin:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','approvals','reports','settings'],
+    admin:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','payroll','approvals','reports','settings'],
     /* One person covers registration and the cash window at this office, so the
        two jobs are one role rather than two accounts to sign in and out of.
        Neither touches the course list: prices and rebates are the admin's. */
@@ -597,8 +597,13 @@ const DB = (() => {
     /* A few operating expenses so the income statement is not revenue-only. */
     const EX = (date, payee, acct, amount, particulars, method) => {
       data.seq.voucher++;
+      /* Posted the moment it is written, so it is approved by definition. Without
+         the stamp the money sits in the ledger while every screen that reads
+         `state === 'Approved'` — the daily report, the payroll totals — reports
+         nothing went out, and the two disagree from the first day. */
       const v = { id:uid('exp'), no:`DV-${new Date().getFullYear()}-${String(data.seq.voucher).padStart(4,'0')}`,
-                  date, payee, account:acct, amount, particulars, method };
+                  date, payee, account:acct, amount, particulars, method,
+                  state:'Approved', raisedBy:'Seeded', approvedBy:'Seeded', approvedOn:date };
       data.expenses.push(v);
       ACC.postExpense(v);
     };
