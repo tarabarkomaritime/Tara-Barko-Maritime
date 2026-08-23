@@ -32,9 +32,7 @@ const NAV = [
   { id:'refunds',     label:'Refunds',      ico:'↩' },
   { id:'expenses',    label:'Disbursements',ico:'▼' },
   { id:'payroll',     label:'Payroll',      ico:'₱' },
-  { id:'approvals',   label:'Approvals',    ico:'✔' },
   { id:'ledger',      label:'General Ledger',ico:'≡' },
-  { id:'reports',     label:'Reports',      ico:'▲' },
   { group:'System' },
   { id:'settings',    label:'Settings',     ico:'⚙' },
 ];
@@ -896,6 +894,9 @@ VIEWS.expenses = () => {
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-expense">+ New disbursement</button>
     </div>
+
+    ${approvalPanel(pendingExpenses())}
+
     <div class="grid g-2-1">
       <div>${UI.card('', UI.table([
         { h:'Voucher No.', k:v => `<b class="mono">${UI.esc(v.no)}</b>`, w:'135px' },
@@ -1086,6 +1087,9 @@ VIEWS.payables = () => {
       <span class="spacer"></span>
       <span class="muted" style="font-size:12px">${UI.int(bookings)} booking(s) · ${span}</span>
     </div>
+
+    ${approvalPanel(pendingRemittances(), { title:'Vouchers Waiting For Approval',
+        sub:'Raised against the bookings below — no money has left until these are signed' })}
 
     ${centers.length > 1 ? UI.card('Payables', UI.table([
       { h:'Training center', k:c => `<b>${UI.esc(c.key)}</b>` },
@@ -1391,6 +1395,51 @@ const MONEY_OUT = [
   { key:'refunds',  label:'Refund',       post:r => ACC.postRefund(r) },
 ];
 
+/* Split three ways, because each kind is decided on a different screen. A
+   remittance belongs to Center Payables, where the admin can see the bookings
+   it settles; a disbursement to Disbursements; a refund to Refunds. */
+function pendingRemittances(){
+  return D().expenses.filter(v => v.state === 'Pending' && v.kind === 'remittance')
+    .map(v => ({ ...v, _kind:'expenses' }))
+    .sort((a,b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
+}
+function pendingExpenses(){
+  return D().expenses.filter(v => v.state === 'Pending' && v.kind !== 'remittance')
+    .map(v => ({ ...v, _kind:'expenses' }))
+    .sort((a,b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
+}
+function pendingRefunds(){
+  return D().refunds.filter(r => r.state === 'Pending')
+    .map(r => ({ ...r, _kind:'refunds' }))
+    .sort((a,b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
+}
+
+/* Approvals used to be a screen of its own, listing money out of three
+   different places at once. It is now shown on the screen each document came
+   from: the admin decides in front of the thing being decided, rather than in
+   a list of numbers away from it. The rule behind the button has not moved —
+   approveDoc still refuses anybody who is not an admin, and still refuses a
+   self-approval while somebody else could sign instead. */
+function approvalPanel(pend, opts){
+  opts = opts || {};
+  if(!pend.length) return '';
+  return UI.card(opts.title || 'Waiting For Approval', UI.table([
+    { h:'Document', k:d => `<b class="mono">${UI.esc(d.no)}</b>`, w:'135px' },
+    { h:'Raised', k:d => `${UI.date(d.date)}<br>
+        <span class="muted" style="font-size:11.5px">${UI.esc(d.raisedBy || '—')}</span>` },
+    { h:'Pay to', k:d => UI.esc(d.payee || (d.traineeId ? name(T(d.traineeId)) : '—')) },
+    { h:'Particulars', k:d => UI.esc(d.particulars || d.reason || '—') },
+    { h:'Mode', k:d => UI.tag(d.method, d.method === 'Cash' ? 'ok' : 'sea') },
+    { h:'Amount', k:d => `<b>${UI.num(d.amount)}</b>`, cls:'num' },
+    { h:'', k:d => canApprove()
+        ? `<button class="btn btn-accent btn-xs" data-act="approve-doc" data-id="${d._kind}:${d.id}">Approve</button>
+           <button class="btn btn-ghost btn-xs" data-act="reject-doc" data-id="${d._kind}:${d.id}">Reject</button>`
+        : '<span class="muted">the admin decides</span>', w:'170px' },
+  ], pend), { flush:true,
+      sub:opts.sub || 'Not on the books until an admin signs it off' })
+    + '<div style="height:18px"></div>';
+}
+
 const pendingMoneyOut = () => [
   ...D().expenses.filter(v => v.state === 'Pending').map(v => ({ ...v, _kind:'expenses' })),
   ...D().refunds.filter(r => r.state === 'Pending').map(r => ({ ...r, _kind:'refunds' })),
@@ -1518,6 +1567,9 @@ VIEWS.refunds = () => {
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-refund">+ Refund a trainee</button>
     </div>
+
+    ${approvalPanel(pendingRefunds(), { title:'Refunds Waiting For Approval',
+        sub:'Nothing goes back to the trainee until an admin signs it off' })}
 
     ${held.length ? UI.card('Money We Are Holding That Is Not Ours', UI.table([
       { h:'Trainee', k:x => `<b>${UI.esc(name(x.t))}</b> <span class="muted">${UI.esc(x.t.no)}</span>` },
