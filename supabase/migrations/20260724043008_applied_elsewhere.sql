@@ -1,0 +1,10 @@
+-- Placeholder. This migration was applied to tara-barko-erp on 24 July by
+-- another tool, and built the system that lives in the `public` schema:
+-- schedules, price matrix, training centers, shipping requests, marketing.
+--
+-- Its SQL was never in this repository. The file exists so the CLI's view of
+-- the migration history matches the database's, which is what lets
+-- `supabase db push` apply this repo's own migration without being asked to
+-- record the six above as reverted — they are not reverted, they are running.
+--
+-- Nothing here is executed: the database has already recorded this version.
