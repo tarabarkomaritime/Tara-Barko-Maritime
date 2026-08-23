@@ -353,12 +353,14 @@ VIEWS.dashboard = () => {
   /* --- what is in the drawer, as of the day being viewed --- */
   const tb = ACC.trialBalance(on);
   const bal = code => { const r = tb.rows.find(x => x.code === code); return r ? r.balance : 0; };
-  /* Cash on hand is whatever the first mode's account holds — the drawer — and
-     the rest are shown beside it so the till is never read in isolation. */
+  /* Cash on hand is the drawer and nothing else. What sits in a bank or a
+     wallet is not in the drawer, and listing those balances beside it invited
+     the two to be read as one number when counting the till at closing. The
+     line underneath says how much of today's takings came in as cash, which is
+     the figure the count is checked against. */
   const drawer = ACC.methods()[0] || { account:'1000' };
   const cashOnHand = bal(drawer.account);
-  const otherPots = ACC.methods().slice(1)
-    .map(m => `${m.name} ${UI.shortMoney(bal(m.account))}`).join(' · ');
+  const cashToday = ACC.r2(received[drawer.name] || 0);
 
   const channelRows = CHANNELS.map(m => ({
     label:m, inAmt:received[m], outAmt:paidOut[m], net:ACC.r2(received[m] - paidOut[m]),
@@ -382,7 +384,7 @@ VIEWS.dashboard = () => {
       ${UI.kpi('Amount Received', UI.peso(receivedTotal),
                `${receiptCount} payment(s)`, 'ok')}
       ${UI.kpi('Cash on Hand', UI.peso(cashOnHand),
-               otherPots,
+               `${UI.peso(cashToday)} taken in cash today`,
                cashOnHand < 0 ? 'bad' : '')}
     </div>
 
@@ -678,6 +680,92 @@ function rebateReceiveForm(enrId){
   });
 }
 
+/* Bookings the trainee has started paying and not finished. The training end
+   date is the deadline that matters: after it the seafarer has the certificate
+   and the office is chasing somebody who no longer needs anything from it, so
+   the list is ordered by how little time is left rather than by how much is
+   owed. Unbilled and untouched bookings are not here — this is for people who
+   have shown they intend to pay. */
+function partPaid(){
+  const today = DB.today();
+  return D().enrollments
+    .filter(e => !['Cancelled','Dropped'].includes(e.status))
+    .map(e => {
+      const inv = invOf(e.id);
+      if(!inv) return null;
+      ACC.recomputeInvoice(inv);
+      const due = ACC.balanceOf(inv);
+      if(due <= 0.004 || (inv.paid || 0) <= 0) return null;
+      const ends = e.end || e.start || '';
+      const daysLeft = ends ? Math.round((new Date(ends) - new Date(today)) / 86400000) : null;
+      return { e, inv, t:T(e.traineeId), paid:ACC.r2(inv.paid || 0), due, ends, daysLeft };
+    })
+    .filter(Boolean)
+    .sort((a,b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999) || b.due - a.due);
+}
+
+/* The letter the office would otherwise retype for every trainee. Plain text,
+   because it has to survive being pasted into Messenger as often as into an
+   email client. */
+function reminderText(r){
+  const co = D().company;
+  const c = CRS(r.e.courseId);
+  const when = r.e.start ? UI.dateRange(r.e.start, r.e.end) : 'your scheduled dates';
+  return [
+    `Good day, ${caps(APPS.forName(r.t))},`,
+    '',
+    `This is a reminder about your remaining balance for ${c ? c.title : 'your course'}`
+      + ` at ${r.e.center || 'the training center'}, running ${when}.`,
+    '',
+    `  Total billed .... ${UI.peso(r.inv.total)}`,
+    `  Paid so far ..... ${UI.peso(r.paid)}`,
+    `  Still to pay .... ${UI.peso(r.due)}`,
+    '',
+    r.daysLeft != null && r.daysLeft >= 0
+      ? `Kindly settle this on or before ${UI.date(r.ends)}, the last day of your training.`
+      : `Your training has already ended, so kindly settle this at your earliest convenience.`,
+    '',
+    `You may pay in cash at our office, or through the modes we accept — ${ACC.methodNames().join(', ')}.`,
+    'Please keep your reference number and send us a screenshot once paid.',
+    '',
+    'Thank you,',
+    co.name,
+    co.contact,
+  ].join(String.fromCharCode(10));
+}
+
+function reminderModal(enrId){
+  const r = partPaid().find(x => x.e.id === enrId);
+  if(!r){ UI.toast('That booking has nothing outstanding.', 'bad'); return; }
+  const body = reminderText(r);
+  const subject = `Balance reminder — ${(CRS(r.e.courseId)||{}).title || 'your training'}`;
+  const mail = r.t && r.t.email
+    ? 'mailto:' + encodeURIComponent(r.t.email)
+      + '?subject=' + encodeURIComponent(subject)
+      + '&body=' + encodeURIComponent(body)
+    : '';
+
+  UI.modal({
+    title:'Payment reminder',
+    sub:`${caps(APPS.forName(r.t))} · ${UI.peso(r.due)} outstanding`,
+    wide:true, hideSubmit:true,
+    footExtra: mail
+      ? `<a class="btn btn-primary" href="${mail}">Open in email</a>`
+      : '<span class="muted" style="font-size:12px">No email on file — copy the message instead.</span>',
+    body:`
+      <dl class="def def-tight">
+        <dt>To</dt><dd>${r.t && r.t.email ? UI.esc(r.t.email) : '<span class="muted">no email on file</span>'}${
+          r.t && r.t.mobile ? ` · <span class="mono">${UI.esc(r.t.mobile)}</span>` : ''}</dd>
+        <dt>Subject</dt><dd>${UI.esc(subject)}</dd>
+      </dl>
+      ${copyRow('COPY MESSAGE')}
+      <div class="note warn" style="margin-top:12px">Nothing is sent from here. Open in
+        email hands it to your mail program with the message already written, and you
+        press send.</div>`,
+  });
+  wireCopy(() => body);
+}
+
 VIEWS.payments = () => {
   const q = (state.q.pay || '').toLowerCase();
   const from = state.q.payFrom || firstOfMonth(), to = state.q.payTo || DB.today();
@@ -688,6 +776,8 @@ VIEWS.payments = () => {
   const col = ACC.collections(from, to);
   const methods = Object.entries(col.byMethod).map(([m,v],i) =>
     ({ label:m, value:v, color:['#1d4571','#0f7b8a','#c9a227','#12805c','#7a8aa3'][i%5] }));
+  const chase = partPaid();
+  const chaseDue = ACC.r2(chase.reduce((t,r) => t + r.due, 0));
   const allRebates = rebatesDue();
   /* Every center that owes a rebate stays in the picker whatever is selected —
      a filter that empties its own control cannot be undone. */
@@ -719,6 +809,25 @@ VIEWS.payments = () => {
         { h:'', k:p => p.voided ? UI.tag('Void','muted') : '' },
       ], rows, { empty:'No collections in this period.', rowClass:'clickable',
                  rowAttrs:p => `data-act="view-receipt" data-id="${p.id}"` }), { flush:true })}
+
+        <div style="height:18px"></div>
+        ${UI.card('Still To Pay Before Training Ends', UI.table([
+          { h:'Trainee', k:r => `<b>${UI.esc(name(r.t))}</b>` },
+          { h:'Course', k:r => UI.esc((CRS(r.e.courseId)||{}).title || '—') },
+          { h:'Training ends', k:r => r.ends ? UI.date(r.ends) : '—', cls:'center', w:'120px' },
+          { h:'Time left', k:r => r.daysLeft == null ? '<span class="muted">—</span>'
+              : r.daysLeft < 0 ? UI.tag('ended','bad')
+              : r.daysLeft === 0 ? UI.tag('last day','bad')
+              : r.daysLeft <= 3 ? UI.tag(r.daysLeft + ' day(s)','warn')
+              : `${r.daysLeft} days`, cls:'center', w:'110px' },
+          { h:'Paid', k:r => UI.num(r.paid), cls:'numc' },
+          { h:'Still to pay', k:r => `<b>${UI.num(r.due)}</b>`, cls:'num' },
+          { h:'', k:r => can('payments')
+              ? `<button class="btn btn-accent btn-xs" data-act="remind-pay" data-id="${r.e.id}">Remind</button>`
+              : '', w:'100px' },
+        ], chase, { empty:'Nobody is part-paid — every booking that has been started is settled.' }),
+          { flush:true,
+            sub:`${UI.peso(chaseDue)} outstanding across ${chase.length} booking(s), soonest deadline first` })}
 
         <div style="height:18px"></div>
         ${UI.card('Rebates From Training Centers', UI.table([
@@ -1594,8 +1703,12 @@ VIEWS.daily = () => {
                `${vouchers.length + remits.length + refunds.length} approved document(s)`, totalOut ? 'warn' : '')}
       ${UI.kpi('Net movement', UI.peso(ACC.r2(totalIn - totalOut)),
                totalIn >= totalOut ? 'more in than out' : 'more out than in', totalIn >= totalOut ? '' : 'bad')}
-      ${UI.kpi('Cash on hand', UI.peso(bal(ACC.methods()[0].account)),
-               ACC.methods().slice(1).map(m => `${m.name} ${UI.shortMoney(bal(m.account))}`).join(' · '), '')}
+      ${/* The drawer, and only the drawer. What is in a bank or a wallet is not
+            cash on hand, and listing those balances beside it invited the two to
+            be read as one number when counting the till. The line underneath is
+            the day's cash takings, which is what the count is checked against. */
+        UI.kpi('Cash on hand', UI.peso(bal(ACC.methods()[0].account)),
+               `${UI.peso(ACC.r2(inBy[ACC.methods()[0].name] || 0))} taken in cash today`, '')}
     </div>
 
     ${UI.card('Money By Channel', UI.table([
@@ -2251,7 +2364,9 @@ function enrollmentForm(existing, presetTrainee){
              as the same line and the desk picks whichever comes first. */
           + (sameTwice.has(c.title + '@' + c.center) ? ` · ${c.modes.join(' + ')}` : '') })),
         { req:true, blank:'— select course —' })}
-    ${UI.f.date('start','Training starts', DB.today(), { req:true })}
+    ${UI.row(UI.f.date('start','Training starts', DB.today(), { req:true }),
+             UI.f.date('end','Training ends', '', { req:true,
+               hint:'filled from the course length — change it if the run is longer' }))}
     <div class="note" id="endsNote" style="margin:-4px 0 14px"></div>
     ${UI.f.num('fee','Fee (₱)', '0', { req:true, min:0, ro:true,
          hint:'from the price list — the admin sets it on the course' })}
@@ -2308,6 +2423,7 @@ ${addons().map((a,i) => `
   /* Picking the course fills in what the price list says about it — the center
      it runs at and the amount, less the rebate when the rebate is one that gets
      deducted. Both stay editable: the list is the usual price, not the only one. */
+  form.end.onchange = () => { form.end.dataset.touched = '1'; fillEnd(); };
   form.courseId.onchange = () => {
     const c = CRS(form.courseId.value);
     if(!c) return;
@@ -2323,18 +2439,29 @@ ${addons().map((a,i) => `
 
   /* Typing the start date is the common case, so fill the end date from the
      course length and let the desk overrule it. */
-  /* The end date is not asked for. It follows from the course length, so it is
-     worked out and shown — one date to type instead of two to keep consistent. */
+  /* The end date fills itself from the course length and can then be typed
+     over, because a run does not always take the days the price list says. It
+     is a real field rather than a derived note because the payment reminder
+     keys off it — a date nobody can correct is a date that sends the wrong
+     reminder. */
   let endsOn = '';
-  const fillEnd = () => {
+  const fillEnd = (force) => {
     const c = CRS(form.courseId.value);
     const box = document.getElementById('endsNote');
-    if(!c || !form.start.value){ endsOn = ''; box.textContent = 'Pick the course and the start date.'; return; }
+    if(!c || !form.start.value){ endsOn = form.end.value || ''; box.textContent = 'Pick the course and the start date.'; return; }
     const days = Math.ceil(c.days || 1);
     const x = new Date(form.start.value); x.setDate(x.getDate() + days - 1);
-    endsOn = x.toISOString().slice(0,10);
-    box.innerHTML = `Runs <b>${UI.dateRange(form.start.value, endsOn)}</b> — ${days} training day(s)`
-      + (c.duration ? ` from the course length on the price list.` : `. This course has no length on the price list, so one day is assumed.`);
+    const suggested = x.toISOString().slice(0,10);
+    if(force || !form.end.value || !form.end.dataset.touched) form.end.value = suggested;
+    if(form.end.value < form.start.value) form.end.value = form.start.value;
+    endsOn = form.end.value;
+    const asExpected = endsOn === suggested;
+    box.innerHTML = `Runs <b>${UI.dateRange(form.start.value, endsOn)}</b>`
+      + (asExpected
+          ? ` — ${days} training day(s)` + (c.duration
+              ? ' from the course length on the price list.'
+              : '. This course has no length on the price list, so one day is assumed.')
+          : ` — the price list says ${days} day(s), so this run has been extended by hand.`);
   };
 
   const recalc = () => {
@@ -3149,6 +3276,7 @@ document.addEventListener('click', ev => {
     'new-payment':   () => paymentForm(null),
     'view-receipt':  () => receiptModal(PAY(id)),
     'receive-rebate':() => { ev.stopPropagation(); rebateReceiveForm(id); },
+    'remind-pay':    () => { ev.stopPropagation(); reminderModal(id); },
     'new-expense':   () => expenseForm(),
     'new-payroll':   () => payrollForm(),
     'new-refund':    () => refundForm(),
