@@ -104,3 +104,38 @@ screen in the system, and would buy nothing the office would notice.
 4. Create the staff accounts in Supabase Auth and delete the plain-text codes.
 
 Do not do step 4 before step 3 works, or nobody can sign in.
+
+---
+
+## Note — the Supabase project is not empty
+
+`tara-barko-erp` (`bskbsslibwhrmvzdihlq`) already holds a different system,
+built on 24 July: `schedules`, `training_centers`, `price_matrix`,
+`shipping_requests`, `marketing`, `announcements`, `profiles`, `email_queue`
+and more, with six migrations applied.
+
+Five of its table names collide with the ones this system needs, and the
+columns do not match:
+
+| table         | already there                                | this system needs             |
+| ------------- | -------------------------------------------- | ----------------------------- |
+| `trainees`    | `first_name`, `last_name`, `trainee_number`  | `first`, `last`, `no`         |
+| `courses`     | `name`, `default_fee`, `training_mode`       | `title`, `amount`, `modes`    |
+| `enrollments` | `schedule_id`, `rate_matrix_id`              | no schedules at all           |
+| `payments`    | `payment_channel`, `proof_path`              | `tenders`, `method`           |
+| `expenses`    | `category`, `proof_path`                     | `account`, `kind`, `state`    |
+
+`0001_schema.sql` creates tables with `if not exists`, so pushing it as it
+stands would create nothing for those five and then build the app against the
+wrong columns — failing at runtime rather than at deploy. **It has not been
+pushed.** Decide first:
+
+1. **Own schema.** Put this system in a `tbm` schema inside the same project.
+   No collision, no extra cost, the July system untouched. One line changes at
+   the top of the migration.
+2. **Adopt the July schema.** Map this app onto those tables instead. Larger,
+   and it brings back schedules, which this system deliberately does not have.
+3. **A separate project.** Cleanest, $10 a month.
+
+Until then the repository is linked to the project (`supabase/config.toml`) and
+nothing has been written to it.

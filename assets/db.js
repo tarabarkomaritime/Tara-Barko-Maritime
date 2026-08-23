@@ -49,7 +49,16 @@ const DB = (() => {
      is what makes these worth hashing; until then the password is a way of
      keeping the wrong desk out of the wrong screen, not a security boundary. */
   const USERS = [
-    { id:'u1', name:'Kyla Esguerra',   role:'admin',      code:'admin',      initials:'KE', email:'' },
+    /* The two admin codes below were generated once and are meant to be changed
+       the first time each of them signs in — Settings → User accounts → Edit.
+       They are in the source, which means they are in the repository and in
+       every deploy, so treat them as a way in for the first day and not as a
+       secret. Changing them here changes them for a new install; changing them
+       in Settings changes them for the browser that is already running. */
+    { id:'u1', name:'Kyla Esguerra',   role:'admin',      code:'tb-Nd0uuaxA', initials:'KE',
+      email:'kylae.esguerra24@gmail.com' },
+    { id:'u4', name:'Kate Esguerra',   role:'admin',      code:'tb-XbbhnxDc', initials:'KA',
+      email:'pkmesguerra.ph@gmail.com' },
     { id:'u2', name:'Jocelyn Eala',    role:'frontdesk',  code:'registrar',  initials:'JE', email:'' },
     { id:'u3', name:'Accounting',      role:'accounting', code:'accounting', initials:'AC', email:'' },
   ];
@@ -191,6 +200,18 @@ const DB = (() => {
      collection gets a default here rather than a version-bump migration script. */
   function migrate(d){
     d.applications = d.applications || [];
+    /* Staff added since a store was written. A code the office has already
+       changed is left alone — this fills gaps, it does not reset anybody: an
+       upgrade that quietly restored a temporary password would be a way in that
+       nobody knew was open. */
+    if(Array.isArray(d.users)){
+      USERS.forEach(seedUser => {
+        const mine = d.users.find(u => u.id === seedUser.id);
+        if(!mine){ d.users.push({ ...seedUser }); return; }
+        if(!mine.email && seedUser.email) mine.email = seedUser.email;
+      });
+    }
+
     /* Overpayment used to land in receivables; the account it belongs in may
        not exist in an older store. */
     if(d.accounts && !d.accounts.some(a => a.code === '4300')){

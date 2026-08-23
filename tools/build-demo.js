@@ -57,8 +57,11 @@ db = db.replace(EXPORT, `function exportJSON(){
    `code` is also what a ledger account and a course are keyed on. */
 const USER_CODE = /(id:'u\d+',[^}]*?)code:'[^']*'/g;
 const codes = db.match(USER_CODE) || [];
-must(codes.length === 3, `three access codes (found ${codes.length})`);
+must(codes.length >= 3, `the access codes (found ${codes.length})`);
 db = db.replace(USER_CODE, "$1code:''");
+/* Counting them would only have to be corrected every time somebody joins the
+   office. What matters is that none survive, so that is what is checked. */
+must(!/(id:'u\d+',[^}]*?)code:'[^']+'/.test(db), 'every access code blanked');
 
 /* ---------- the page ---------- */
 let html = lf(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'));
