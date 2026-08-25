@@ -25,6 +25,8 @@ const ctx = {
     getItem:k => (k in store ? store[k] : null),
     setItem:(k,v) => { store[k] = String(v); },
     removeItem:k => { delete store[k]; },
+    key:i => Object.keys(store)[i] ?? null,
+    get length(){ return Object.keys(store).length; },
   },
 };
 ctx.window = ctx;
@@ -616,6 +618,63 @@ check('the GCash account is added to an old chart', () =>
   run(`DB.get().accounts.some(a => a.code === '1020')`) === true || 'no 1020 account');
 check('an old payment gains a tender', () =>
   run('DB.get().payments[0].tenders.length') === 1 || 'no tender added');
+
+/* ---------- a store that will not parse ----------
+   This is the path that used to destroy a day of encoding without saying so:
+   read and parse shared one try block, so unreadable text was indistinguishable
+   from an empty browser, and the blank store that got seeded was saved straight
+   over the only copy. */
+console.log('\n- an unreadable store -');
+{
+  const KEY = 'tbm_is_v1';
+  const truncated = '{"meta":{"version":1},"trainees":[{"id":"t1","last":"DELA CR';
+  Object.keys(store).forEach(k => delete store[k]);
+  store[KEY] = truncated;
+  run('DB.reload ? DB.reload() : DB.load()');
+
+  check('the unreadable text is kept, not written over', () => {
+    const keys = Object.keys(store).filter(k => k.indexOf('tbm_is_v1.unreadable.') === 0);
+    return keys.length === 1 || 'found ' + keys.length + ' salvaged copies';
+  });
+  check('the kept copy is the original text, byte for byte', () => {
+    const k = Object.keys(store).find(k => k.indexOf('tbm_is_v1.unreadable.') === 0);
+    return store[k] === truncated || 'differs: ' + store[k];
+  });
+  check('the system still comes up on a working store', () =>
+    run('DB.get().courses.length') > 0 || 'no catalogue after recovery');
+  check('the live store is valid JSON again', () => {
+    try{ JSON.parse(store[KEY]); return true; }catch(e){ return 'still unreadable'; }
+  });
+  check('Settings can see the kept copy', () =>
+    run('DB.salvaged().length') === 1 || 'salvaged() reported ' + run('DB.salvaged().length'));
+}
+
+/* ---------- lists the office maintains itself ----------
+   These were fixed arrays in the source, so a rank this office hires for could
+   only be added by editing JavaScript. The rule that matters is the last one:
+   editing a list must never reach back and change a record already encoded. */
+console.log('\n- dropdown lists -');
+run('DB.reset(true)');
+check('a list falls back to the built-in default', () =>
+  run("DB.list('ranks').includes('Able Seaman')") === true || 'no default ranks');
+check('every defined list has a default behind it', () =>
+  run('DB.LIST_DEFS.every(l => (DB.LIST_DEFAULTS[l.key]||[]).length > 0)') === true
+  || 'a list has no default');
+check('an encoded list replaces the default', () => {
+  run("DB.get().company.lists = { ranks:['Bosun','Cook'] }");
+  return run("DB.list('ranks').join('|')") === 'Bosun|Cook' || run("DB.list('ranks').join('|')");
+});
+check('a rank already on a record survives being removed from the list', () =>
+  run("DB.listWith('ranks','Radio Officer').includes('Radio Officer')") === true
+  || 'the held rank was dropped');
+check('a held value still on the list is not offered twice', () =>
+  run("DB.listWith('ranks','Bosun').filter(r => r === 'Bosun').length") === 1 || 'duplicated');
+check('an emptied list falls back rather than offering nothing', () => {
+  run('DB.get().company.lists = { ranks:[] }');
+  return run("DB.list('ranks').length") > 1 || 'an empty list left the dropdown empty';
+});
+check('modes of learning are editable too', () =>
+  run("DB.list('delivery').includes('Face-to-Face')") === true || 'no default delivery modes');
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

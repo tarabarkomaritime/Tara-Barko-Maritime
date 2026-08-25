@@ -3,6 +3,8 @@
 
 const DB = (() => {
   const KEY = 'tbm_is_v1';
+  /* Where a store that would not parse is put instead of being written over. */
+  const SALVAGE = 'tbm_is_v1.unreadable.';
   let data = null;
 
   /* ---------- Chart of accounts ----------
@@ -164,6 +166,49 @@ const DB = (() => {
     'blended':['Face-to-Face','Distance Learning'],
   };
   const isBoarding = v => /accommodation/i.test(String(v));
+
+  /* ---------- lists the office maintains itself ----------
+     Every one of these used to be a fixed array in the source, which meant a
+     rank this office actually hires for could only be added by editing
+     JavaScript. They are defaults now, not the law: whatever is saved under
+     company.lists wins, and the same shape as ACC.methods() so there is one
+     pattern to learn rather than two.
+
+     A value already written on a record is never taken away by editing a list.
+     Removing "Bosun" stops it being offered; it does not reach back and blank
+     the rank of every bosun already in the registry. */
+  const LIST_DEFAULTS = {
+    ranks: ['Master','Chief Mate','2nd Officer','3rd Officer','Deck Cadet','Bosun',
+      'Able Seaman','Ordinary Seaman','Chief Engineer','2nd Engineer','3rd Engineer',
+      '4th Engineer','Engine Cadet','Oiler','Fitter','Electrician','Pumpman','Chief Cook',
+      'Messman','Steward','Laundryman','Radio Officer'],
+    relations: ['Spouse','Parent','Child','Sibling','Grandparent','Relative','Friend','Guardian'],
+    suffix: ['Jr.','Sr.','II','III','IV','V'],
+    delivery: DELIVERY.slice(),
+  };
+
+  const LIST_DEFS = [
+    { key:'ranks',     label:'Ranks / Positions', where:'Public registration and the trainee record' },
+    { key:'relations', label:'Relationships',     where:'Emergency contact, on both forms' },
+    { key:'suffix',    label:'Name Suffixes',     where:'Trainee record' },
+    { key:'delivery',  label:'Modes Of Learning', where:'Course catalogue' },
+  ];
+
+  function list(name){
+    const co = (data && data.company) || {};
+    const custom = (co.lists || {})[name];
+    return Array.isArray(custom) && custom.length
+      ? custom.slice()
+      : (LIST_DEFAULTS[name] || []).slice();
+  }
+  /* What to offer for a field that already holds a value: the list, plus
+     anything already encoded that is no longer on it, so opening a record can
+     never quietly change what it says. */
+  function listWith(name, ...held){
+    const seen = new Set();
+    return [...list(name), ...held.flat()]
+      .filter(v => v && !seen.has(String(v).toLowerCase()) && seen.add(String(v).toLowerCase()));
+  }
 
   /* Returns { modes, options } — never an empty modes list, because a course
      with no recorded delivery is delivered face to face, the house default. */
@@ -389,14 +434,51 @@ const DB = (() => {
     return `${prefix}-${new Date().getFullYear()}-${String(data.seq[kind]).padStart(4,'0')}`;
   }
 
+  /* Reading and parsing used to share one try block, so a store that would not
+     parse was treated exactly like a browser with no store at all: seed a blank
+     one and save it. That save landed on top of the only copy of whatever was
+     really there. Now the unreadable text is set aside under its own key first,
+     where Settings can offer it back as a file, and only then does the system
+     start fresh — a broken record is still a record. */
   function load(){
-    try{
-      const raw = localStorage.getItem(KEY);
-      data = raw ? JSON.parse(raw) : null;
-    }catch(e){ data = null; }
+    let raw = null;
+    try{ raw = localStorage.getItem(KEY); }catch(e){ raw = null; }
+    data = null;
+    if(raw){
+      try{ data = JSON.parse(raw); }
+      catch(e){
+        try{ localStorage.setItem(SALVAGE + Date.now(), raw); }catch(_){}
+      }
+    }
     if(!data || !data.meta){ data = blank(); seed(); save(); }
     else migrate(data);
     return data;
+  }
+
+  /* Copies of stores that could not be read, newest first. */
+  function salvaged(){
+    const out = [];
+    try{
+      for(let i = 0; i < localStorage.length; i++){
+        const k = localStorage.key(i);
+        if(k && k.indexOf(SALVAGE) === 0){
+          const v = localStorage.getItem(k) || '';
+          out.push({ key:k, when:new Date(Number(k.slice(SALVAGE.length)) || 0), kb:(v.length/1024).toFixed(1) });
+        }
+      }
+    }catch(e){}
+    return out.sort((a,b) => b.when - a.when);
+  }
+  function downloadSalvaged(key){
+    const raw = localStorage.getItem(key);
+    if(!raw) return false;
+    const blob = new Blob([raw], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `TBM-unreadable-${key.slice(SALVAGE.length)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    return true;
   }
 
   /* The public portal writes into the same store from a second tab. Re-reading
@@ -408,19 +490,43 @@ const DB = (() => {
      it — an empty user picker and a Sign in button that did nothing. The
      records now live in memory instead, which keeps the session usable, and
      the office is told once that nothing is being kept. */
-  let storageToasted = false, storageLogged = false;
+  /* A toast that shows once and fades was the wrong shape for this. Somebody
+     encoding a day of enrollments looks up, misses four seconds of orange, and
+     keeps typing into a system that is writing nothing down — and finds out at
+     closing time. So the warning is a bar that stays until saving works again,
+     re-asserted on every single save, and it cannot be dismissed. */
+  let storageLogged = false, storageOk = true;
+  function storageBanner(show){
+    if(typeof document === 'undefined' || !document.body) return;
+    const id = 'tbmStorageWarn';
+    let el = document.getElementById(id);
+    if(!show){ if(el) el.remove(); return; }
+    if(el) return;
+    el = document.createElement('div');
+    el.id = id;
+    el.setAttribute('role', 'alert');
+    el.textContent = 'NOTHING IS BEING SAVED. This browser is refusing to store records, so '
+      + 'anything typed now disappears when the page is closed. Stop encoding and tell the admin.';
+    el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;'
+      + 'background:#b3001b;color:#fff;text-align:center;letter-spacing:.01em;'
+      + 'font:600 13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;padding:11px 16px;'
+      + 'box-shadow:0 -2px 14px rgba(0,0,0,.28)';
+    document.body.appendChild(el);
+  }
   function save(){
-    try{ localStorage.setItem(KEY, JSON.stringify(data)); }
-    catch(e){
-      const msg = 'This browser will not let the system save. You can work normally, '
-        + 'but nothing will be there when the page is closed.';
-      /* The first failure happens while the store is being seeded, before ui.js
-         has loaded, so it can only reach the console. Keep offering it until
-         there is a screen to put it on — sign-in saves again, which is the
-         first moment anybody is there to read it. */
-      if(typeof UI !== 'undefined' && UI.toast){
-        if(!storageToasted){ storageToasted = true; UI.toast(msg, 'bad'); }
-      }else if(!storageLogged){ storageLogged = true; console.warn('Tara Barko: ' + msg); }
+    try{
+      localStorage.setItem(KEY, JSON.stringify(data));
+      if(!storageOk){ storageOk = true; storageBanner(false); }
+    }catch(e){
+      storageOk = false;
+      /* The first failure can happen while the store is being seeded, before
+         there is a body to hang a bar on. Logging once keeps a trace; the bar
+         appears on the next save, which is the first moment anybody is there. */
+      if(!storageLogged){
+        storageLogged = true;
+        console.warn('Tara Barko: this browser will not let the system save.');
+      }
+      storageBanner(true);
     }
     return data;
   }
@@ -497,5 +603,7 @@ const DB = (() => {
   }
 
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
-           PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS };
+           salvaged, downloadSalvaged,
+           PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS,
+           list, listWith, LIST_DEFS, LIST_DEFAULTS };
 })();

@@ -96,10 +96,8 @@ const req = `<span class="p-req">*</span>`;
 /* ----- step 1 · details ----- */
 function stepDetails(){
   const d = P.draft;
-  const ranks = ['Master','Chief Mate','2nd Officer','3rd Officer','Deck Cadet','Bosun',
-    'Able Seaman','Ordinary Seaman','Chief Engineer','2nd Engineer','3rd Engineer',
-    '4th Engineer','Engine Cadet','Oiler','Fitter','Electrician','Pumpman','Chief Cook',
-    'Messman','Steward','Laundryman','Radio Officer'];
+  /* Maintained by the office in Settings → Dropdown Lists, not here. */
+  const ranks = DB.list('ranks');
 
 
 
@@ -160,12 +158,13 @@ function stepDetails(){
              hint:'manning agency or employer — type it in full', ph:'DIRECT HIRE / WALK-IN' })}
       </div>
       <datalist id="rankList">${ranks.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
+      <datalist id="relationList">${DB.list('relations').map(r => `<option value="${esc(r)}">`).join('')}</datalist>
 
       <h4 class="p-group">In Case of Emergency</h4>
       <p class="p-note-inline">Required before you may join any practical or sea-survival exercise.</p>
       <div class="grid g3">
         ${F('emergencyName','Contact Person', { req:true, ph:'Full name' })}
-        ${F('emergencyRelation','Relationship', { ph:'e.g. Spouse, Parent' })}
+        ${F('emergencyRelation','Relationship', { list:'relationList', ph:'e.g. Spouse, Parent' })}
         ${F('emergencyMobile','Contact Number', { req:true, type:'tel', ph:'09XX XXX XXXX' })}
       </div>
     </form>

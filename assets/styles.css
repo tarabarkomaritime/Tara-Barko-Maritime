@@ -362,3 +362,11 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
   .doc2 .doc-sign{margin-top:10mm;font-size:9px;gap:20px}
   .copy-mark{display:inline-block !important;font-size:8px;padding:0 5px}
 }
+
+/* A list of twenty-odd ranks needs a box you can actually see them in. */
+.list-edit textarea{
+  min-height:290px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12.5px;
+  line-height:1.75;
+}

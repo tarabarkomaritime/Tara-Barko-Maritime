@@ -2108,6 +2108,15 @@ VIEWS.settings = () => {
             actions:'<button class="btn btn-ghost btn-xs" data-act="edit-methods">Edit modes</button>',
             sub:'Offered at the collection window' })}
 
+        ${UI.card('Dropdown Lists', UI.table([
+          { h:'List', k:l => `<b>${UI.esc(l.label)}</b>` },
+          { h:'Where it is used', k:l => `<span class="muted">${UI.esc(l.where)}</span>` },
+          { h:'Options', k:l => UI.int(DB.list(l.key).length), cls:'num' },
+          { h:'', k:l => `<button class="btn btn-ghost btn-xs" data-act="edit-list"
+                data-id="${l.key}">Edit</button>`, w:'70px' },
+        ], DB.LIST_DEFS), { flush:true,
+            sub:'What each dropdown offers — type your own options' })}
+
         ${UI.card('Expense Categories', UI.table([
           { h:'Category', k:'name' },
         ], d.accounts.filter(a => a.type === 'Expense').sort((a,b) => a.code.localeCompare(b.code)),
@@ -2139,6 +2148,14 @@ VIEWS.settings = () => {
             <dt>Storage</dt><dd>${(JSON.stringify(d).length/1024).toFixed(1)} KB in this browser</dd>
           </dl>
           <div class="note warn" style="margin:14px 0 10px">Records live in this browser's local storage. Download a backup regularly and keep it with your other business records.</div>
+          ${DB.salvaged().length ? `<div class="note bad" style="margin:14px 0 10px">
+            <b>${DB.salvaged().length} unreadable store(s) found.</b> A previous session left records
+            this browser could not read back. They were kept rather than written over. Download the
+            file and send it to whoever maintains the system — it may be repairable.
+            ${DB.salvaged().map(s => `<div style="margin-top:8px">
+              <button class="btn btn-ghost btn-xs" data-act="salvage" data-id="${UI.esc(s.key)}">Download
+              ${UI.esc(s.kb)} KB from ${UI.date(s.when.toISOString().slice(0,10))}</button></div>`).join('')}
+          </div>` : ''}
           <div class="chips">
             <button class="btn btn-ghost btn-sm" data-act="backup">Download backup</button>
             <button class="btn btn-ghost btn-sm" data-act="restore">Restore from file</button>
@@ -2171,7 +2188,7 @@ function traineeForm(t, onDone){
                UI.f.text('first','First name', t.first, { req:true }),
                UI.f.text('middle','Middle name', t.middle))}
       ${H('Personal information')}
-      ${UI.row(UI.f.select('suffix','Suffix', t.suffix, ['','Jr.','Sr.','II','III','IV','V']),
+      ${UI.row(UI.f.select('suffix','Suffix', t.suffix, ['', ...DB.listWith('suffix', t.suffix || [])]),
                UI.f.select('sex','Sex', t.sex, [{v:'M',l:'Male'},{v:'F',l:'Female'}]),
                UI.f.date('birth','Date of birth', t.birth, { req:true }))}
       ${UI.f.text('birthPlace','Place of birth', t.birthPlace, { ph:'City / municipality, province' })}
@@ -2182,14 +2199,18 @@ function traineeForm(t, onDone){
                UI.f.text('messenger','Messenger / Meta chat link', t.messenger, { ph:'m.me/…' }))}
       ${UI.f.text('address','Home address', t.address)}
       ${H('Employment')}
-      ${UI.row(UI.f.text('rank','Rank / position', t.rank, { ph:'e.g. Able Seaman' }),
+      ${UI.row(UI.f.text('rank','Rank / position', t.rank, { ph:'e.g. Able Seaman',
+                          attr:'list="rankList"' }),
                UI.f.text('agency','Company', t.agency, { hint:'manning agency or employer',
                           attr:'class="caps"' }))}
       ${H('In case of emergency')}
       ${UI.row(UI.f.text('emergencyName','Contact person', t.emergencyName),
-               UI.f.text('emergencyRelation','Relationship', t.emergencyRelation, { ph:'e.g. Spouse' }),
+               UI.f.text('emergencyRelation','Relationship', t.emergencyRelation,
+                          { ph:'e.g. Spouse', attr:'list="relationList"' }),
                UI.f.text('emergencyMobile','Contact number', t.emergencyMobile))}
-      ${UI.f.area('remarks','Remarks', t.remarks)}`,
+      ${UI.f.area('remarks','Remarks', t.remarks)}
+      <datalist id="rankList">${DB.list('ranks').map(r => `<option value="${UI.esc(r)}">`).join('')}</datalist>
+      <datalist id="relationList">${DB.list('relations').map(r => `<option value="${UI.esc(r)}">`).join('')}</datalist>`,
     submitLabel: isNew ? 'Register trainee' : 'Save changes',
     onSubmit: fd => {
       if(isNew){
@@ -2305,7 +2326,7 @@ function courseForm(c){
 
       <label class="fld"><span>Mode of learning</span></label>
       <div class="chips" style="margin:-8px 0 14px">
-        ${DB.DELIVERY.map((m,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
+        ${DB.listWith('delivery', c.modes || []).map((m,i) => `<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);padding:6px 10px;border-radius:7px;cursor:pointer">
             <input type="checkbox" name="mode${i}" style="width:auto;margin:0"
                    ${(c.modes||[]).includes(m) ? 'checked' : ''}> ${UI.esc(m.toUpperCase())}</label>`).join('')}
       </div>
@@ -3229,6 +3250,35 @@ function categoriesForm(){
   };
 }
 
+/* One option per line, because these lists run to twenty-odd entries and a
+   fixed number of boxes is the reason nobody could add the twenty-third. */
+function listForm(key){
+  const def = DB.LIST_DEFS.find(l => l.key === key);
+  if(!def) return;
+  UI.modal({
+    title:def.label, sub:def.where, wide:true,
+    body:`<div class="list-edit">${UI.f.area('items','One option per line', DB.list(key).join('\n'))}</div>
+      <div class="note">They appear in the order you write them. Anything already saved on a
+        record stays as it is — this changes what is offered from here on, not what has
+        already been encoded.</div>`,
+    submitLabel:'Save list',
+    footExtra:`<button type="button" class="btn btn-ghost" data-act="reset-list"
+                 data-id="${key}">Reset to default</button>`,
+    onSubmit: fd => {
+      const next = String(fd.items || '').split('\n').map(s => s.trim()).filter(Boolean);
+      if(!next.length){ UI.toast('Keep at least one option, or reset it to the default.', 'bad'); return false; }
+      const seen = new Set();
+      const dupe = next.find(v => { const k = v.toLowerCase();
+        if(seen.has(k)) return true; seen.add(k); return false; });
+      if(dupe){ UI.toast(`"${dupe}" is on the list twice.`, 'bad'); return false; }
+      D().company.lists = { ...(D().company.lists || {}), [key]:next };
+      DB.activity('Updated list — ' + def.label, next.length + ' option(s)');
+      UI.toast(`${def.label} updated — ${next.length} option(s).`);
+      refresh();
+    }
+  });
+}
+
 function methodsForm(){
   const list = ACC.methods();
   const assets = D().accounts.filter(a => a.type === 'Asset')
@@ -3351,6 +3401,13 @@ document.addEventListener('click', ev => {
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
     'edit-methods':  () => methodsForm(),
+    'edit-list':     () => listForm(id),
+    'reset-list':    () => { const co = D().company;
+                        if(co.lists) delete co.lists[id];
+                        DB.save(); DB.activity('Reset list to default');
+                        UI.toast('Reset to the built-in list.');
+                        UI.close();
+                        refresh(); },
     'edit-categories':() => categoriesForm(),
     'new-user':      () => userForm(),
     'edit-user':     () => userForm(D().users.find(u => u.id === id)),
@@ -3360,6 +3417,9 @@ document.addEventListener('click', ev => {
     'print':         () => UI.print(),
     'backup':        () => { DB.exportJSON(); UI.toast('Backup downloaded.'); },
     'restore':       () => document.getElementById('restoreFile').click(),
+    'salvage':       () => { DB.downloadSalvaged(id)
+                        ? UI.toast('Downloaded. Keep the file — it is the only copy.')
+                        : UI.toast('That copy is no longer in this browser.', 'bad'); },
     /* Reset rather than blank. Wiping used to leave a store with no courses in
        it, which is not a fresh start — it is a system that cannot take a
        booking until somebody types 341 prices back in. */
