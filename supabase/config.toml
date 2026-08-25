@@ -32,8 +32,14 @@ max_rows = 1000
 [auth]
 # Where a password-reset or confirmation link sends people. The default is
 # localhost, which produces mail nobody outside this machine can act on.
-site_url = "https://tara-barko-maritime.vercel.app"
-additional_redirect_urls = ["https://tara-barko-maritime.vercel.app"]
+site_url = "https://www.tarabarkomaritime.online"
+# The Vercel address still works and people have it in their history, so a link
+# that comes back to it is honoured rather than refused.
+additional_redirect_urls = [
+  "https://www.tarabarkomaritime.online",
+  "https://tarabarkomaritime.online",
+  "https://tara-barko-maritime.vercel.app",
+]
 jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
