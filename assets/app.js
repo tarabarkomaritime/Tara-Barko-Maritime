@@ -239,6 +239,34 @@ function enterShell(staff){
   route();
 }
 
+/* Supabase sends a reset link back to the site with the tokens in the URL
+   fragment — #access_token=…&type=recovery — which is the same place this app
+   keeps its routes. So it has to be read and cleared before the router ever
+   sees it, or the whole thing is mistaken for a page name and the person who
+   clicked the link lands on the dashboard with nothing having happened.
+
+   Clearing it also matters on its own: an access token sitting in the address
+   bar is a token in the browser history, in a bookmark, and in whatever is
+   pasted into a chat when somebody asks for help. */
+function claimRecoveryLink(){
+  const h = String(location.hash || '');
+  if(h.indexOf('type=recovery') < 0) return false;
+  const p = new URLSearchParams(h.replace(/^#/, ''));
+  history.replaceState(null, '', location.pathname + location.search);
+
+  if(p.get('error') || !p.get('access_token')){
+    const why = p.get('error_description') || p.get('error') || 'that link is no longer valid';
+    return { failed:String(why).replace(/\+/g, ' ') };
+  }
+  CLOUD.keepSession({
+    access_token:p.get('access_token'),
+    refresh_token:p.get('refresh_token') || '',
+    expires_at:Math.floor(Date.now() / 1000) + Number(p.get('expires_in') || 3600),
+    user:null,
+  });
+  return { ok:true };
+}
+
 function initLogin(){
   const box = document.getElementById('loginUser');
   const btn = document.getElementById('loginBtn');
@@ -286,6 +314,29 @@ function initLogin(){
   btn.onclick = go;
   box.onkeydown = e => { if(e.key === 'Enter') document.getElementById('loginPass').focus(); };
   document.getElementById('loginPass').onkeydown = e => { if(e.key === 'Enter') go(); };
+
+  /* Somebody arriving from a reset email. They are signed in by the link
+     itself, which is the whole point of it — so let them in and put the change
+     password form in front of them straight away, rather than showing a login
+     box they cannot get past because they do not know the password. */
+  const recovery = claimRecoveryLink();
+  if(recovery && recovery.failed){
+    say('That reset link has expired — ask an admin to send another. (' + recovery.failed + ')');
+  }else if(recovery && recovery.ok){
+    say('Checking the link…');
+    CLOUD.me()
+      .then(staff => {
+        if(!staff) throw new Error('that account is not on this office\'s staff list');
+        return DB.connect().then(() => {
+          say('');
+          enterShell(staff);
+          myPasswordForm();
+          UI.toast('Set a new password now — the link that let you in only works once.');
+        });
+      })
+      .catch(e => say('That reset link did not work: ' + (e.message || 'unknown error')));
+    return;
+  }
 
   /* A session that is still good should not ask again on every reload. */
   if(CLOUD.signedIn()){
