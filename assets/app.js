@@ -3070,6 +3070,68 @@ function journalForm(){
 
 /* A staff account. The password is stored as typed — see the note on USERS in
    db.js — so the field says so rather than pretending otherwise. */
+/* Changing your own password, which until now meant asking an admin to open
+   the accounts screen and read everybody's out of a list.
+
+   It writes to whichever place the password actually lives. Today that is this
+   browser, so it is honest about the fact that it only changes this browser —
+   telling somebody their password is changed when the machine at the next desk
+   still takes the old one is worse than not offering it. Once sign-in moves to
+   Supabase the same form changes it properly, everywhere, and the note goes. */
+const onSupabase = () => typeof CLOUD !== 'undefined' && CLOUD.signedIn && CLOUD.signedIn();
+
+function myPasswordForm(){
+  const me = SESSION && D().users.find(u => u.id === SESSION.id);
+  if(!me && !onSupabase()) return UI.toast('Sign in first.', 'bad');
+
+  UI.modal({
+    title:'Change my password',
+    sub:(me && me.email) || (SESSION && SESSION.email) || '',
+    body:`
+      ${onSupabase() ? '' : UI.f.text('current','Current password', '',
+          { req:true, type:'password', attr:'autocomplete="current-password"' })}
+      ${UI.row(UI.f.text('next','New password', '',
+                 { req:true, type:'password', attr:'autocomplete="new-password"',
+                   hint:'at least 8 characters' }),
+               UI.f.text('again','Type it again', '',
+                 { req:true, type:'password', attr:'autocomplete="new-password"' }))}
+      ${onSupabase()
+        ? '<div class="note">Changed everywhere, on every machine, straight away.</div>'
+        : `<div class="note warn"><b>This changes it in this browser only.</b> The records and
+             the sign-in list still live on this machine, so the same account on another
+             computer keeps its old password until the system moves to the server.</div>`}`,
+    submitLabel:'Change it',
+    onSubmit: fd => {
+      const next = String(fd.next || '');
+      const again = String(fd.again || '');
+      if(next.length < 8){ UI.toast('Use at least 8 characters.', 'bad'); return false; }
+      if(next !== again){ UI.toast('The two new passwords are not the same.', 'bad'); return false; }
+
+      if(onSupabase()){
+        CLOUD.updatePassword(next)
+          .then(() => UI.toast('Password changed.'))
+          .catch(e => UI.toast('That did not change: ' + e.message, 'bad'));
+        return;
+      }
+
+      /* Checking the current one is not much of a gate when the store is
+         readable anyway. It is here so that walking up to somebody's unlocked
+         screen is not enough to lock them out of their own account. */
+      if(String(fd.current || '') !== me.code){
+        UI.toast('That is not your current password.', 'bad'); return false;
+      }
+      const clash = D().users.find(x => x.code === next && x.id !== me.id);
+      if(clash){ UI.toast('Somebody else already uses that password — pick another.', 'bad'); return false; }
+
+      me.code = next;
+      DB.activity('Changed own password');
+      DB.save();
+      fillLoginList();
+      UI.toast('Password changed — in this browser.');
+    }
+  });
+}
+
 function userForm(u){
   const isNew = !u;
   u = u || { name:'', email:'', code:'', role:'registrar', initials:'' };
@@ -3409,6 +3471,7 @@ document.addEventListener('click', ev => {
                         UI.close();
                         refresh(); },
     'edit-categories':() => categoriesForm(),
+    'my-password':   () => myPasswordForm(),
     'new-user':      () => userForm(),
     'edit-user':     () => userForm(D().users.find(u => u.id === id)),
     'ledger-tab':    () => { location.hash = '#/ledger/' + id; },
