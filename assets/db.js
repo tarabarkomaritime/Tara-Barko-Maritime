@@ -51,20 +51,21 @@ const DB = (() => {
      is what makes these worth hashing; until then the password is a way of
      keeping the wrong desk out of the wrong screen, not a security boundary. */
   const USERS = [
-    /* There are no passwords here any more, and that is the point. This file is
-       served to anyone who opens the site, so for as long as sign-in compared
-       what was typed against a string on this list, the passwords were public —
-       there was no version of that arrangement which was not.
+    /* The email address is the username, so unlike the other fields it has to be
+       here — sign-in has nothing to match against otherwise. That means these
+       addresses are in the repository and in every deploy, and the deployed site
+       hands assets/db.js to anyone who opens the URL. There is no way to have
+       both email sign-in and addresses that are not public while the whole
+       system runs in the browser; moving authentication to Supabase is what
+       ends that, and the schema for it is already written.
 
-       Supabase Auth holds them now. What is left is the office's own roster in
-       the shape the screens expect, used before anybody has signed in and as
-       the fallback when the network is not there. The real list is tbm.staff,
-       pulled down at sign-in, and it replaces this one. */
-    { id:'u1', name:'Kyla Esguerra', role:'owner',
+       The passwords are temporary and are meant to be changed the first time
+       each person signs in — Settings → User accounts → Edit. */
+    { id:'u1', name:'Kyla Esguerra', role:'owner',      code:'@mismo123',
       initials:'KE', email:'kyla.esguerra24@gmail.com' },
-    { id:'u4', name:'Kate Esguerra', role:'admin',
+    { id:'u4', name:'Kate Esguerra', role:'admin',      code:'tb-XbbhnxDc',
       initials:'KA', email:'pkmesguerra.ph@gmail.com' },
-    { id:'u2', name:'Jocelyn Eala',  role:'frontdesk',
+    { id:'u2', name:'Jocelyn Eala',  role:'frontdesk',  code:'@mismo123',
       initials:'JE', email:'ealajocelyn.qaplamaritime@gmail.com' },
   ];
 
@@ -276,12 +277,6 @@ const DB = (() => {
         if(!mine){ d.users.push({ ...seedUser }); return; }
         if(!mine.email && seedUser.email) mine.email = seedUser.email;
       });
-      /* Any store written before authentication moved to Supabase still has the
-         passwords sitting in it in clear text. Taking them out of the source
-         does nothing for the browsers that already copied them, and those are
-         the machines actually sitting in the office — so they are stripped on
-         the next load, wherever that store happens to be. */
-      d.users.forEach(u => { delete u.code; });
     }
 
     /* Overpayment used to land in receivables; the account it belongs in may
@@ -378,15 +373,11 @@ const DB = (() => {
     if(!Array.isArray(d.company.addons) || !d.company.addons.length){
       d.company.addons = DEFAULT_COMPANY.addons.map(a => ({ ...a }));
     }
-    /* This used to fill a missing password in with the role name, so an account
-       without one silently became signable-into as "admin" or "frontdesk". It
-       was there to keep old stores openable and it long outlived that job.
-       Supabase holds the passwords now; the only correct thing to do with one
-       found in a browser store is take it out. */
+    /* Every account needs an email and a password to be maintainable. */
     (d.users || []).forEach(u => {
       if(u.email == null) u.email = '';
-      delete u.code;
-      if(!u.initials) u.initials = String(u.name||'?').split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
+      if(!u.code) u.code = u.role || 'staff';
+      if(!u.initials) u.initials = String(u.name||'?').split(/s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
     });
 
     /* Delivery was free text and carried values that are not a delivery. Fold
@@ -460,15 +451,7 @@ const DB = (() => {
       }
     }
     if(!data || !data.meta){ data = blank(); seed(); save(); }
-    else {
-      migrate(data);
-      /* Write the migrated store back. Migrating only in memory meant a store
-         was re-migrated on every single load and never actually fixed — which
-         is harmless for a defaulted field and not harmless at all for taking a
-         password out: it would have been stripped for the session and still
-         been sitting on the disk afterwards. */
-      cache();
-    }
+    else migrate(data);
     return data;
   }
 
@@ -530,183 +513,24 @@ const DB = (() => {
       + 'box-shadow:0 -2px 14px rgba(0,0,0,.28)';
     document.body.appendChild(el);
   }
-  function cache(){
+  function save(){
     try{
       localStorage.setItem(KEY, JSON.stringify(data));
       if(!storageOk){ storageOk = true; storageBanner(false); }
-      return true;
     }catch(e){
       storageOk = false;
+      /* The first failure can happen while the store is being seeded, before
+         there is a body to hang a bar on. Logging once keeps a trace; the bar
+         appears on the next save, which is the first moment anybody is there. */
       if(!storageLogged){
         storageLogged = true;
         console.warn('Tara Barko: this browser will not let the system save.');
       }
-      /* Losing the local cache while the cloud is answering is untidy, not
-         fatal — the records are on the server. Saying "nothing is being saved"
-         then would be a lie, and a lie that stops a day's work. */
-      storageBanner(!cloudOn);
-      return false;
+      storageBanner(true);
     }
-  }
-
-  function save(){
-    cache();
-    schedulePush();
     return data;
   }
-
   function get(){ return data || load(); }
-
-  /* ---------------------------------------------------------------- cloud
-     Everything above this line still works exactly as it did: one object in
-     memory, read synchronously by three thousand lines of view code that must
-     not have to learn about promises. What changes is where that object comes
-     from and where it goes.
-
-     On sign-in the store is pulled from Supabase and localStorage becomes a
-     cache rather than the record — it is what lets the screens paint before the
-     network answers, and what survives a dropped connection. Saves still write
-     to memory and to the cache immediately, then push the rows that changed a
-     moment later. If that push fails the work is not lost: it is still in the
-     browser, still marked dirty, and the status says so out loud rather than
-     letting somebody close the laptop believing it landed. */
-  let cloudOn = false, baseline = null, pushTimer = null, pushing = false, dirty = false;
-  let cloudState = 'off', cloudNote = '';
-  const watchers = [];
-  const onCloud = fn => { watchers.push(fn); fn(cloudState, cloudNote); };
-  function setState(s, note){
-    cloudState = s; cloudNote = note || '';
-    watchers.forEach(f => { try{ f(cloudState, cloudNote); }catch(e){} });
-  }
-  const cloudStatus = () => ({ on:cloudOn, state:cloudState, note:cloudNote, pending:dirty });
-
-  /* The catalogue and the chart of accounts are what the system needs to be
-     able to take a booking at all. A project with neither is not a fresh start,
-     it is a system that cannot work, so the first sign-in fills them. */
-  function seedShape(){
-    const keep = data;
-    data = blank(); seed();
-    const out = { courses:data.courses, accounts:data.accounts, company:data.company, seq:data.seq };
-    data = keep;
-    return out;
-  }
-
-  /* Anything this browser has that the server has never heard of.
-
-     This is the whole of "moving the data", and it is the moment the move could
-     have destroyed it: the first cloud sign-in replaces the store in memory and
-     then writes that over the local cache, so a machine holding a day of
-     encoding that was never uploaded would have lost it to the very change
-     meant to stop that happening. So local rows the server does not have are
-     carried across and go up with the first push, and a copy of the store as it
-     was is kept aside regardless — the cheapest possible insurance against
-     being wrong about any of this. */
-  const CARRY = ['trainees','enrollments','invoices','payments','expenses',
-                 'refunds','journal','applications','courses'];
-  function carryLocal(local, store){
-    if(!local || !local.meta) return { carried:0, where:[] };
-    let carried = 0; const where = [];
-    CARRY.forEach(name => {
-      const mine = local[name];
-      if(!Array.isArray(mine) || !mine.length) return;
-      const known = new Set((store[name] || []).map(r => String(r.id != null ? r.id : r.code)));
-      const extra = mine.filter(r => !known.has(String(r.id != null ? r.id : r.code)));
-      if(!extra.length) return;
-      store[name] = [...(store[name] || []), ...extra];
-      carried += extra.length;
-      where.push(`${extra.length} ${name}`);
-    });
-    return { carried, where };
-  }
-
-  async function connect(){
-    let local = null;
-    try{ local = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ local = null; }
-
-    const store = await SYNC.pull();
-    const brought = carryLocal(local, store);
-    if(brought.carried){
-      try{ localStorage.setItem(SALVAGE + 'preupload.' + Date.now(), JSON.stringify(local)); }catch(e){}
-      console.warn('Tara Barko: carried up from this browser — ' + brought.where.join(', '));
-    }
-
-    const fresh = blank();
-    data = { ...fresh, ...store, meta:fresh.meta };
-    if(!data.company || !Object.keys(data.company).length){
-      data.company = (local && local.company && Object.keys(local.company).length)
-        ? local.company : { ...DEFAULT_COMPANY };
-    }
-
-    const need = seedShape();
-    if(!data.courses.length)  data.courses  = need.courses;
-    if(!data.accounts.length) data.accounts = need.accounts;
-    if(!data.seq || !Object.keys(data.seq).length) data.seq = need.seq;
-    /* Take the higher of the two counters. Reusing a receipt number because the
-       server started from zero would put two OR-2026-0007s in the same drawer. */
-    const seqs = { ...need.seq, ...(data.seq || {}) };
-    Object.keys((local && local.seq) || {}).forEach(k => {
-      seqs[k] = Math.max(Number(seqs[k] || 0), Number(local.seq[k] || 0));
-    });
-    data.seq = seqs;
-
-    data.carriedUp = brought.carried || 0;
-    migrate(data);
-    cloudOn = true;
-    /* The baseline is what the server had. Anything the seed just supplied is
-       deliberately not in it, so the first push uploads the catalogue. */
-    baseline = SYNC.snapshot({ ...store, company:store.company, seq:store.seq });
-    cache();
-    setState('ready');
-    schedulePush();
-    return data;
-  }
-
-  function disconnect(){
-    cloudOn = false; baseline = null; dirty = false;
-    clearTimeout(pushTimer);
-    setState('off');
-  }
-
-  function schedulePush(){
-    if(!cloudOn) return;
-    dirty = true;
-    setState(cloudState === 'error' ? 'error' : 'dirty', cloudNote);
-    clearTimeout(pushTimer);
-    pushTimer = setTimeout(() => { flush(); }, 700);
-  }
-
-  async function flush(){
-    if(!cloudOn || pushing || !dirty) return cloudStatus();
-    pushing = true; dirty = false; setState('saving');
-    try{
-      await SYNC.push(data, baseline);
-      baseline = SYNC.snapshot(data);
-      setState('ready');
-    }catch(e){
-      /* Put the flag back up. The rows are still in memory and still in the
-         cache, so the next save — or the next retry — carries them again. */
-      dirty = true;
-      setState('error', e.message || 'The save did not reach the server.');
-    }finally{ pushing = false; }
-    return cloudStatus();
-  }
-
-  /* Somebody else's work. Only ever applied when this browser has nothing
-     waiting to go up, because merging a half-pushed edit against a fresher
-     server row is how one desk silently undoes another. */
-  async function refreshFromCloud(){
-    if(!cloudOn || dirty || pushing) return false;
-    const store = await SYNC.pull();
-    const fresh = blank();
-    data = { ...fresh, ...store, meta:fresh.meta };
-    if(!data.company || !Object.keys(data.company).length) data.company = { ...DEFAULT_COMPANY };
-    migrate(data);
-    baseline = SYNC.snapshot(store);
-    cache();
-    setState('ready');
-    return true;
-  }
-
 
   function reset(withSeed){
     data = blank();
@@ -780,7 +604,6 @@ const DB = (() => {
 
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
            salvaged, downloadSalvaged,
-           connect, disconnect, flush, refreshFromCloud, onCloud, cloudStatus,
            PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS,
            list, listWith, LIST_DEFS, LIST_DEFAULTS };
 })();
