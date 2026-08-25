@@ -114,37 +114,52 @@ check('nothing posts to Output VAT', () =>
 check('ledger balances after seeding', balanced);
 
 console.log('\n- registering from the public portal -');
+/* Registering used to happen here, in JavaScript, writing into the visitor's
+   own browser. It happens in tbm.submit_registration now, because an applicant
+   has no account and must never be given rights over a table holding every
+   seafarer's birth date and mobile number.
+
+   So the things that moved are not tested here any more — matching a returning
+   seafarer to their file, allocating the trainee number, keeping the register
+   from growing a duplicate. Those are SQL, and they are checked against the
+   live database rather than against a JavaScript imitation of it, which would
+   only ever prove that the imitation agrees with itself.
+
+   What is still this file's job, and is still tested: refusing to send an
+   incomplete form, telling the applicant plainly when the office cannot be
+   reached, and handing back the shape the acknowledgement slip prints. */
 const FORM = `{
   srn:'SRN-T100', last:'Testino', first:'Tomas', middle:'Cruz', suffix:'',
   sex:'M', birth:'1990-05-04', birthPlace:'Cebu City',
   mobile:'09171234567', email:'tomas.testino@mail.com', address:'12 Rizal St., Cebu City',
-  facebook:'facebook.com/tomas.testino', messenger:'',
   rank:'Able Seaman', agency:'Test Manning Inc.',
   emergencyName:'Ana Testino', emergencyRelation:'Spouse', emergencyMobile:'09181234567',
   termsVersion:TERMS.version, termsAccepted:TERMS.agreements.map(a => a.label)
 }`;
-run(`globalThis.REG = APPS.submit(${FORM})`);
-check('registration is recorded', () => /^REG-\d{4}-\d{4}$/.test(run('REG.no')) || run('REG.no'));
-check('a master record is created immediately', () =>
-  run(`!!DB.get().trainees.find(t => t.srn === 'SRN-T100')`) === true || 'no trainee created');
-check('the trainee is marked as coming from the portal', () =>
-  run('REG.trainee.source') === 'Public portal' || run('REG.trainee.source'));
-check('terms version is stamped', () => run('REG.termsVersion') === run('TERMS.version') || run('REG.termsVersion'));
-check('both agreements are stored verbatim', () =>
-  run('REG.termsAccepted.length') === run('TERMS.agreements.length') || run('REG.termsAccepted.length'));
-check('acceptance is timestamped', () => /^\d{4}-\d{2}-\d{2}T/.test(run('REG.termsAcceptedAt')) || run('REG.termsAcceptedAt'));
-check('no course is asked for', () => run(`!APPS.REQUIRED.includes('courseId')`) === true || 'course required');
 
-console.log('\n- registering a second time is allowed -');
-const before = run(`DB.get().trainees.length`);
-run(`globalThis.REG2 = APPS.submit({ ...${FORM}, mobile:'09179998888' })`);
-check('the second registration is accepted', () => run('REG2.no') !== run('REG.no') || 'same record');
-check('it reuses the same master record', () => run('REG2.reused') === true || 'created a duplicate trainee');
-check('the registry did not grow', () => run('DB.get().trainees.length') === before || 'trainee count changed');
-check('fresher contact details win', () =>
-  run(`DB.get().trainees.find(t => t.srn === 'SRN-T100').mobile`) === '09179998888'
-  || run(`DB.get().trainees.find(t => t.srn === 'SRN-T100').mobile`));
-check('the trainee number is unchanged', () => run('REG2.trainee.no') === run('REG.trainee.no') || 'number changed');
+/* the office, stood in for */
+ctx.CLOUD = {
+  calls:[],
+  rpc:async (fn, args) => {
+    ctx.CLOUD.calls.push({ fn, args });
+    if(fn === 'submit_registration')
+      return { ok:true, ref:'AB12CD', no:'REG-2026-0007', traineeNo:'TRN-2026-0007', reused:false };
+    if(fn === 'track_registration')
+      return { found:true, trainee:{ no:'TRN-2026-0007', srn:'SRN-T100', last:'Testino', first:'Tomas' },
+               registrations:[{ no:'REG-2026-0007', ref:'AB12CD', submitted:'2026-08-25', status:'Registered' }],
+               enrollments:[] };
+    throw new Error('unexpected rpc ' + fn);
+  },
+};
+
+/* The rest of this file needs a seafarer on file to book, bill and collect
+   against. Registering used to leave one behind as a side effect; now that
+   registering happens on the server, the fixture is made here on purpose —
+   through the same function the front desk uses when somebody walks in. */
+run(`globalThis.TRN = APPS.upsertTrainee(${FORM}, 'Encoded at the desk').trainee`);
+check('a seafarer can be put on file at the desk', () =>
+  /^TRN-\d{4}-\d{4}$/.test(run('TRN.no')) || run('TRN.no'));
+check('the SRN is stored in capitals', () => run('TRN.srn') === 'SRN-T100' || run('TRN.srn'));
 
 console.log('\n- validation -');
 const errs = expr => run(`APPS.validate(${expr})`);
@@ -345,19 +360,30 @@ check('the invoice reopens', () => run('OUT.invoice.status') === 'Partial' || ru
 check('ledger balances after the reversal', balanced);
 
 console.log('\n- tracking -');
-check('found by SRN and last name', () => run(`!!APPS.track('SRN-T100','Testino')`) === true || 'not found');
-check('every enrollment is returned, newest booking first', () => {
-  const r = run(`(() => { const h = APPS.track('SRN-T100','Testino');
-    return h.enrollments.map(e => e.start); })()`);
-  const sorted = [...r].sort().reverse().join() === r.join();
-  /* Count is not pinned: earlier blocks book this trainee onto several courses,
-     which is the point — one seafarer, many bookings. Order is what matters. */
-  return (r.length >= 3 && sorted) || JSON.stringify(r);
-});
-check('the wrong surname finds nothing', () => run(`APPS.track('SRN-T100','Nobody') === null`) === true || 'leaked a record');
-check('an unknown SRN finds nothing', () => run(`APPS.track('SRN-NOPE','Testino') === null`) === true || 'leaked a record');
-check('the registration is linked to the trainee', () =>
-  run(`APPS.registrationsFor(TRN.id).length`) === 2 || run(`APPS.registrationsFor(TRN.id).length`));
+/* Tracking is a server function now too — tbm.track_registration, which takes
+   an SRN and a surname and returns that seafarer's own bookings and nothing
+   priced. What is checked here is the client half: that both halves are passed
+   on, that a miss is reported as a miss rather than as an empty success, and
+   that a network failure does not read as "no such seafarer".
+
+   The stub below answers the way the real function does, so a wrong surname
+   comes back not-found rather than being quietly accepted. */
+ctx.CLOUD.rpc = async (fn, args) => {
+  ctx.CLOUD.calls.push({ fn, args });
+  if(fn === 'submit_registration')
+    return { ok:true, ref:'AB12CD', no:'REG-2026-0007', traineeNo:'TRN-2026-0007', reused:false };
+  if(fn === 'track_registration'){
+    const srn = String(args.p_srn || '').toUpperCase();
+    const last = String(args.p_last || '').toUpperCase();
+    if(srn !== 'SRN-T100' || last !== 'TESTINO') return { found:false };
+    return { found:true,
+             trainee:{ no:'TRN-2026-0007', srn:'SRN-T100', last:'Testino', first:'Tomas' },
+             registrations:[{ no:'REG-2026-0007', ref:'AB12CD', submitted:'2026-08-25', status:'Registered' }],
+             enrollments:[{ no:'ENR-1', course:'BT', center:'PNTC', start:'2026-03-01', end:'2026-03-05', status:'Enrolled' },
+                          { no:'ENR-2', course:'AFF', center:'PNTC', start:'2026-01-05', end:'2026-01-09', status:'Enrolled' }] };
+  }
+  throw new Error('unexpected rpc ' + fn);
+};
 
 console.log('\n- delivery is one of four values -');
 const DELIVERY = ['Face-to-Face','Module','Distance Learning','Non-Appearance'];
@@ -788,6 +814,65 @@ console.log('\n- old stores lose their passwords -');
 
    This one is async, so it runs last and takes the tally with it. */
 (async () => {
+  /* ---------- what the public page still decides for itself ----------
+     Registering and tracking are server functions now. What is left in this
+     file is the half that faces the applicant, and it has one job that matters
+     more than the rest: never let a failed submission look like a successful
+     one. Somebody who walks away believing they have enrolled, when nothing
+     reached the office, is worse off than somebody shown an error. */
+  console.log('\n- the public page, on its own account -');
+
+  await (async () => {
+    const APPS_submit = args => run('APPS.submit(' + JSON.stringify(args) + ')');
+
+    /* an incomplete form never reaches the office at all */
+    let stopped = false, errs = [];
+    try{ await APPS_submit({ last:'Testino' }); }
+    catch(e){ stopped = true; errs = e.errors || []; }
+    check('an incomplete form is refused before it is sent', () =>
+      (stopped && errs.length > 0) || 'it was sent anyway');
+    check('and nothing was sent', () =>
+      !ctx.CLOUD.calls.some(c => c.fn === 'submit_registration') || 'the office was called');
+
+    /* a complete one goes, and comes back as the slip */
+    const full = run('(' + FORM + ')');
+    const res = await APPS_submit(full);
+    check('a complete form reaches the office', () =>
+      ctx.CLOUD.calls.some(c => c.fn === 'submit_registration') || 'never called');
+    check('the reference comes back for the applicant to quote', () =>
+      res.ref === 'AB12CD' || String(res.ref));
+    check('the slip carries the registration number', () =>
+      res.no === 'REG-2026-0007' || String(res.no));
+    check('the slip carries the trainee number the office assigned', () =>
+      res.trainee.no === 'TRN-2026-0007' || String(res.trainee && res.trainee.no));
+    check('the terms version accepted is recorded on the slip', () =>
+      res.termsVersion === run('TERMS.version') || String(res.termsVersion));
+
+    /* the office cannot be reached */
+    const good = ctx.CLOUD.rpc;
+    ctx.CLOUD.rpc = async () => { throw new Error('Failed to fetch'); };
+    let told = '';
+    try{ await APPS_submit(full); }catch(e){ told = e.message; }
+    ctx.CLOUD.rpc = good;
+    check('a dropped connection is reported, not swallowed', () =>
+      /no connection/i.test(told) || 'said: ' + told);
+    check('and it says nothing was sent, so it is safe to try again', () =>
+      /nothing was sent/i.test(told) || 'said: ' + told);
+
+    /* tracking */
+    const hit = await run(`APPS.track('SRN-T100','Testino')`);
+    check('tracking finds the seafarer by SRN and surname', () =>
+      (hit && hit.trainee.no === 'TRN-2026-0007') || 'not found');
+    check('every booking is returned, newest first', () => {
+      const d = hit.enrollments.map(e => e.start);
+      return (d.length === 2 && [...d].sort().reverse().join() === d.join()) || JSON.stringify(d);
+    });
+    const miss = await run(`APPS.track('SRN-T100','Nobody')`);
+    check('a wrong surname is a miss, not an empty success', () =>
+      miss === null || 'leaked ' + JSON.stringify(miss));
+    const miss2 = await run(`APPS.track('SRN-NOPE','Testino')`);
+    check('an unknown SRN is a miss', () => miss2 === null || 'leaked a record');
+  })();
   console.log('\n- moving a browser onto the server -');
   const KEY = 'tbm_is_v1';
   Object.keys(store).forEach(k => delete store[k]);

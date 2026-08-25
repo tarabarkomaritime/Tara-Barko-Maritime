@@ -142,39 +142,47 @@ const APPS = (() => {
   }
 
   /* ---------- public registration ---------- */
-  function submit(p){
-    DB.reload();                      // another tab may have written since this page loaded
+  /* The applicant has no account and must never be given one, so this cannot
+     insert into tbm.trainees — that table holds every seafarer this office has
+     ever registered. It calls tbm.submit_registration instead, which runs with
+     the schema's own rights, validates the same fields again on the side the
+     caller cannot edit, matches a returning seafarer to their existing file,
+     and hands back a reference and nothing else.
+
+     There is deliberately no local fallback. Writing the enrollment into the
+     visitor's own browser would look exactly like success and reach nobody:
+     the applicant leaves believing they have enrolled and the office never
+     sees it. A submission that failed has to say so. */
+  async function submit(p){
     const errors = validate(p);
     if(errors.length){ const e = new Error('Validation failed'); e.errors = errors; throw e; }
+    if(typeof CLOUD === 'undefined')
+      throw new Error('This page cannot reach the office. Reload and try again.');
 
-    const now = new Date().toISOString();
-    const { trainee, reused } = upsertTrainee(p, 'Public portal');
+    let out;
+    try{
+      out = await CLOUD.rpc('submit_registration', { p });
+    }catch(err){
+      throw new Error(/failed to fetch|networkerror/i.test(err.message || '')
+        ? 'No connection to the office. Check your internet and submit again — nothing was sent.'
+        : 'The office did not accept the enrollment: ' + err.message);
+    }
+    if(!out || !out.ok){
+      const e = new Error('Some required details are missing.');
+      e.errors = (out && out.missing) || [];
+      throw e;
+    }
 
-    /* The registration row is kept even though there is no queue to work: it is
-       the record of what this person agreed to and when. The terms carry a
-       no-refund and a limited-liability clause, both only enforceable if the
-       exact wording accepted can be identified later — hence the version stamp
-       rather than a bare boolean. */
-    const reg = {
-      id:DB.uid('app'),
-      no:DB.nextNo('application','REG'),
-      ref:refCode(),
-      submitted:DB.today(),
-      channel:'Public Portal',
-      status:'Registered',
-      traineeId:trainee.id,
-      srn:trainee.srn, last:trainee.last, first:trainee.first,
+    /* The shape the acknowledgement slip prints from. The office's own copy is
+       already on the server; this is only what the applicant is shown. */
+    return {
+      no:out.no, ref:out.ref, submitted:DB.today(),
+      channel:'Public Portal', status:'Registered', reused:!!out.reused,
+      srn:t(p.srn).toUpperCase(),
       termsVersion:t(p.termsVersion),
       termsAccepted:Array.isArray(p.termsAccepted) ? p.termsAccepted.slice() : [],
-      termsAcceptedAt:now,
-      history:[{ ts:now, status:'Registered', by:'Public Portal',
-                 note:`Registered online · terms ${t(p.termsVersion) || 'not recorded'} accepted` }],
+      trainee:{ ...p, no:out.traineeNo, srn:t(p.srn).toUpperCase() },
     };
-    D().applications.push(reg);
-    DB.activity(reused ? 'Public registration (existing seafarer)' : 'Public registration', reg.no);
-    DB.save();
-
-    return { ...reg, trainee, reused };
   }
 
   /* ---------- enrollment ----------
@@ -279,11 +287,20 @@ const APPS = (() => {
     .filter(e => e.traineeId === traineeId)
     .sort((a,b) => String(b.start||'').localeCompare(String(a.start||'')) || b.no.localeCompare(a.no));
 
-  function track(srn, surname){
-    const trainee = findTrainee(srn, surname);
-    if(!trainee) return null;
-    return { trainee, enrollments:enrollmentsFor(trainee.id),
-             registrations:D().applications.filter(a => a.traineeId === trainee.id) };
+  /* Both halves are required and must match. An SRN on its own would let
+     somebody walk the register by guessing numbers; an SRN with the right
+     surname is something the applicant knows about themselves. The function
+     behind this returns their own bookings and nothing priced. */
+  async function track(srn, surname){
+    if(typeof CLOUD === 'undefined') return null;
+    let out;
+    try{
+      out = await CLOUD.rpc('track_registration', { p_srn:t(srn), p_last:t(surname) });
+    }catch(e){ return null; }
+    if(!out || !out.found) return null;
+    return { trainee:out.trainee,
+             enrollments:out.enrollments || [],
+             registrations:out.registrations || [] };
   }
 
   const registrationsFor = traineeId => D().applications.filter(a => a.traineeId === traineeId);

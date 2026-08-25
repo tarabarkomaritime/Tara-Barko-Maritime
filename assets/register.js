@@ -511,20 +511,37 @@ function wire(){
     if(!document.getElementById('consent').checked)
       return UI.toast('Please tick the certification box before submitting.', 'bad');
 
-    try{
-      P.result = APPS.submit({
-        ...P.draft,
-        termsVersion:TERMS.version,
-        termsAccepted:TERMS.agreements.map(a => a.label),
-      });
+    /* An applicant has no account and must never be given one, so the browser
+       cannot write to tbm.trainees directly — that table holds every seafarer's
+       birth date and mobile number. It calls one function instead, which runs
+       with the schema's own rights, decides for itself what to write, and hands
+       back a reference and nothing else.
+
+       There is no local fallback on purpose. Saving an enrollment into the
+       visitor's own browser would look exactly like success and reach nobody:
+       the applicant would go away believing they had enrolled, and the office
+       would never see it. Better to say the submission failed. */
+    const btn = document.getElementById('submitApp');
+    const label = btn ? btn.textContent : '';
+    if(btn){ btn.disabled = true; btn.textContent = 'Submitting…'; }
+    const restore = () => { if(btn){ btn.disabled = false; btn.textContent = label; } };
+
+    APPS.submit({
+      ...P.draft,
+      termsVersion:TERMS.version,
+      termsAccepted:TERMS.agreements.map(a => a.label),
+    }).then(result => {
+      P.result = result;
       P.errors = [];
+      restore();
       UI.toast('Enrollment submitted — reference ' + P.result.ref);
       render();
-    }catch(e){
+    }).catch(e => {
       P.errors = e.errors || [];
+      restore();
       if(!P.errors.length) UI.toast(e.message, 'bad');
       render();
-    }
+    });
   });
 
   /* Ticking clears the highlight straight away rather than waiting for a
@@ -548,12 +565,12 @@ function wire(){
   });
 
   const tf = document.getElementById('trackForm');
-  if(tf) tf.onsubmit = e => {
+  if(tf) tf.onsubmit = async e => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(tf).entries());
     P.trackSrn = fd.srn; P.trackSurname = fd.surname;
     DB.reload();
-    const hit = APPS.track(fd.srn, fd.surname);
+    const hit = await APPS.track(fd.srn, fd.surname);
     P.tracked = hit;
     P.trackError = hit ? '' :
       'We could not find a registration with that SRN and last name. Check your SRN, or call the Registrar for help.';
