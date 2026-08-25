@@ -392,7 +392,11 @@ function trackResult(hit){
   const t = hit.trainee, list = hit.enrollments;
 
   const row = e => {
-    const c = courseOf(e.courseId);
+    /* The course arrives already named. The public page has no read access to
+       the catalogue and should not be given any, so it cannot turn an id into a
+       title — the office hands over the title instead. courseOf stays as the
+       fallback for anything still carrying an id. */
+    const c = e.course ? { title:e.course } : courseOf(e.courseId);
     const dates = e.start ? UI.dateRange(e.start, e.end) : 'Dates to be confirmed';
     return `
       <div class="p-other-row">
