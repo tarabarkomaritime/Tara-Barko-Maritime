@@ -21,6 +21,9 @@ const ASSETS = path.join(__dirname, '..', 'assets');
 const store = {};
 const ctx = {
   console,
+  /* db.js debounces its push to the server, so the context needs the timers a
+     browser would have given it. */
+  setTimeout, clearTimeout, setInterval, clearInterval,
   localStorage:{
     getItem:k => (k in store ? store[k] : null),
     setItem:(k,v) => { store[k] = String(v); },
@@ -777,5 +780,57 @@ console.log('\n- old stores lose their passwords -');
   });
 }
 
-console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail ? 1 : 0);
+/* ---------- the first sign-in must not eat what is already here ----------
+   Connecting replaces the store in memory and then writes that over the local
+   cache. A machine holding a day of encoding that was never uploaded would have
+   lost it to the very change meant to stop that happening — so rows the server
+   has never heard of are carried up instead of being replaced by its silence.
+
+   This one is async, so it runs last and takes the tally with it. */
+(async () => {
+  console.log('\n- moving a browser onto the server -');
+  const KEY = 'tbm_is_v1';
+  Object.keys(store).forEach(k => delete store[k]);
+
+  /* a browser mid-work: a trainee, a booking and a receipt, none uploaded */
+  store[KEY] = JSON.stringify({
+    meta:{ version:1, created:'2026-08-01' },
+    company:{ name:'TB - MARITIME OWN PROFILE' },
+    users:[], accounts:[], courses:[],
+    trainees:[{ id:'t_local', no:'TRN-2026-0007', last:'REYES', first:'PEDRO' }],
+    enrollments:[{ id:'e_local', no:'ENR-2026-0007', traineeId:'t_local', fee:5000 }],
+    invoices:[], payments:[{ id:'p_local', no:'OR-2026-0007', traineeId:'t_local', amount:5000 }],
+    expenses:[], refunds:[], journal:[], log:[], applications:[],
+    seq:{ trainee:7, receipt:7 },
+  });
+
+  /* an empty project, answering the way PostgREST would */
+  ctx.CLOUD = { selectAll:async () => [], rest:async () => [],
+                upsert:async () => 0, remove:async () => 0 };
+
+  await run('DB.connect()');
+
+  check('the local trainee is still there after connecting', () =>
+    run(`!!DB.get().trainees.find(t => t.id === 't_local')`) === true
+    || 'the server’s silence overwrote a real record');
+  check('so is the booking', () =>
+    run(`!!DB.get().enrollments.find(e => e.id === 'e_local')`) === true || 'the booking was lost');
+  check('so is the receipt', () =>
+    run(`!!DB.get().payments.find(p => p.id === 'p_local')`) === true || 'the receipt was lost');
+  check('they are counted as carried up', () =>
+    run('DB.get().carriedUp') >= 3 || 'carriedUp was ' + run('DB.get().carriedUp'));
+  check('a copy of the old store is kept aside', () =>
+    Object.keys(store).some(k => k.indexOf('tbm_is_v1.unreadable.preupload.') === 0)
+    || 'no pre-upload copy was kept');
+  check('the counters do not go backwards', () => {
+    const s = run('DB.get().seq');
+    return (s.receipt >= 7 && s.trainee >= 7) || JSON.stringify(s);
+  });
+  check('the office’s own company profile is not replaced by a blank one', () =>
+    run('DB.get().company.name') === 'TB - MARITIME OWN PROFILE' || run('DB.get().company.name'));
+  check('the catalogue is supplied when the project has none', () =>
+    run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
+
+  console.log(`\n${pass} passed, ${fail} failed\n`);
+  process.exit(fail ? 1 : 0);
+})();

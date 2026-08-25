@@ -591,18 +591,65 @@ const DB = (() => {
     return out;
   }
 
+  /* Anything this browser has that the server has never heard of.
+
+     This is the whole of "moving the data", and it is the moment the move could
+     have destroyed it: the first cloud sign-in replaces the store in memory and
+     then writes that over the local cache, so a machine holding a day of
+     encoding that was never uploaded would have lost it to the very change
+     meant to stop that happening. So local rows the server does not have are
+     carried across and go up with the first push, and a copy of the store as it
+     was is kept aside regardless — the cheapest possible insurance against
+     being wrong about any of this. */
+  const CARRY = ['trainees','enrollments','invoices','payments','expenses',
+                 'refunds','journal','applications','courses'];
+  function carryLocal(local, store){
+    if(!local || !local.meta) return { carried:0, where:[] };
+    let carried = 0; const where = [];
+    CARRY.forEach(name => {
+      const mine = local[name];
+      if(!Array.isArray(mine) || !mine.length) return;
+      const known = new Set((store[name] || []).map(r => String(r.id != null ? r.id : r.code)));
+      const extra = mine.filter(r => !known.has(String(r.id != null ? r.id : r.code)));
+      if(!extra.length) return;
+      store[name] = [...(store[name] || []), ...extra];
+      carried += extra.length;
+      where.push(`${extra.length} ${name}`);
+    });
+    return { carried, where };
+  }
+
   async function connect(){
+    let local = null;
+    try{ local = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ local = null; }
+
     const store = await SYNC.pull();
+    const brought = carryLocal(local, store);
+    if(brought.carried){
+      try{ localStorage.setItem(SALVAGE + 'preupload.' + Date.now(), JSON.stringify(local)); }catch(e){}
+      console.warn('Tara Barko: carried up from this browser — ' + brought.where.join(', '));
+    }
+
     const fresh = blank();
     data = { ...fresh, ...store, meta:fresh.meta };
-    if(!data.company || !Object.keys(data.company).length) data.company = { ...DEFAULT_COMPANY };
+    if(!data.company || !Object.keys(data.company).length){
+      data.company = (local && local.company && Object.keys(local.company).length)
+        ? local.company : { ...DEFAULT_COMPANY };
+    }
 
     const need = seedShape();
     if(!data.courses.length)  data.courses  = need.courses;
     if(!data.accounts.length) data.accounts = need.accounts;
     if(!data.seq || !Object.keys(data.seq).length) data.seq = need.seq;
-    data.seq = { ...need.seq, ...(data.seq || {}) };
+    /* Take the higher of the two counters. Reusing a receipt number because the
+       server started from zero would put two OR-2026-0007s in the same drawer. */
+    const seqs = { ...need.seq, ...(data.seq || {}) };
+    Object.keys((local && local.seq) || {}).forEach(k => {
+      seqs[k] = Math.max(Number(seqs[k] || 0), Number(local.seq[k] || 0));
+    });
+    data.seq = seqs;
 
+    data.carriedUp = brought.carried || 0;
     migrate(data);
     cloudOn = true;
     /* The baseline is what the server had. Anything the seed just supplied is
