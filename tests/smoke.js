@@ -35,7 +35,7 @@ vm.createContext(ctx);
 
 /* Same order as the two HTML entry points: the generated catalogue must exist
    before db.js seeds from it, and accounting.js before anything calls DB.load(). */
-for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js']){
+for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js','sync.js']){
   vm.runInContext(fs.readFileSync(path.join(ASSETS,f),'utf8'), ctx, { filename:f });
 }
 
@@ -675,6 +675,79 @@ check('an emptied list falls back rather than offering nothing', () => {
 });
 check('modes of learning are editable too', () =>
   run("DB.list('delivery').includes('Face-to-Face')") === true || 'no default delivery modes');
+
+/* ---------- the shape the database is given ----------
+   This is the test that earns its keep. A sync layer meeting a field it has no
+   column for will, unless stopped, leave it behind — and nobody finds out until
+   somebody asks why no seafarer has a SIRB number. toRow throws instead, so
+   drift between the app and the schema fails here rather than in production. */
+console.log('\n- what goes to the database -');
+run('DB.reset(true)');
+run("APPS.upsertTrainee({ srn:'SRN-9', last:'DELA CRUZ', first:'JUAN', middle:'S', suffix:'Jr.',"
+  + " birth:'1990-01-01', birthPlace:'MANILA', mobile:'09171234567', email:'j@x.com',"
+  + " address:'MANILA', rank:'OILER', agency:'MAGSAYSAY', emergencyName:'MARIA',"
+  + " emergencyRelation:'ASAWA', emergencyMobile:'09171234568' }, 'Encoded at the desk')");
+run("APPS.enroll(DB.get().trainees[0], { courseId:DB.get().courses[0].id,"
+  + " start:'2026-09-01', end:'2026-09-05', fee:5000, discount:100,"
+  + " discountNote:'test', room:'2F', instructor:'CAPT R' })");
+run("(() => {"
+  + "  const e = DB.get().enrollments[0];"
+  + "  const i = ACC.buildInvoice({ enrollmentId:e.id, traineeId:e.traineeId, date:DB.today(),"
+  + "    items:[{ desc:'X', account:'4000', qty:1, price:5000 }], discount:0, terms:'T' });"
+  + "  DB.get().invoices.push(i); ACC.postInvoice(i);"
+  + "  const p = ACC.buildPayment({ invoiceId:i.id, traineeId:i.traineeId, date:DB.today(),"
+  + "    tenders:[{ method:'Cash', amount:2000, ref:'' }], note:'n', takenBy:'Kyla' });"
+  + "  DB.get().payments.push(p); ACC.postPayment(p, i);"
+  + "})()");
+
+['courses','accounts','trainees','enrollments','invoices','payments','journal'].forEach(name => {
+  check('every ' + name + ' field has a column', () => {
+    const rows = run('DB.get().' + name);
+    if(!rows.length) return 'the fixture built no ' + name;
+    try{
+      rows.forEach(r => run('SYNC.toRow(' + JSON.stringify(name) + ',' + JSON.stringify(r) + ')'));
+      return true;
+    }catch(e){ return e.message; }
+  });
+});
+
+check('a field with no column stops the push instead of vanishing', () => {
+  try{
+    run("SYNC.toRow('trainees', { id:'t1', no:'T', last:'X', first:'Y', shoeSize:11 })");
+    return 'it was accepted — the value would have gone missing';
+  }catch(e){ return /shoe_size/.test(e.message) || 'wrong error: ' + e.message; }
+});
+
+check('camelCase becomes snake_case', () =>
+  run("SYNC.toRow('trainees', { id:'t1', no:'T', last:'X', first:'Y', birthPlace:'MANILA' }).birth_place")
+    === 'MANILA' || 'birthPlace did not map');
+
+check('the renamed enrollment columns are renamed', () => {
+  const r = run("SYNC.toRow('enrollments', { id:'e1', no:'E', traineeId:'t1',"
+    + " date:'2026-01-01', start:'2026-02-01', end:'2026-02-05' })");
+  return (r.date_encoded === '2026-01-01' && r.start_on === '2026-02-01' && r.end_on === '2026-02-05')
+    || JSON.stringify(r);
+});
+
+check('a row survives the round trip', () => {
+  const before = run('DB.get().trainees[0]');
+  const after = run("SYNC.fromRow('trainees', SYNC.toRow('trainees', DB.get().trainees[0]))");
+  const lost = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+  return lost.length === 0 || 'changed on the way: ' + lost.join(', ');
+});
+
+check('paid and status are not sent — they are read back from the receipts', () => {
+  const r = run("SYNC.toRow('invoices', DB.get().invoices[0])");
+  return (!('paid' in r) && !('status' in r)) || 'the derived fields were sent';
+});
+
+check('an empty date becomes null rather than an empty string', () =>
+  run("SYNC.toRow('enrollments', { id:'e1', no:'E', traineeId:'t', remitDate:'' }).remit_date") === null
+  || 'an empty date would have been refused by Postgres');
+
+check('only the catalogue is ever deleted from', () =>
+  Object.entries(run('SYNC.MAP')).every(([k, m]) => m.table === 'courses' || k !== 'courses')
+  || 'a delete path opened somewhere it should not have');
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

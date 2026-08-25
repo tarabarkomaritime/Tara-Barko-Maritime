@@ -218,33 +218,120 @@ function traineeBalance(tid){
    refreshed the old list do not have to know that. */
 function fillLoginList(){}
 
+/* The password is checked by Supabase now, not by this file. That matters for
+   a reason beyond tidiness: the browser build compared what was typed against a
+   string in assets/db.js, and assets/db.js is served to anybody who opens the
+   site. There was no version of that which was not "the passwords are public".
+
+   Being signed in and being one of the office's people are still two questions.
+   Anybody can create an account against this project; what they get is an empty
+   system, because every table answers to row level security and every policy
+   asks for a row in tbm.staff that only the roster hands out. */
+function enterShell(staff){
+  window.SESSION = staff;
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('shell').classList.remove('hidden');
+  document.getElementById('userName').textContent = staff.name;
+  document.getElementById('userRole').textContent = DB.roleName(staff.role);
+  document.getElementById('userAvatar').textContent = staff.initials || '';
+  renderNav();
+  if(!location.hash || location.hash === '#/') location.hash = '#/dashboard';
+  route();
+}
+
 function initLogin(){
   const box = document.getElementById('loginUser');
-  const go = () => {
+  const btn = document.getElementById('loginBtn');
+  const say = m => { const el = document.getElementById('loginMsg'); if(el) el.textContent = m; };
+
+  const go = async () => {
     const typed = String(box.value || '').trim().toLowerCase();
-    const pass = document.getElementById('loginPass').value.trim();
-    const say = m => { const el = document.getElementById('loginMsg'); if(el) el.textContent = m; };
+    const pass = document.getElementById('loginPass').value;
     if(!typed) return say('Enter your email address.');
-    const u = D().users.find(x => String(x.email || '').trim().toLowerCase() === typed);
-    /* One message for a wrong address and a wrong password alike. Telling a
-       stranger which half they got right tells them the other half is worth
-       guessing, and which addresses are real accounts here. */
-    if(!u || pass !== u.code) return say('That email and password do not match an account.');
-    say('');
-    window.SESSION = u;
-    document.getElementById('login').classList.add('hidden');
-    document.getElementById('shell').classList.remove('hidden');
-    document.getElementById('userName').textContent = u.name;
-    document.getElementById('userRole').textContent = DB.roleName(u.role);
-    document.getElementById('userAvatar').textContent = u.initials;
-    DB.activity('Signed in'); DB.save();
-    renderNav();
-    location.hash = '#/dashboard';
-    route();
+    if(!pass)  return say('Enter your password.');
+
+    btn.disabled = true; say('Signing in…');
+    try{
+      await CLOUD.signIn(typed, pass);
+    }catch(e){
+      btn.disabled = false;
+      /* One message for a wrong address and a wrong password alike. Telling a
+         stranger which half they got right tells them the other half is worth
+         guessing, and which addresses are real accounts here. */
+      const offline = /failed to fetch|networkerror/i.test(e.message || '');
+      return say(offline
+        ? 'Cannot reach the server. Check the internet connection and try again.'
+        : 'That email and password do not match an account.');
+    }
+
+    try{
+      const staff = await CLOUD.me();
+      if(!staff){
+        await CLOUD.signOut();
+        btn.disabled = false;
+        return say('That account is not on this office\'s staff list. Ask the admin to add it.');
+      }
+      say('Loading the records…');
+      await DB.connect();
+      say('');
+      btn.disabled = false;
+      DB.activity('Signed in'); DB.save();
+      enterShell(staff);
+    }catch(e){
+      btn.disabled = false;
+      say('Signed in, but the records did not load: ' + (e.message || 'unknown error'));
+    }
   };
-  document.getElementById('loginBtn').onclick = go;
+
+  btn.onclick = go;
   box.onkeydown = e => { if(e.key === 'Enter') document.getElementById('loginPass').focus(); };
   document.getElementById('loginPass').onkeydown = e => { if(e.key === 'Enter') go(); };
+
+  /* A session that is still good should not ask again on every reload. */
+  if(CLOUD.signedIn()){
+    say('Signing back in…');
+    CLOUD.me()
+      .then(staff => staff ? DB.connect().then(() => { say(''); enterShell(staff); })
+                           : CLOUD.signOut().then(() => say('')))
+      .catch(() => say(''));
+  }
+}
+
+/* ---------- is the work actually somewhere safe? ----------
+   The whole reason this system moved off one browser is that a day of encoding
+   could disappear without anybody being told. So the answer to "did that save"
+   is on screen at all times rather than assumed. */
+function initSaveState(){
+  const bar = document.createElement('div');
+  bar.id = 'saveState';
+  document.body.appendChild(bar);
+  const WORDS = {
+    off:     ['', ''],
+    ready:   ['ok',   'Saved'],
+    dirty:   ['work', 'Saving…'],
+    saving:  ['work', 'Saving…'],
+    error:   ['bad',  'NOT SAVED'],
+  };
+  DB.onCloud((state, note) => {
+    const [cls, label] = WORDS[state] || WORDS.off;
+    if(!label){ bar.className = ''; bar.textContent = ''; return; }
+    bar.className = 'save-' + cls;
+    bar.textContent = state === 'error'
+      ? `NOT SAVED — ${note || 'the server did not answer'}. Your work is still here; do not close this page.`
+      : label;
+    bar.title = note || '';
+  });
+  /* A failed push is retried rather than left sitting: the connection that
+     dropped at 3pm is usually back by 3.01, and nobody should have to know to
+     press anything. */
+  setInterval(() => { const s = DB.cloudStatus(); if(s.on && s.pending) DB.flush(); }, 15000);
+  /* Somebody else's work, picked up when this desk is idle. */
+  setInterval(() => { DB.refreshFromCloud().then(ok => { if(ok) refresh(); }).catch(() => {}); }, 60000);
+  window.addEventListener('online',  () => DB.flush());
+  window.addEventListener('beforeunload', e => {
+    const s = DB.cloudStatus();
+    if(s.on && s.pending){ e.preventDefault(); e.returnValue = ''; return ''; }
+  });
 }
 
 function renderNav(){
@@ -3481,7 +3568,17 @@ window.addEventListener('storage', ev => {
   render();
 });
 
-document.getElementById('logoutBtn').onclick = () => location.reload();
+document.getElementById('logoutBtn').onclick = async () => {
+  const s = DB.cloudStatus();
+  if(s.on && s.pending){
+    if(!confirm('There is work that has not reached the server yet. Sign out anyway and risk losing it?')) return;
+  }
+  /* Reloading used to be the whole of signing out, which on a shared desk left
+     the next person one refresh away from being you. */
+  try{ await CLOUD.signOut(); }catch(e){}
+  DB.disconnect();
+  location.reload();
+};
 document.getElementById('backupBtn').onclick = () => { DB.exportJSON(); UI.toast('Backup downloaded.'); };
 document.getElementById('restoreBtn').onclick = () => document.getElementById('restoreFile').click();
 document.getElementById('restoreFile').onchange = e => {
@@ -3501,3 +3598,4 @@ document.getElementById('globalSearch').onkeydown = e => {
 
 DB.load();
 initLogin();
+initSaveState();

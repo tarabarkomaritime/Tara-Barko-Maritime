@@ -513,24 +513,136 @@ const DB = (() => {
       + 'box-shadow:0 -2px 14px rgba(0,0,0,.28)';
     document.body.appendChild(el);
   }
-  function save(){
+  function cache(){
     try{
       localStorage.setItem(KEY, JSON.stringify(data));
       if(!storageOk){ storageOk = true; storageBanner(false); }
+      return true;
     }catch(e){
       storageOk = false;
-      /* The first failure can happen while the store is being seeded, before
-         there is a body to hang a bar on. Logging once keeps a trace; the bar
-         appears on the next save, which is the first moment anybody is there. */
       if(!storageLogged){
         storageLogged = true;
         console.warn('Tara Barko: this browser will not let the system save.');
       }
-      storageBanner(true);
+      /* Losing the local cache while the cloud is answering is untidy, not
+         fatal — the records are on the server. Saying "nothing is being saved"
+         then would be a lie, and a lie that stops a day's work. */
+      storageBanner(!cloudOn);
+      return false;
     }
+  }
+
+  function save(){
+    cache();
+    schedulePush();
     return data;
   }
+
   function get(){ return data || load(); }
+
+  /* ---------------------------------------------------------------- cloud
+     Everything above this line still works exactly as it did: one object in
+     memory, read synchronously by three thousand lines of view code that must
+     not have to learn about promises. What changes is where that object comes
+     from and where it goes.
+
+     On sign-in the store is pulled from Supabase and localStorage becomes a
+     cache rather than the record — it is what lets the screens paint before the
+     network answers, and what survives a dropped connection. Saves still write
+     to memory and to the cache immediately, then push the rows that changed a
+     moment later. If that push fails the work is not lost: it is still in the
+     browser, still marked dirty, and the status says so out loud rather than
+     letting somebody close the laptop believing it landed. */
+  let cloudOn = false, baseline = null, pushTimer = null, pushing = false, dirty = false;
+  let cloudState = 'off', cloudNote = '';
+  const watchers = [];
+  const onCloud = fn => { watchers.push(fn); fn(cloudState, cloudNote); };
+  function setState(s, note){
+    cloudState = s; cloudNote = note || '';
+    watchers.forEach(f => { try{ f(cloudState, cloudNote); }catch(e){} });
+  }
+  const cloudStatus = () => ({ on:cloudOn, state:cloudState, note:cloudNote, pending:dirty });
+
+  /* The catalogue and the chart of accounts are what the system needs to be
+     able to take a booking at all. A project with neither is not a fresh start,
+     it is a system that cannot work, so the first sign-in fills them. */
+  function seedShape(){
+    const keep = data;
+    data = blank(); seed();
+    const out = { courses:data.courses, accounts:data.accounts, company:data.company, seq:data.seq };
+    data = keep;
+    return out;
+  }
+
+  async function connect(){
+    const store = await SYNC.pull();
+    const fresh = blank();
+    data = { ...fresh, ...store, meta:fresh.meta };
+    if(!data.company || !Object.keys(data.company).length) data.company = { ...DEFAULT_COMPANY };
+
+    const need = seedShape();
+    if(!data.courses.length)  data.courses  = need.courses;
+    if(!data.accounts.length) data.accounts = need.accounts;
+    if(!data.seq || !Object.keys(data.seq).length) data.seq = need.seq;
+    data.seq = { ...need.seq, ...(data.seq || {}) };
+
+    migrate(data);
+    cloudOn = true;
+    /* The baseline is what the server had. Anything the seed just supplied is
+       deliberately not in it, so the first push uploads the catalogue. */
+    baseline = SYNC.snapshot({ ...store, company:store.company, seq:store.seq });
+    cache();
+    setState('ready');
+    schedulePush();
+    return data;
+  }
+
+  function disconnect(){
+    cloudOn = false; baseline = null; dirty = false;
+    clearTimeout(pushTimer);
+    setState('off');
+  }
+
+  function schedulePush(){
+    if(!cloudOn) return;
+    dirty = true;
+    setState(cloudState === 'error' ? 'error' : 'dirty', cloudNote);
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => { flush(); }, 700);
+  }
+
+  async function flush(){
+    if(!cloudOn || pushing || !dirty) return cloudStatus();
+    pushing = true; dirty = false; setState('saving');
+    try{
+      await SYNC.push(data, baseline);
+      baseline = SYNC.snapshot(data);
+      setState('ready');
+    }catch(e){
+      /* Put the flag back up. The rows are still in memory and still in the
+         cache, so the next save — or the next retry — carries them again. */
+      dirty = true;
+      setState('error', e.message || 'The save did not reach the server.');
+    }finally{ pushing = false; }
+    return cloudStatus();
+  }
+
+  /* Somebody else's work. Only ever applied when this browser has nothing
+     waiting to go up, because merging a half-pushed edit against a fresher
+     server row is how one desk silently undoes another. */
+  async function refreshFromCloud(){
+    if(!cloudOn || dirty || pushing) return false;
+    const store = await SYNC.pull();
+    const fresh = blank();
+    data = { ...fresh, ...store, meta:fresh.meta };
+    if(!data.company || !Object.keys(data.company).length) data.company = { ...DEFAULT_COMPANY };
+    migrate(data);
+    baseline = SYNC.snapshot(store);
+    cache();
+    setState('ready');
+    return true;
+  }
+
 
   function reset(withSeed){
     data = blank();
@@ -604,6 +716,7 @@ const DB = (() => {
 
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
            salvaged, downloadSalvaged,
+           connect, disconnect, flush, refreshFromCloud, onCloud, cloudStatus,
            PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS,
            list, listWith, LIST_DEFS, LIST_DEFAULTS };
 })();
