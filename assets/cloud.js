@@ -85,6 +85,14 @@ const CLOUD = (() => {
     }
   }
 
+  /* Supabase sends the mail and owns the link. Nobody here ever sees, sets or
+     stores the new password, which is the entire point of moving off the build
+     where an admin typed one into a form and it was written to disk in clear. */
+  async function resetPassword(email){
+    await auth('recover', { email });
+    return true;
+  }
+
   async function signOut(){
     if(session){
       try{
@@ -188,7 +196,7 @@ const CLOUD = (() => {
 
   loadSession();
 
-  return { URL_BASE, SCHEMA, signIn, signOut, refresh, signedIn, currentUser,
+  return { URL_BASE, SCHEMA, signIn, signOut, refresh, resetPassword, signedIn, currentUser,
            loadSession, keepSession, selectAll, upsert, remove, rpc, rest, me, reachable };
 })();
 

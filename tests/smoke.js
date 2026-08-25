@@ -67,8 +67,13 @@ check('starts with no money moved', () =>
 check('the price list is there', () => run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
 check('the chart of accounts is there', () => run('DB.get().accounts.length') > 10 || run('DB.get().accounts.length'));
 check('the staff can sign in', () => run('DB.get().users.length') === 3 || run('DB.get().users.length'));
-check('every staff account has a password', () =>
-  run('DB.get().users.every(u => !!u.code)') === true || 'an account has no password');
+/* The opposite of what this once asserted. Sign-in used to compare what was
+   typed against a string in assets/db.js — a file the website hands to anybody
+   who asks for it — so the passwords were public for as long as they were
+   there. Supabase Auth holds them now, and nothing here should carry one. */
+check('no password is left in the source', () =>
+  run('DB.get().users.every(u => !u.code)') === true
+  || 'an account still carries a password in a file the site serves');
 /* The email address is the username, so an account without one cannot be
    signed into at all, and two accounts sharing one cannot be told apart. */
 check('every staff account has an email to sign in with', () =>
@@ -748,6 +753,29 @@ check('an empty date becomes null rather than an empty string', () =>
 check('only the catalogue is ever deleted from', () =>
   Object.entries(run('SYNC.MAP')).every(([k, m]) => m.table === 'courses' || k !== 'courses')
   || 'a delete path opened somewhere it should not have');
+
+
+/* A password taken out of the source is still sitting in every browser that
+   already copied the old store. Those are the machines actually in the office,
+   so the strip has to reach them on the next load rather than only new ones. */
+console.log('\n- old stores lose their passwords -');
+{
+  const KEY = 'tbm_is_v1';
+  Object.keys(store).forEach(k => delete store[k]);
+  store[KEY] = JSON.stringify({
+    meta:{ version:1, created:'2026-01-01' },
+    users:[{ id:'u1', name:'Kyla Esguerra', role:'owner', code:'@mismo123', email:'k@x.com' }],
+    accounts:[], courses:[], trainees:[], enrollments:[], invoices:[], payments:[],
+    expenses:[], refunds:[], journal:[], log:[], applications:[], seq:{}, company:{},
+  });
+  run('DB.reload()');
+  check('a cached store loses its passwords on load', () =>
+    run('DB.get().users.every(u => !("code" in u))') === true || 'a password survived the load');
+  check('and the stripped store is what gets written back', () => {
+    const saved = JSON.parse(store[KEY]);
+    return saved.users.every(u => !('code' in u)) || 'the password is still on disk';
+  });
+}
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

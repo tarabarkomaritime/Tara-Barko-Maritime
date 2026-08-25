@@ -51,21 +51,20 @@ const DB = (() => {
      is what makes these worth hashing; until then the password is a way of
      keeping the wrong desk out of the wrong screen, not a security boundary. */
   const USERS = [
-    /* The email address is the username, so unlike the other fields it has to be
-       here — sign-in has nothing to match against otherwise. That means these
-       addresses are in the repository and in every deploy, and the deployed site
-       hands assets/db.js to anyone who opens the URL. There is no way to have
-       both email sign-in and addresses that are not public while the whole
-       system runs in the browser; moving authentication to Supabase is what
-       ends that, and the schema for it is already written.
+    /* There are no passwords here any more, and that is the point. This file is
+       served to anyone who opens the site, so for as long as sign-in compared
+       what was typed against a string on this list, the passwords were public —
+       there was no version of that arrangement which was not.
 
-       The passwords are temporary and are meant to be changed the first time
-       each person signs in — Settings → User accounts → Edit. */
-    { id:'u1', name:'Kyla Esguerra', role:'owner',      code:'@mismo123',
+       Supabase Auth holds them now. What is left is the office's own roster in
+       the shape the screens expect, used before anybody has signed in and as
+       the fallback when the network is not there. The real list is tbm.staff,
+       pulled down at sign-in, and it replaces this one. */
+    { id:'u1', name:'Kyla Esguerra', role:'owner',
       initials:'KE', email:'kyla.esguerra24@gmail.com' },
-    { id:'u4', name:'Kate Esguerra', role:'admin',      code:'tb-XbbhnxDc',
+    { id:'u4', name:'Kate Esguerra', role:'admin',
       initials:'KA', email:'pkmesguerra.ph@gmail.com' },
-    { id:'u2', name:'Jocelyn Eala',  role:'frontdesk',  code:'@mismo123',
+    { id:'u2', name:'Jocelyn Eala',  role:'frontdesk',
       initials:'JE', email:'ealajocelyn.qaplamaritime@gmail.com' },
   ];
 
@@ -277,6 +276,12 @@ const DB = (() => {
         if(!mine){ d.users.push({ ...seedUser }); return; }
         if(!mine.email && seedUser.email) mine.email = seedUser.email;
       });
+      /* Any store written before authentication moved to Supabase still has the
+         passwords sitting in it in clear text. Taking them out of the source
+         does nothing for the browsers that already copied them, and those are
+         the machines actually sitting in the office — so they are stripped on
+         the next load, wherever that store happens to be. */
+      d.users.forEach(u => { delete u.code; });
     }
 
     /* Overpayment used to land in receivables; the account it belongs in may
@@ -373,11 +378,15 @@ const DB = (() => {
     if(!Array.isArray(d.company.addons) || !d.company.addons.length){
       d.company.addons = DEFAULT_COMPANY.addons.map(a => ({ ...a }));
     }
-    /* Every account needs an email and a password to be maintainable. */
+    /* This used to fill a missing password in with the role name, so an account
+       without one silently became signable-into as "admin" or "frontdesk". It
+       was there to keep old stores openable and it long outlived that job.
+       Supabase holds the passwords now; the only correct thing to do with one
+       found in a browser store is take it out. */
     (d.users || []).forEach(u => {
       if(u.email == null) u.email = '';
-      if(!u.code) u.code = u.role || 'staff';
-      if(!u.initials) u.initials = String(u.name||'?').split(/s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
+      delete u.code;
+      if(!u.initials) u.initials = String(u.name||'?').split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
     });
 
     /* Delivery was free text and carried values that are not a delivery. Fold
@@ -451,7 +460,15 @@ const DB = (() => {
       }
     }
     if(!data || !data.meta){ data = blank(); seed(); save(); }
-    else migrate(data);
+    else {
+      migrate(data);
+      /* Write the migrated store back. Migrating only in memory meant a store
+         was re-migrated on every single load and never actually fixed — which
+         is harmless for a defaulted field and not harmless at all for taking a
+         password out: it would have been stripped for the session and still
+         been sitting on the disk afterwards. */
+      cache();
+    }
     return data;
   }
 

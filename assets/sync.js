@@ -192,11 +192,16 @@ const SYNC = (() => {
       MONEY.forEach(f => { if(typeof r[f] === 'string' && r[f] !== '') r[f] = Number(r[f]); });
     }));
 
-    const [company, staff, seq] = await Promise.all([
+    /* The roster is admin-only, so for everybody else this comes back empty and
+       the Settings screen simply does not offer it. A failure to read it is not
+       a failure to load the system. */
+    const [company, staff, seq, roster] = await Promise.all([
       CLOUD.rest('company?select=profile&limit=1'),
       CLOUD.selectAll('staff'),
       CLOUD.selectAll('doc_seq'),
+      CLOUD.selectAll('roster').catch(() => []),
     ]);
+    store.roster = roster;
     store.company = (company && company[0] && company[0].profile) || null;
     /* No password comes down. Supabase Auth holds those and this browser has no
        business knowing them — the browser build kept them in a field called
