@@ -1,0 +1,56 @@
+# Supabase project configuration for tara-barko-erp.
+#
+# Deliberately minimal. `supabase config push` applies what is written here, so
+# every section added is a setting taken out of the dashboard's hands and put
+# under version control — which is right for the ones the application depends on
+# and wrong for the ones the office may want to change without a deploy.
+#
+# The only thing here is the API's exposed schemas, and it is here because the
+# whole system lives in `tbm` rather than `public`: PostgREST will not look
+# outside the schemas named below, whatever the row level security says, so
+# without `tbm` on this list every table in the system is invisible and the
+# application cannot sign anybody in.
+
+project_id = "bskbsslibwhrmvzdihlq"
+
+[api]
+enabled = true
+# `public` and `graphql_public` are the defaults and stay; `tbm` is the system.
+schemas = ["public", "graphql_public", "tbm"]
+# Where PostgREST looks for functions and operators it is not given a schema for.
+extra_search_path = ["public", "extensions"]
+# The cap on rows returned by one request. cloud.js pages through anything
+# larger, so this is a ceiling on a single response, not on a table.
+max_rows = 1000
+
+# ---------------------------------------------------------------- auth
+# This section is here because it has to be. `config push` applies the whole
+# file, and anything left out is set to the CLI's defaults rather than left
+# alone — pushing [api] by itself silently reset MFA, email confirmations and
+# the OTP length. So the settings are written down, and the file is now the
+# thing that decides them.
+[auth]
+# Where a password-reset or confirmation link sends people. The default is
+# localhost, which produces mail nobody outside this machine can act on.
+site_url = "https://tara-barko-maritime.vercel.app"
+additional_redirect_urls = ["https://tara-barko-maritime.vercel.app"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+# Signing up is open; it grants nothing. Access comes from a row in tbm.staff,
+# which the roster hands out — a stranger who signs up gets an empty system.
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = false
+max_frequency = "1m0s"
+otp_length = 8
+otp_expiry = 3600
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true

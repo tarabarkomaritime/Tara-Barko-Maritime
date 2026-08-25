@@ -218,33 +218,120 @@ function traineeBalance(tid){
    refreshed the old list do not have to know that. */
 function fillLoginList(){}
 
+/* The password is checked by Supabase now, not by this file. That matters for
+   a reason beyond tidiness: the browser build compared what was typed against a
+   string in assets/db.js, and assets/db.js is served to anybody who opens the
+   site. There was no version of that which was not "the passwords are public".
+
+   Being signed in and being one of the office's people are still two questions.
+   Anybody can create an account against this project; what they get is an empty
+   system, because every table answers to row level security and every policy
+   asks for a row in tbm.staff that only the roster hands out. */
+function enterShell(staff){
+  window.SESSION = staff;
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('shell').classList.remove('hidden');
+  document.getElementById('userName').textContent = staff.name;
+  document.getElementById('userRole').textContent = DB.roleName(staff.role);
+  document.getElementById('userAvatar').textContent = staff.initials || '';
+  renderNav();
+  if(!location.hash || location.hash === '#/') location.hash = '#/dashboard';
+  route();
+}
+
 function initLogin(){
   const box = document.getElementById('loginUser');
-  const go = () => {
+  const btn = document.getElementById('loginBtn');
+  const say = m => { const el = document.getElementById('loginMsg'); if(el) el.textContent = m; };
+
+  const go = async () => {
     const typed = String(box.value || '').trim().toLowerCase();
-    const pass = document.getElementById('loginPass').value.trim();
-    const say = m => { const el = document.getElementById('loginMsg'); if(el) el.textContent = m; };
+    const pass = document.getElementById('loginPass').value;
     if(!typed) return say('Enter your email address.');
-    const u = D().users.find(x => String(x.email || '').trim().toLowerCase() === typed);
-    /* One message for a wrong address and a wrong password alike. Telling a
-       stranger which half they got right tells them the other half is worth
-       guessing, and which addresses are real accounts here. */
-    if(!u || pass !== u.code) return say('That email and password do not match an account.');
-    say('');
-    window.SESSION = u;
-    document.getElementById('login').classList.add('hidden');
-    document.getElementById('shell').classList.remove('hidden');
-    document.getElementById('userName').textContent = u.name;
-    document.getElementById('userRole').textContent = DB.roleName(u.role);
-    document.getElementById('userAvatar').textContent = u.initials;
-    DB.activity('Signed in'); DB.save();
-    renderNav();
-    location.hash = '#/dashboard';
-    route();
+    if(!pass)  return say('Enter your password.');
+
+    btn.disabled = true; say('Signing in…');
+    try{
+      await CLOUD.signIn(typed, pass);
+    }catch(e){
+      btn.disabled = false;
+      /* One message for a wrong address and a wrong password alike. Telling a
+         stranger which half they got right tells them the other half is worth
+         guessing, and which addresses are real accounts here. */
+      const offline = /failed to fetch|networkerror/i.test(e.message || '');
+      return say(offline
+        ? 'Cannot reach the server. Check the internet connection and try again.'
+        : 'That email and password do not match an account.');
+    }
+
+    try{
+      const staff = await CLOUD.me();
+      if(!staff){
+        await CLOUD.signOut();
+        btn.disabled = false;
+        return say('That account is not on this office\'s staff list. Ask the admin to add it.');
+      }
+      say('Loading the records…');
+      await DB.connect();
+      say('');
+      btn.disabled = false;
+      DB.activity('Signed in'); DB.save();
+      enterShell(staff);
+    }catch(e){
+      btn.disabled = false;
+      say('Signed in, but the records did not load: ' + (e.message || 'unknown error'));
+    }
   };
-  document.getElementById('loginBtn').onclick = go;
+
+  btn.onclick = go;
   box.onkeydown = e => { if(e.key === 'Enter') document.getElementById('loginPass').focus(); };
   document.getElementById('loginPass').onkeydown = e => { if(e.key === 'Enter') go(); };
+
+  /* A session that is still good should not ask again on every reload. */
+  if(CLOUD.signedIn()){
+    say('Signing back in…');
+    CLOUD.me()
+      .then(staff => staff ? DB.connect().then(() => { say(''); enterShell(staff); })
+                           : CLOUD.signOut().then(() => say('')))
+      .catch(() => say(''));
+  }
+}
+
+/* ---------- is the work actually somewhere safe? ----------
+   The whole reason this system moved off one browser is that a day of encoding
+   could disappear without anybody being told. So the answer to "did that save"
+   is on screen at all times rather than assumed. */
+function initSaveState(){
+  const bar = document.createElement('div');
+  bar.id = 'saveState';
+  document.body.appendChild(bar);
+  const WORDS = {
+    off:     ['', ''],
+    ready:   ['ok',   'Saved'],
+    dirty:   ['work', 'Saving…'],
+    saving:  ['work', 'Saving…'],
+    error:   ['bad',  'NOT SAVED'],
+  };
+  DB.onCloud((state, note) => {
+    const [cls, label] = WORDS[state] || WORDS.off;
+    if(!label){ bar.className = ''; bar.textContent = ''; return; }
+    bar.className = 'save-' + cls;
+    bar.textContent = state === 'error'
+      ? `NOT SAVED — ${note || 'the server did not answer'}. Your work is still here; do not close this page.`
+      : label;
+    bar.title = note || '';
+  });
+  /* A failed push is retried rather than left sitting: the connection that
+     dropped at 3pm is usually back by 3.01, and nobody should have to know to
+     press anything. */
+  setInterval(() => { const s = DB.cloudStatus(); if(s.on && s.pending) DB.flush(); }, 15000);
+  /* Somebody else's work, picked up when this desk is idle. */
+  setInterval(() => { DB.refreshFromCloud().then(ok => { if(ok) refresh(); }).catch(() => {}); }, 60000);
+  window.addEventListener('online',  () => DB.flush());
+  window.addEventListener('beforeunload', e => {
+    const s = DB.cloudStatus();
+    if(s.on && s.pending){ e.preventDefault(); e.returnValue = ''; return ''; }
+  });
 }
 
 function renderNav(){
@@ -2090,14 +2177,17 @@ VIEWS.settings = () => {
           <button class="btn btn-primary" type="submit">Save company profile</button>
         </form>`)}
       <div>
-        ${UI.card('User Accounts', UI.table([
+        ${UI.card('People', UI.table([
           { h:'Name', k:u => `<b>${UI.esc(u.name)}</b><br><span class="muted" style="font-size:11.5px">${UI.esc(u.email || 'no email on file')}</span>` },
           { h:'Role', k:u => UI.tag(DB.roleName(u.role), 'info') },
           { h:'Modules', k:u => `<span class="muted">${DB.PERMS[u.role].length} of ${Object.keys(TITLES).length}</span>` },
-          { h:'', k:u => `<button class="btn btn-ghost btn-xs" data-act="edit-user" data-id="${u.id}">Edit</button>`, w:'70px' },
-        ], d.users, { empty:'No accounts.' }), { flush:true,
-            actions:'<button class="btn btn-primary btn-xs" data-act="new-user">+ Add user</button>',
-            sub:'Name, email, password and role' })}
+          { h:'Account', k:u => u.signedUp
+              ? (u.active === false ? UI.tag('no access','bad') : UI.tag('signed up','ok'))
+              : UI.tag('not yet signed up','warn') },
+          { h:'', k:u => `<button class="btn btn-ghost btn-xs" data-act="edit-user" data-id="${UI.esc(u.email)}">Edit</button>`, w:'70px' },
+        ], rosterRows(), { empty:'Nobody on the roster yet.' }), { flush:true,
+            actions:'<button class="btn btn-primary btn-xs" data-act="new-user">+ Add a person</button>',
+            sub:'Passwords belong to Supabase — this is who may open the system, and as what' })}
 
         ${UI.card('Modes Of Payment', UI.table([
           { h:'Mode', k:m => `<b>${UI.esc(m.name)}</b>` },
@@ -3070,127 +3160,133 @@ function journalForm(){
 
 /* A staff account. The password is stored as typed — see the note on USERS in
    db.js — so the field says so rather than pretending otherwise. */
+/* Who may open this system, and how they come to have a password.
+
+   An admin puts an email address on the roster and tells the person to sign up
+   with it; Supabase takes the password, and the moment the account exists a
+   trigger gives it the staff row and the role the roster promised. Nobody here
+   chooses somebody else's password, and no password is stored anywhere this
+   code can reach — which is what the old form did, in clear text, in a file the
+   website served to anyone who asked for it. */
 /* Changing your own password, which until now meant asking an admin to open
    the accounts screen and read everybody's out of a list.
 
-   It writes to whichever place the password actually lives. Today that is this
-   browser, so it is honest about the fact that it only changes this browser —
-   telling somebody their password is changed when the machine at the next desk
-   still takes the old one is worse than not offering it. Once sign-in moves to
-   Supabase the same form changes it properly, everywhere, and the note goes. */
-const onSupabase = () => typeof CLOUD !== 'undefined' && CLOUD.signedIn && CLOUD.signedIn();
-
+   Supabase takes the new one straight from the browser. It does not pass
+   through this office's records on the way, and once it is set nobody here can
+   read it back — not the admin, not this code. The only thing anyone else can
+   do is send a reset link to the address it belongs to. */
 function myPasswordForm(){
-  const me = SESSION && D().users.find(u => u.id === SESSION.id);
-  if(!me && !onSupabase()) return UI.toast('Sign in first.', 'bad');
+  if(!CLOUD.signedIn()) return UI.toast('Sign in first.', 'bad');
 
   UI.modal({
     title:'Change my password',
-    sub:(me && me.email) || (SESSION && SESSION.email) || '',
+    sub:(SESSION && SESSION.email) || '',
     body:`
-      ${onSupabase() ? '' : UI.f.text('current','Current password', '',
-          { req:true, type:'password', attr:'autocomplete="current-password"' })}
       ${UI.row(UI.f.text('next','New password', '',
                  { req:true, type:'password', attr:'autocomplete="new-password"',
                    hint:'at least 8 characters' }),
                UI.f.text('again','Type it again', '',
                  { req:true, type:'password', attr:'autocomplete="new-password"' }))}
-      ${onSupabase()
-        ? '<div class="note">Changed everywhere, on every machine, straight away.</div>'
-        : `<div class="note warn"><b>This changes it in this browser only.</b> The records and
-             the sign-in list still live on this machine, so the same account on another
-             computer keeps its old password until the system moves to the server.</div>`}`,
+      <div class="note">Changed everywhere, on every machine, straight away. Nobody in the
+        office can read it afterwards — if you forget it, an admin sends you a reset link.</div>`,
     submitLabel:'Change it',
     onSubmit: fd => {
       const next = String(fd.next || '');
-      const again = String(fd.again || '');
       if(next.length < 8){ UI.toast('Use at least 8 characters.', 'bad'); return false; }
-      if(next !== again){ UI.toast('The two new passwords are not the same.', 'bad'); return false; }
-
-      if(onSupabase()){
-        CLOUD.updatePassword(next)
-          .then(() => UI.toast('Password changed.'))
-          .catch(e => UI.toast('That did not change: ' + e.message, 'bad'));
-        return;
-      }
-
-      /* Checking the current one is not much of a gate when the store is
-         readable anyway. It is here so that walking up to somebody's unlocked
-         screen is not enough to lock them out of their own account. */
-      if(String(fd.current || '') !== me.code){
-        UI.toast('That is not your current password.', 'bad'); return false;
-      }
-      const clash = D().users.find(x => x.code === next && x.id !== me.id);
-      if(clash){ UI.toast('Somebody else already uses that password — pick another.', 'bad'); return false; }
-
-      me.code = next;
-      DB.activity('Changed own password');
-      DB.save();
-      fillLoginList();
-      UI.toast('Password changed — in this browser.');
+      if(next !== String(fd.again || '')){ UI.toast('The two new passwords are not the same.', 'bad'); return false; }
+      CLOUD.updatePassword(next)
+        .then(() => { DB.activity('Changed own password'); DB.save();
+                      UI.toast('Password changed.'); })
+        .catch(e => UI.toast('That did not change: ' + e.message, 'bad'));
     }
   });
 }
 
-function userForm(u){
-  const isNew = !u;
-  u = u || { name:'', email:'', code:'', role:'registrar', initials:'' };
+function rosterRows(){
+  const staff = D().users || [];
+  const roster = D().roster || [];
+  const byEmail = {};
+  roster.forEach(r => { byEmail[String(r.email).toLowerCase()] = { ...r, signedUp:false }; });
+  staff.forEach(s => {
+    const k = String(s.email || '').toLowerCase();
+    byEmail[k] = { ...(byEmail[k] || {}), email:s.email, name:s.name, role:s.role,
+                   initials:s.initials, signedUp:true, active:s.active, id:s.id };
+  });
+  return Object.values(byEmail).sort((a,b) => String(a.name).localeCompare(String(b.name)));
+}
+
+async function saveRoster(entry, wasEmail){
+  await CLOUD.upsert('roster', [{ email:String(entry.email).trim().toLowerCase(),
+    name:entry.name, role:entry.role, initials:entry.initials }]);
+  if(wasEmail && wasEmail !== entry.email) await CLOUD.remove('roster', [wasEmail], 'email');
+  /* Somebody who has already signed in keeps their auth account; what changes
+     is the row that says what they may open. */
+  const staff = (D().users || []).find(u => String(u.email||'').toLowerCase() === String(wasEmail||entry.email).toLowerCase());
+  if(staff){
+    await CLOUD.rest(`staff?id=eq.${encodeURIComponent(staff.id)}`, {
+      method:'PATCH', headers:{ 'Prefer':'return=minimal' },
+      body:{ name:entry.name, role:entry.role, initials:entry.initials,
+             email:String(entry.email).trim().toLowerCase() },
+    });
+  }
+  await DB.refreshFromCloud();
+}
+
+function userForm(entry){
+  const isNew = !entry;
+  const e = entry || { name:'', email:'', role:'frontdesk', initials:'', signedUp:false };
+  const wasEmail = isNew ? '' : String(e.email || '').toLowerCase();
   const roles = Object.keys(DB.PERMS).map(r => ({ v:r, l:`${DB.roleName(r)} — ${DB.PERMS[r].length} module(s)` }));
 
   UI.modal({
-    title: isNew ? 'Add user account' : 'Edit account — ' + u.name,
+    title: isNew ? 'Add a person' : 'Edit — ' + e.name,
+    sub: isNew ? 'They choose their own password when they sign up' : '',
     wide:true,
     body:`
-      ${UI.row(UI.f.text('name','Full name', u.name, { req:true, ph:'e.g. Maria Santos' }),
-               UI.f.text('email','Email address', u.email, { req:true, type:'email',
+      ${UI.row(UI.f.text('name','Full name', e.name, { req:true, ph:'e.g. Maria Santos' }),
+               UI.f.text('email','Email address', e.email, { req:true, type:'email',
                           hint:'this is what they sign in with', ph:'name@example.com' }))}
-      ${UI.row(UI.f.text('code','Password', u.code, { req:true, hint:'used to sign in' }),
-               UI.f.select('role','Role', u.role, roles, { req:true }))}
-      ${UI.f.text('initials','Initials', u.initials, { hint:'shown on the avatar — blank fills itself in', ph:'MS' })}
+      ${UI.row(UI.f.select('role','Role', e.role, roles, { req:true }),
+               UI.f.text('initials','Initials', e.initials,
+                         { hint:'shown on the avatar — blank fills itself in', ph:'MS' }))}
       <div class="note">
-        <b>${UI.esc(DB.roleName(u.role || 'frontdesk'))}</b> can open:
-        <span id="roleMods">${DB.PERMS[u.role] ? DB.PERMS[u.role].map(m => (TITLES[m]||[m])[0]).join(' · ') : ''}</span>
+        <b>${UI.esc(DB.roleName(e.role || 'frontdesk'))}</b> can open:
+        <span id="roleMods">${DB.PERMS[e.role] ? DB.PERMS[e.role].map(m => (TITLES[m]||[m])[0]).join(' · ') : ''}</span>
       </div>
-      <div class="note warn">Passwords are kept in clear text in this browser's storage.
-        Anyone who can open this machine can read them, so do not reuse a password
-        that protects anything else.</div>
+      ${e.signedUp
+        ? `<div class="note ok">This person has an account and has signed in. Changing the role here
+             changes what they can open the next time they load the page.
+             <div style="margin-top:9px">
+               <button type="button" class="btn btn-ghost btn-xs" id="resetPass">Send a password reset email</button>
+             </div></div>`
+        : `<div class="note warn">No account yet. Nobody here sets somebody else's password —
+             ask <b>${UI.esc(e.email || 'them')}</b> to sign up with exactly this address and choose
+             their own. The moment they do, this role is waiting for them.</div>`}
       ${isNew ? '' : `<div class="hr"></div>
-        <button type="button" class="btn btn-danger btn-sm" id="delUser">Remove this account</button>`}`,
-    submitLabel: isNew ? 'Create account' : 'Save changes',
+        <button type="button" class="btn btn-danger btn-sm" id="delUser">Remove this person</button>`}`,
+    submitLabel: isNew ? 'Add to the roster' : 'Save changes',
     onSubmit: fd => {
       const name = (fd.name || '').trim();
-      const code = (fd.code || '').trim();
-      if(!name || !code){ UI.toast('A name and a password are both required.', 'bad'); return false; }
-      if(fd.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(fd.email)){
+      const email = (fd.email || '').trim().toLowerCase();
+      if(!name) { UI.toast('A name is required.', 'bad'); return false; }
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
         UI.toast('That email address does not look right.', 'bad'); return false;
       }
-      /* Two accounts with the same password cannot be told apart at sign-in,
-         because the password is all the sign-in checks. */
-      const clash = D().users.find(x => x.code === code && (isNew || x.id !== u.id));
-      if(clash){ UI.toast(`That password is already used by ${clash.name}.`, 'bad'); return false; }
+      const clash = rosterRows().find(x => String(x.email).toLowerCase() === email && email !== wasEmail);
+      if(clash){ UI.toast(`${clash.name} already uses that address.`, 'bad'); return false; }
 
       const initials = (fd.initials || '').trim().toUpperCase()
         || name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
-      const rec = { name, email:(fd.email||'').trim(), code, role:fd.role, initials };
 
-      if(isNew){
-        D().users.push({ id:DB.uid('usr'), ...rec });
-        DB.activity('Added user account', name);
-        UI.toast('Account created — ' + name);
-        fillLoginList();
-      }else{
-        Object.assign(u, rec);
-        DB.activity('Updated user account', name);
-        UI.toast('Account updated.');
-        fillLoginList();
-        /* Editing yourself should not leave the header showing the old name. */
-        if(SESSION && SESSION.id === u.id){
-          document.getElementById('userName').textContent = u.name;
-          document.getElementById('userRole').textContent = DB.roleName(u.role);
-          document.getElementById('userAvatar').textContent = u.initials;
-        }
-      }
-      refresh();
+      saveRoster({ name, email, role:fd.role, initials }, wasEmail)
+        .then(() => {
+          DB.activity(isNew ? 'Added to the roster' : 'Updated a role', name);
+          UI.toast(isNew
+            ? `${name} added — they can sign up with ${email} now.`
+            : 'Saved.');
+          refresh();
+        })
+        .catch(err => UI.toast('That did not save: ' + err.message, 'bad'));
     }
   });
 
@@ -3201,18 +3297,38 @@ function userForm(u){
       (DB.PERMS[form.role.value] || []).map(m => (TITLES[m]||[m])[0]).join(' · ');
   };
 
+  const reset = document.getElementById('resetPass');
+  if(reset) reset.onclick = () => {
+    CLOUD.resetPassword(e.email)
+      .then(() => UI.toast(`A reset link is on its way to ${e.email}.`))
+      .catch(err => UI.toast('The email did not go: ' + err.message, 'bad'));
+  };
+
   const del = document.getElementById('delUser');
   if(del) del.onclick = () => {
-    if(SESSION && SESSION.id === u.id) return UI.toast('You cannot remove the account you are signed in with.', 'bad');
-    const admins = D().users.filter(x => (DB.PERMS[x.role] || []).includes('settings'));
-    if(admins.length === 1 && admins[0].id === u.id)
+    if(SESSION && String(SESSION.email||'').toLowerCase() === wasEmail)
+      return UI.toast('You cannot remove the account you are signed in with.', 'bad');
+    const admins = rosterRows().filter(x => (DB.PERMS[x.role] || []).includes('settings'));
+    if(admins.length === 1 && String(admins[0].email).toLowerCase() === wasEmail)
       return UI.toast('This is the only account that can administer — make another one first.', 'bad');
-    UI.confirm(`Remove ${u.name}?`, () => {
-      D().users = D().users.filter(x => x.id !== u.id);
-      DB.activity('Removed user account', u.name);
-      UI.close(); UI.toast('Account removed.'); fillLoginList(); refresh();
-    }, { danger:true, yes:'Remove account',
-         detail:'Their receipts and entries stay in the ledger — only the sign-in goes.' });
+    UI.confirm(`Remove ${e.name}?`, () => {
+      /* Off the roster, and the staff row deactivated. The auth account itself
+         is not deleted from here: that is Supabase's to own, and a system that
+         can silently destroy somebody's login from a settings screen is a
+         system one misclick from locking the office out. */
+      CLOUD.remove('roster', [wasEmail], 'email')
+        .then(() => e.id
+          ? CLOUD.rest(`staff?id=eq.${encodeURIComponent(e.id)}`,
+              { method:'PATCH', headers:{ 'Prefer':'return=minimal' }, body:{ active:false } })
+          : null)
+        .then(() => DB.refreshFromCloud())
+        .then(() => {
+          DB.activity('Removed from the roster', e.name);
+          UI.close(); UI.toast('Removed — they can no longer open the system.'); refresh();
+        })
+        .catch(err => UI.toast('That did not save: ' + err.message, 'bad'));
+    }, { danger:true, yes:'Remove them',
+         detail:'Their receipts and entries stay in the ledger — only the access goes. Their sign-in still exists in Supabase; it simply opens nothing here.' });
   };
 }
 
@@ -3473,7 +3589,7 @@ document.addEventListener('click', ev => {
     'edit-categories':() => categoriesForm(),
     'my-password':   () => myPasswordForm(),
     'new-user':      () => userForm(),
-    'edit-user':     () => userForm(D().users.find(u => u.id === id)),
+    'edit-user':     () => userForm(rosterRows().find(u => String(u.email).toLowerCase() === String(id).toLowerCase())),
     'ledger-tab':    () => { location.hash = '#/ledger/' + id; },
     'rep-tab':       () => { location.hash = '#/reports/' + id; },
     'acct-ledger':   () => { state.q.acct = id; location.hash = '#/ledger/account'; },
@@ -3544,7 +3660,17 @@ window.addEventListener('storage', ev => {
   render();
 });
 
-document.getElementById('logoutBtn').onclick = () => location.reload();
+document.getElementById('logoutBtn').onclick = async () => {
+  const s = DB.cloudStatus();
+  if(s.on && s.pending){
+    if(!confirm('There is work that has not reached the server yet. Sign out anyway and risk losing it?')) return;
+  }
+  /* Reloading used to be the whole of signing out, which on a shared desk left
+     the next person one refresh away from being you. */
+  try{ await CLOUD.signOut(); }catch(e){}
+  DB.disconnect();
+  location.reload();
+};
 document.getElementById('backupBtn').onclick = () => { DB.exportJSON(); UI.toast('Backup downloaded.'); };
 document.getElementById('restoreBtn').onclick = () => document.getElementById('restoreFile').click();
 document.getElementById('restoreFile').onchange = e => {
@@ -3564,3 +3690,4 @@ document.getElementById('globalSearch').onkeydown = e => {
 
 DB.load();
 initLogin();
+initSaveState();

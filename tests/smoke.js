@@ -21,6 +21,9 @@ const ASSETS = path.join(__dirname, '..', 'assets');
 const store = {};
 const ctx = {
   console,
+  /* db.js debounces its push to the server, so the context needs the timers a
+     browser would have given it. */
+  setTimeout, clearTimeout, setInterval, clearInterval,
   localStorage:{
     getItem:k => (k in store ? store[k] : null),
     setItem:(k,v) => { store[k] = String(v); },
@@ -35,7 +38,7 @@ vm.createContext(ctx);
 
 /* Same order as the two HTML entry points: the generated catalogue must exist
    before db.js seeds from it, and accounting.js before anything calls DB.load(). */
-for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js']){
+for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js','sync.js']){
   vm.runInContext(fs.readFileSync(path.join(ASSETS,f),'utf8'), ctx, { filename:f });
 }
 
@@ -67,8 +70,13 @@ check('starts with no money moved', () =>
 check('the price list is there', () => run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
 check('the chart of accounts is there', () => run('DB.get().accounts.length') > 10 || run('DB.get().accounts.length'));
 check('the staff can sign in', () => run('DB.get().users.length') === 3 || run('DB.get().users.length'));
-check('every staff account has a password', () =>
-  run('DB.get().users.every(u => !!u.code)') === true || 'an account has no password');
+/* The opposite of what this once asserted. Sign-in used to compare what was
+   typed against a string in assets/db.js — a file the website hands to anybody
+   who asks for it — so the passwords were public for as long as they were
+   there. Supabase Auth holds them now, and nothing here should carry one. */
+check('no password is left in the source', () =>
+  run('DB.get().users.every(u => !u.code)') === true
+  || 'an account still carries a password in a file the site serves');
 /* The email address is the username, so an account without one cannot be
    signed into at all, and two accounts sharing one cannot be told apart. */
 check('every staff account has an email to sign in with', () =>
@@ -676,5 +684,153 @@ check('an emptied list falls back rather than offering nothing', () => {
 check('modes of learning are editable too', () =>
   run("DB.list('delivery').includes('Face-to-Face')") === true || 'no default delivery modes');
 
-console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail ? 1 : 0);
+/* ---------- the shape the database is given ----------
+   This is the test that earns its keep. A sync layer meeting a field it has no
+   column for will, unless stopped, leave it behind — and nobody finds out until
+   somebody asks why no seafarer has a SIRB number. toRow throws instead, so
+   drift between the app and the schema fails here rather than in production. */
+console.log('\n- what goes to the database -');
+run('DB.reset(true)');
+run("APPS.upsertTrainee({ srn:'SRN-9', last:'DELA CRUZ', first:'JUAN', middle:'S', suffix:'Jr.',"
+  + " birth:'1990-01-01', birthPlace:'MANILA', mobile:'09171234567', email:'j@x.com',"
+  + " address:'MANILA', rank:'OILER', agency:'MAGSAYSAY', emergencyName:'MARIA',"
+  + " emergencyRelation:'ASAWA', emergencyMobile:'09171234568' }, 'Encoded at the desk')");
+run("APPS.enroll(DB.get().trainees[0], { courseId:DB.get().courses[0].id,"
+  + " start:'2026-09-01', end:'2026-09-05', fee:5000, discount:100,"
+  + " discountNote:'test', room:'2F', instructor:'CAPT R' })");
+run("(() => {"
+  + "  const e = DB.get().enrollments[0];"
+  + "  const i = ACC.buildInvoice({ enrollmentId:e.id, traineeId:e.traineeId, date:DB.today(),"
+  + "    items:[{ desc:'X', account:'4000', qty:1, price:5000 }], discount:0, terms:'T' });"
+  + "  DB.get().invoices.push(i); ACC.postInvoice(i);"
+  + "  const p = ACC.buildPayment({ invoiceId:i.id, traineeId:i.traineeId, date:DB.today(),"
+  + "    tenders:[{ method:'Cash', amount:2000, ref:'' }], note:'n', takenBy:'Kyla' });"
+  + "  DB.get().payments.push(p); ACC.postPayment(p, i);"
+  + "})()");
+
+['courses','accounts','trainees','enrollments','invoices','payments','journal'].forEach(name => {
+  check('every ' + name + ' field has a column', () => {
+    const rows = run('DB.get().' + name);
+    if(!rows.length) return 'the fixture built no ' + name;
+    try{
+      rows.forEach(r => run('SYNC.toRow(' + JSON.stringify(name) + ',' + JSON.stringify(r) + ')'));
+      return true;
+    }catch(e){ return e.message; }
+  });
+});
+
+check('a field with no column stops the push instead of vanishing', () => {
+  try{
+    run("SYNC.toRow('trainees', { id:'t1', no:'T', last:'X', first:'Y', shoeSize:11 })");
+    return 'it was accepted — the value would have gone missing';
+  }catch(e){ return /shoe_size/.test(e.message) || 'wrong error: ' + e.message; }
+});
+
+check('camelCase becomes snake_case', () =>
+  run("SYNC.toRow('trainees', { id:'t1', no:'T', last:'X', first:'Y', birthPlace:'MANILA' }).birth_place")
+    === 'MANILA' || 'birthPlace did not map');
+
+check('the renamed enrollment columns are renamed', () => {
+  const r = run("SYNC.toRow('enrollments', { id:'e1', no:'E', traineeId:'t1',"
+    + " date:'2026-01-01', start:'2026-02-01', end:'2026-02-05' })");
+  return (r.date_encoded === '2026-01-01' && r.start_on === '2026-02-01' && r.end_on === '2026-02-05')
+    || JSON.stringify(r);
+});
+
+check('a row survives the round trip', () => {
+  const before = run('DB.get().trainees[0]');
+  const after = run("SYNC.fromRow('trainees', SYNC.toRow('trainees', DB.get().trainees[0]))");
+  const lost = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+  return lost.length === 0 || 'changed on the way: ' + lost.join(', ');
+});
+
+check('paid and status are not sent — they are read back from the receipts', () => {
+  const r = run("SYNC.toRow('invoices', DB.get().invoices[0])");
+  return (!('paid' in r) && !('status' in r)) || 'the derived fields were sent';
+});
+
+check('an empty date becomes null rather than an empty string', () =>
+  run("SYNC.toRow('enrollments', { id:'e1', no:'E', traineeId:'t', remitDate:'' }).remit_date") === null
+  || 'an empty date would have been refused by Postgres');
+
+check('only the catalogue is ever deleted from', () =>
+  Object.entries(run('SYNC.MAP')).every(([k, m]) => m.table === 'courses' || k !== 'courses')
+  || 'a delete path opened somewhere it should not have');
+
+
+/* A password taken out of the source is still sitting in every browser that
+   already copied the old store. Those are the machines actually in the office,
+   so the strip has to reach them on the next load rather than only new ones. */
+console.log('\n- old stores lose their passwords -');
+{
+  const KEY = 'tbm_is_v1';
+  Object.keys(store).forEach(k => delete store[k]);
+  store[KEY] = JSON.stringify({
+    meta:{ version:1, created:'2026-01-01' },
+    users:[{ id:'u1', name:'Kyla Esguerra', role:'owner', code:'@mismo123', email:'k@x.com' }],
+    accounts:[], courses:[], trainees:[], enrollments:[], invoices:[], payments:[],
+    expenses:[], refunds:[], journal:[], log:[], applications:[], seq:{}, company:{},
+  });
+  run('DB.reload()');
+  check('a cached store loses its passwords on load', () =>
+    run('DB.get().users.every(u => !("code" in u))') === true || 'a password survived the load');
+  check('and the stripped store is what gets written back', () => {
+    const saved = JSON.parse(store[KEY]);
+    return saved.users.every(u => !('code' in u)) || 'the password is still on disk';
+  });
+}
+
+/* ---------- the first sign-in must not eat what is already here ----------
+   Connecting replaces the store in memory and then writes that over the local
+   cache. A machine holding a day of encoding that was never uploaded would have
+   lost it to the very change meant to stop that happening — so rows the server
+   has never heard of are carried up instead of being replaced by its silence.
+
+   This one is async, so it runs last and takes the tally with it. */
+(async () => {
+  console.log('\n- moving a browser onto the server -');
+  const KEY = 'tbm_is_v1';
+  Object.keys(store).forEach(k => delete store[k]);
+
+  /* a browser mid-work: a trainee, a booking and a receipt, none uploaded */
+  store[KEY] = JSON.stringify({
+    meta:{ version:1, created:'2026-08-01' },
+    company:{ name:'TB - MARITIME OWN PROFILE' },
+    users:[], accounts:[], courses:[],
+    trainees:[{ id:'t_local', no:'TRN-2026-0007', last:'REYES', first:'PEDRO' }],
+    enrollments:[{ id:'e_local', no:'ENR-2026-0007', traineeId:'t_local', fee:5000 }],
+    invoices:[], payments:[{ id:'p_local', no:'OR-2026-0007', traineeId:'t_local', amount:5000 }],
+    expenses:[], refunds:[], journal:[], log:[], applications:[],
+    seq:{ trainee:7, receipt:7 },
+  });
+
+  /* an empty project, answering the way PostgREST would */
+  ctx.CLOUD = { selectAll:async () => [], rest:async () => [],
+                upsert:async () => 0, remove:async () => 0 };
+
+  await run('DB.connect()');
+
+  check('the local trainee is still there after connecting', () =>
+    run(`!!DB.get().trainees.find(t => t.id === 't_local')`) === true
+    || 'the server’s silence overwrote a real record');
+  check('so is the booking', () =>
+    run(`!!DB.get().enrollments.find(e => e.id === 'e_local')`) === true || 'the booking was lost');
+  check('so is the receipt', () =>
+    run(`!!DB.get().payments.find(p => p.id === 'p_local')`) === true || 'the receipt was lost');
+  check('they are counted as carried up', () =>
+    run('DB.get().carriedUp') >= 3 || 'carriedUp was ' + run('DB.get().carriedUp'));
+  check('a copy of the old store is kept aside', () =>
+    Object.keys(store).some(k => k.indexOf('tbm_is_v1.unreadable.preupload.') === 0)
+    || 'no pre-upload copy was kept');
+  check('the counters do not go backwards', () => {
+    const s = run('DB.get().seq');
+    return (s.receipt >= 7 && s.trainee >= 7) || JSON.stringify(s);
+  });
+  check('the office’s own company profile is not replaced by a blank one', () =>
+    run('DB.get().company.name') === 'TB - MARITIME OWN PROFILE' || run('DB.get().company.name'));
+  check('the catalogue is supplied when the project has none', () =>
+    run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
+
+  console.log(`\n${pass} passed, ${fail} failed\n`);
+  process.exit(fail ? 1 : 0);
+})();
