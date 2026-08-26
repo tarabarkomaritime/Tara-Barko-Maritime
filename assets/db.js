@@ -619,7 +619,13 @@ const DB = (() => {
     return { carried, where };
   }
 
-  async function connect(){
+  /* Passed in rather than read off SESSION: the shell sets that immediately
+     after this resolves, and the first push is already scheduled by then. A
+     race decided by a 700ms timer is not a way to decide who may write. */
+  let amAdmin = true;
+
+  async function connect(staff){
+    amAdmin = !staff || ['owner','admin'].includes(staff.role);
     let local = null;
     try{ local = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ local = null; }
 
@@ -679,8 +685,14 @@ const DB = (() => {
     if(!cloudOn || pushing || !dirty) return cloudStatus();
     pushing = true; dirty = false; setState('saving');
     try{
-      await SYNC.push(data, baseline);
+      const done = await SYNC.push(data, baseline, { isAdmin:amAdmin });
+      /* Anything skipped stays out of the baseline, so it is not mistaken for
+         saved — the next admin to sign in pushes it. */
       baseline = SYNC.snapshot(data);
+      (done.skipped || []).forEach(t => {
+        const name = Object.keys(SYNC.MAP).find(k => SYNC.MAP[k].table === t);
+        if(name) delete baseline[name]; else if(t === 'company') delete baseline.company;
+      });
       setState('ready');
     }catch(e){
       /* Put the flag back up. The rows are still in memory and still in the

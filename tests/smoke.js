@@ -809,6 +809,15 @@ check('the row id the server made is never sent back', () => {
 check('the log is append only — nothing is updated or deleted', () =>
   run('SYNC.MAP.log.insertOnly') === true || 'the log could be rewritten');
 
+/* migrate() fills in company, course and account defaults on every load, so
+   those three always look changed — and the front desk, who has no Courses
+   screen and no Settings screen, was having its first save refused for a table
+   it cannot even open. The difference was migration noise, not their work. */
+check('the admin-only tables are marked as such', () =>
+  (run('SYNC.MAP.courses.adminOnly') === true && run('SYNC.MAP.accounts.adminOnly') === true)
+  || 'the price list is not marked admin-only');
+
+
 
 /* A password taken out of the source is still sitting in every browser that
    already copied the old store. Those are the machines actually in the office,

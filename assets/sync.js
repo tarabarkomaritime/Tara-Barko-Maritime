@@ -23,12 +23,12 @@ const SYNC = (() => {
      and the fields deliberately not stored. */
   const MAP = {
     courses:{
-      table:'courses', key:'id',
+      table:'courses', key:'id', adminOnly:true,
       cols:['id','code','title','days','duration','modes','options','center','amount','rebate','deduct'],
       blankToNull:['days'],
     },
     accounts:{
-      table:'accounts', key:'code',
+      table:'accounts', key:'code', adminOnly:true,
       cols:['code','name','type','nature'],
     },
     trainees:{
@@ -258,10 +258,21 @@ const SYNC = (() => {
     return out;
   }
 
-  async function push(store, base){
-    const done = { upserts:0, deletes:0, tables:[] };
+  /* The price list, the chart of accounts and the office's own details are the
+     admin's, and the policies on the server say so. The trouble was that the
+     client asked anyway: migrate() fills in defaults on every load, so those
+     three always looked changed, and the front desk's very first save was
+     refused for a table they had never opened and cannot see.
+
+     Skipping is right rather than lossy here. A cashier has no Courses screen
+     and no Settings screen — the difference is migration noise, not their work,
+     and an admin signing in pushes the same thing properly. */
+  async function push(store, base, opts){
+    const admin = !opts || opts.isAdmin !== false;
+    const done = { upserts:0, deletes:0, tables:[], skipped:[] };
     for(const name of Object.keys(MAP)){
       const m = MAP[name];
+      if(m.adminOnly && !admin){ done.skipped.push(m.table); continue; }
       const now = fingerprint(store[name], name);
       const was = (base && base[name]) || {};
       const key = keyer(name);
@@ -287,7 +298,8 @@ const SYNC = (() => {
       }
     }
 
-    if(JSON.stringify(store.company || {}) !== (base && base.company)){
+    if(!admin){ done.skipped.push('company'); }
+    else if(JSON.stringify(store.company || {}) !== (base && base.company)){
       await CLOUD.upsert('company', [{ id:true, profile:store.company || {}, updated_at:new Date().toISOString() }]);
       done.tables.push('company');
     }

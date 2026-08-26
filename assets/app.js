@@ -300,7 +300,7 @@ function initLogin(){
         return say('That account is not on this office\'s staff list. Ask the admin to add it.');
       }
       say('Loading the records…');
-      await DB.connect();
+      await DB.connect(staff);
       say('');
       btn.disabled = false;
       DB.activity('Signed in'); DB.save();
@@ -327,7 +327,7 @@ function initLogin(){
     CLOUD.me()
       .then(staff => {
         if(!staff) throw new Error('that account is not on this office\'s staff list');
-        return DB.connect().then(() => {
+        return DB.connect(staff).then(() => {
           say('');
           enterShell(staff);
           myPasswordForm();
@@ -342,7 +342,7 @@ function initLogin(){
   if(CLOUD.signedIn()){
     say('Signing back in…');
     CLOUD.me()
-      .then(staff => staff ? DB.connect().then(() => { say(''); enterShell(staff); })
+      .then(staff => staff ? DB.connect(staff).then(() => { say(''); enterShell(staff); })
                            : CLOUD.signOut().then(() => say('')))
       .catch(() => say(''));
   }
