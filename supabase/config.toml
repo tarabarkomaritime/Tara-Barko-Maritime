@@ -60,3 +60,30 @@ otp_expiry = 3600
 [auth.mfa.totp]
 enroll_enabled = true
 verify_enabled = true
+
+# ---------------------------------------------------------------- sending mail
+# Supabase's built-in mail is a demo, not a mail service: a handful of messages
+# an hour for the whole project, shared, and it stops without warning. That is
+# why three password resets today had to be done by deleting accounts by hand —
+# `over_email_send_rate_limit` is not a fault, it is the free allowance running
+# out. Custom SMTP is what ends that.
+#
+# IMPORTANT — read before running `supabase config push` again:
+# config push applies this whole file, and a section that is absent is set to
+# the CLI's default rather than left alone. If SMTP is configured in the
+# dashboard and this block stays commented out, the next push turns it off
+# again. Either keep it in the dashboard and never push config, or uncomment
+# this and let the file be the thing that decides.
+#
+# The password is never written here. `env(...)` reads it from the environment
+# at push time, so the secret lives in the shell or the dashboard and not in a
+# repository that is served to the internet.
+#
+# [auth.email.smtp]
+# enabled = true
+# host = "smtp.gmail.com"          # or smtp.resend.com
+# port = 587
+# user = "tarabarkomaritime@gmail.com"
+# pass = "env(TBM_SMTP_PASSWORD)"  # a Gmail App Password, not the real password
+# admin_email = "tarabarkomaritime@gmail.com"
+# sender_name = "Tara Barko Maritime"
