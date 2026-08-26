@@ -1,0 +1,16 @@
+-- Let the office's own price list into the database.
+--
+-- The catalogue carries two entries where the rebate is larger than the fee:
+-- SMAW ASS at JVV (4,500 against 5,000) and SMAW WITH ASS at JVV (7,500 against
+-- 8,500). A check constraint written here refused them, and because the 341
+-- courses upload as one batch, those two kept the entire price list off the
+-- server. The office could not take a booking.
+--
+-- The constraint was my assumption, not the office's rule. It may well be a
+-- typo in the matrix — but a database that refuses a business's real prices
+-- because they surprised the person who wrote the schema is the wrong way round,
+-- and two rows are not worth three hundred and thirty-nine.
+--
+-- Worth someone checking those two, all the same: if they are right, the office
+-- pays a center more than it collects on those courses.
+alter table tbm.courses drop constraint if exists rebate_not_over_fee;
