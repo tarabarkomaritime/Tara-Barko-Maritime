@@ -293,22 +293,27 @@ const DB = (() => {
        invoice line already written alone: a document says what it said when it
        was issued. */
     (d.courses || []).forEach(c => { c.title = titleWithoutCode(c.code, c.title); });
-    /* The expense categories were rewritten to the four the office actually
-       uses. An account with history keeps its name and its balance — renaming
-       it would relabel entries that were posted under the old one — but the
-       ones nothing was ever charged to are dropped so the voucher form is not
-       still offering them. */
-    if(d.accounts && d.journal){
-      const CATS = [
-        { code:'5100', name:'Office Supplies' },
+    /* The four categories the office starts with are put back if they are
+       missing, and nothing else is touched.
+
+       This used to do more, and the more was destroying the office's work.
+       migrate() runs on every single load, and it deleted any expense account
+       that was not one of these four, was not 5050, and had nothing posted to
+       it yet — which is the exact description of a category somebody has just
+       created. Add "Facebook Ads" in Settings, reload, and it was gone. It
+       looked like the sync failing; it was this, deleting the row before the
+       sync ever saw it.
+
+       It was written as a one-time tidy-up for stores that still offered
+       categories from an older build. That job is long done, and a migration
+       that keeps running is a migration that eventually deletes something
+       somebody meant to keep. */
+    if(d.accounts){
+      [ { code:'5100', name:'Office Supplies' },
         { code:'5200', name:'Salary / Wages' },
         { code:'5300', name:'Government' },
         { code:'5400', name:'Food and Drinks' },
-      ];
-      const posted = code => d.journal.some(j => j.lines.some(l => l.account === code));
-      d.accounts = d.accounts.filter(a =>
-        a.type !== 'Expense' || a.code === '5050' || posted(a.code) || CATS.some(c => c.code === a.code));
-      CATS.forEach(c => {
+      ].forEach(c => {
         if(!d.accounts.some(a => a.code === c.code)){
           d.accounts.push({ code:c.code, name:c.name, type:'Expense', nature:'debit' });
         }

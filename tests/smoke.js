@@ -79,6 +79,22 @@ check('starts with no money moved', () =>
 /* What it does lay down, because the system cannot take a booking without it. */
 check('the price list is there', () => run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
 check('the chart of accounts is there', () => run('DB.get().accounts.length') > 10 || run('DB.get().accounts.length'));
+/* A category the office creates has nothing posted to it yet — which is what
+   migrate() used to delete on the very next load. Add one, reload, gone. It
+   looked like the sync failing and it was the store eating the row before the
+   sync ever saw it. */
+check('a new expense category survives a reload', () => {
+  run("DB.get().accounts.push({ code:'5999', name:'Probe Category', type:'Expense', nature:'debit' })");
+  run('DB.save()'); run('DB.reload()');
+  const ok = run("DB.get().accounts.some(a => a.code === '5999')");
+  run("DB.get().accounts = DB.get().accounts.filter(a => a.code !== '5999')"); run('DB.save()');
+  return ok === true || 'the store deleted a category nobody had spent against yet';
+});
+check('the four categories it ships with are still put back if missing', () => {
+  run("DB.get().accounts = DB.get().accounts.filter(a => a.code !== '5300')");
+  run('DB.save()'); run('DB.reload()');
+  return run("DB.get().accounts.some(a => a.code === '5300')") === true || 'Government did not come back';
+});
 check('the staff can sign in', () => run('DB.get().users.length') === 3 || run('DB.get().users.length'));
 /* The opposite of what this once asserted. Sign-in used to compare what was
    typed against a string in assets/db.js — a file the website hands to anybody
