@@ -601,6 +601,13 @@ const DB = (() => {
      carried across and go up with the first push, and a copy of the store as it
      was is kept aside regardless — the cheapest possible insurance against
      being wrong about any of this. */
+  /* Key order out of Postgres is not the order the browser wrote them in, so
+     two identical profiles compare unequal unless they are sorted first. */
+  function sortKeys(o){
+    if(!o || typeof o !== 'object' || Array.isArray(o)) return o;
+    return Object.keys(o).sort().reduce((out, k) => { out[k] = sortKeys(o[k]); return out; }, {});
+  }
+
   const CARRY = ['trainees','enrollments','invoices','payments','expenses',
                  'refunds','journal','applications','courses'];
   function carryLocal(local, store){
@@ -631,17 +638,40 @@ const DB = (() => {
 
     const store = await SYNC.pull();
     const brought = carryLocal(local, store);
-    if(brought.carried){
+    /* Kept whether or not anything was carried. The copy used to be written
+       only when rows came across, which meant a browser whose only work was in
+       Settings — payment modes, charges, the dropdown lists — had nothing set
+       aside before it was replaced. That is precisely the case that lost work. */
+    if(local && local.meta){
       try{ localStorage.setItem(SALVAGE + 'preupload.' + Date.now(), JSON.stringify(local)); }catch(e){}
+    }
+    if(brought.carried){
       console.warn('Tara Barko: carried up from this browser — ' + brought.where.join(', '));
     }
 
     const fresh = blank();
     data = { ...fresh, ...store, meta:fresh.meta };
-    if(!data.company || !Object.keys(data.company).length){
-      data.company = (local && local.company && Object.keys(local.company).length)
-        ? local.company : { ...DEFAULT_COMPANY };
-    }
+
+    /* The company record holds the modes of payment, the chargeable extras, the
+       dropdown lists and the office's own details — everything from Settings.
+       It was only taken from this browser when the server had none at all, so
+       the moment a bare default landed up there, an admin who had spent an
+       afternoon setting up payment modes lost them on their next sign-in: the
+       server's untouched copy won, and the local one was written over.
+
+       So a default on the server does not count as an answer. If this browser
+       holds something and the server holds only what it shipped with, the
+       browser's version is the real one and goes up. Two edited copies is a
+       different question, and there the server still wins — it is the one
+       everybody else is already reading. */
+    const same = (a, b) => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
+    const mine = (local && local.company && Object.keys(local.company).length) ? local.company : null;
+    const theirs = (store.company && Object.keys(store.company).length) ? store.company : null;
+
+    if(!theirs)                          data.company = mine || { ...DEFAULT_COMPANY };
+    else if(mine && same(theirs, DEFAULT_COMPANY) && !same(mine, DEFAULT_COMPANY))
+                                         data.company = mine;
+    else                                 data.company = theirs;
 
     const need = seedShape();
     if(!data.courses.length)  data.courses  = need.courses;

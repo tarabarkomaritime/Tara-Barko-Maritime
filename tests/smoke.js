@@ -855,6 +855,46 @@ console.log('\n- old stores lose their passwords -');
      more than the rest: never let a failed submission look like a successful
      one. Somebody who walks away believing they have enrolled, when nothing
      reached the office, is worse off than somebody shown an error. */
+  /* ---------- the token is only spent once ----------
+     Refresh token rotation mints a new token and spends the old one. A sync
+     sends a dozen requests at once; they all saw the access token expiring,
+     they all called refresh, one won, and the rest presented a token that had
+     just been spent. The server refused them and the session was thrown away
+     in the middle of somebody editing. Everyone waits on the same refresh now,
+     and the stub below refuses any second attempt so a regression shows up as
+     a failure rather than as a bad afternoon. */
+  console.log('\n- refreshing does not sign you out -');
+  {
+    const prevReply = ctx.__reply;
+    run('CLOUD.keepSession(' + JSON.stringify({
+      access_token:'old', refresh_token:'r1',
+      expires_at:Math.floor(Date.now()/1000) - 10,   // already expired
+      user:{ id:'u', email:'k@x.com' },
+    }) + ')');
+
+    ctx.__fetches = [];
+    let minted = 0;
+    ctx.__reply = (url) => {
+      if(url.indexOf('/auth/v1/token') >= 0){
+        minted++;
+        if(minted > 1) return { ok:false, status:400, body:{ error:'invalid_grant' } };
+        return { body:{ access_token:'new', refresh_token:'r2', expires_in:3600,
+                        user:{ id:'u', email:'k@x.com' } } };
+      }
+      return { body:[] };
+    };
+
+    await Promise.all([1,2,3,4,5].map(() => run('CLOUD.rest("courses?select=id")')));
+
+    check('a burst of requests refreshes the token once, not five times', () =>
+      minted === 1 || 'the token was minted ' + minted + ' times');
+    check('and the session survives its own refresh', () =>
+      run('CLOUD.signedIn()') === true || 'signed out by its own refresh');
+
+    ctx.__reply = prevReply;
+    run('CLOUD.keepSession(null)');
+  }
+
   /* ---------- whose account is this? ----------
      The office is four people who share a room, so staff may read each other's
      rows — which meant "select from staff limit 1" came back with whoever

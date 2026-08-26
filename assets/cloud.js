@@ -72,17 +72,36 @@ const CLOUD = (() => {
     return keepSession(out);
   }
 
+  /* One refresh at a time, shared by everybody who asks for it.
+
+     This is why the office was being signed out in the middle of editing.
+     Refresh token rotation is on, so each refresh mints a new token and spends
+     the old one — and a sync sends a dozen requests at once. They all saw the
+     access token was about to expire, all called refresh together, one won, and
+     the rest presented a token that had just been spent. The server said no,
+     quite correctly, and the session was thrown away mid-sentence.
+
+     Everyone now waits on the same promise, so the token is only ever spent
+     once. */
+  let refreshing = null;
   async function refresh(){
     if(!session || !session.refresh_token) return null;
-    try{
-      const out = await auth('token?grant_type=refresh_token', { refresh_token:session.refresh_token });
-      return keepSession(out);
-    }catch(e){
-      /* The refresh token is spent or revoked. Being signed out is the honest
-         result; pretending otherwise just fails the next save instead. */
-      keepSession(null);
-      throw e;
-    }
+    if(refreshing) return refreshing;
+    refreshing = (async () => {
+      try{
+        return keepSession(await auth('token?grant_type=refresh_token',
+                                      { refresh_token:session.refresh_token }));
+      }catch(e){
+        /* A definite refusal ends the session: the token really is spent or
+           revoked, and pretending otherwise just fails the next save instead.
+           A network failure is not a refusal — the connection dropped, the
+           token is still good, and signing somebody out for a dead wifi minute
+           loses whatever they had not pushed yet. */
+        if(e.status === 400 || e.status === 401) keepSession(null);
+        throw e;
+      }finally{ refreshing = null; }
+    })();
+    return refreshing;
   }
 
   /* Supabase sends the mail and owns the link. Nobody here ever sees, sets or
