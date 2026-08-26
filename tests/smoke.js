@@ -24,6 +24,14 @@ const ctx = {
   /* db.js debounces its push to the server, so the context needs the timers a
      browser would have given it. */
   setTimeout, clearTimeout, setInterval, clearInterval,
+  /* cloud.js is fetch and nothing else, so the context needs one. Every call is
+     recorded so the tests can assert on what was actually asked for. */
+  fetch: async (url, opts) => {
+    ctx.__fetches.push({ url:String(url), opts:opts || {} });
+    const reply = ctx.__reply(String(url), opts || {});
+    return { ok:reply.ok !== false, status:reply.status || 200,
+             json:async () => reply.body, text:async () => JSON.stringify(reply.body) };
+  },
   localStorage:{
     getItem:k => (k in store ? store[k] : null),
     setItem:(k,v) => { store[k] = String(v); },
@@ -38,7 +46,9 @@ vm.createContext(ctx);
 
 /* Same order as the two HTML entry points: the generated catalogue must exist
    before db.js seeds from it, and accounting.js before anything calls DB.load(). */
-for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js','sync.js']){
+ctx.__fetches = [];
+ctx.__reply = () => ({ body:[] });
+for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js','sync.js','cloud.js']){
   vm.runInContext(fs.readFileSync(path.join(ASSETS,f),'utf8'), ctx, { filename:f });
 }
 
@@ -137,20 +147,27 @@ const FORM = `{
   termsVersion:TERMS.version, termsAccepted:TERMS.agreements.map(a => a.label)
 }`;
 
-/* the office, stood in for */
-ctx.CLOUD = {
-  calls:[],
-  rpc:async (fn, args) => {
-    ctx.CLOUD.calls.push({ fn, args });
-    if(fn === 'submit_registration')
-      return { ok:true, ref:'AB12CD', no:'REG-2026-0007', traineeNo:'TRN-2026-0007', reused:false };
-    if(fn === 'track_registration')
-      return { found:true, trainee:{ no:'TRN-2026-0007', srn:'SRN-T100', last:'Testino', first:'Tomas' },
-               registrations:[{ no:'REG-2026-0007', ref:'AB12CD', submitted:'2026-08-25', status:'Registered' }],
-               enrollments:[] };
-    throw new Error('unexpected rpc ' + fn);
-  },
+/* The office, stood in for — at the fetch layer rather than by replacing
+   CLOUD, because cloud.js declares it with const inside the VM and a script
+   cannot reach past that. Answering the network instead means the real client
+   is the thing under test: its headers, its URLs, its error handling. */
+ctx.__rpc = {};
+ctx.__reply = (url, opts) => {
+  const m = String(url).match(/\/rpc\/(\w+)/);
+  if(m){
+    let args = {};
+    try{ args = JSON.parse(opts.body || '{}'); }catch(e){}
+    const fn = ctx.__rpc[m[1]];
+    if(!fn) throw new Error('unexpected rpc ' + m[1]);
+    return { body: fn(args) };
+  }
+  return { body: [] };
 };
+ctx.__rpc.submit_registration = () =>
+  ({ ok:true, ref:'AB12CD', no:'REG-2026-0007', traineeNo:'TRN-2026-0007', reused:false });
+ctx.__rpc.track_registration = () =>
+  ({ found:true, trainee:{ no:'TRN-2026-0007', srn:'SRN-T100', last:'Testino', first:'Tomas' },
+     registrations:[], enrollments:[] });
 
 /* The rest of this file needs a seafarer on file to book, bill and collect
    against. Registering used to leave one behind as a side effect; now that
@@ -368,23 +385,16 @@ console.log('\n- tracking -');
 
    The stub below answers the way the real function does, so a wrong surname
    comes back not-found rather than being quietly accepted. */
-ctx.CLOUD.rpc = async (fn, args) => {
-  ctx.CLOUD.calls.push({ fn, args });
-  if(fn === 'submit_registration')
-    return { ok:true, ref:'AB12CD', no:'REG-2026-0007', traineeNo:'TRN-2026-0007', reused:false };
-  if(fn === 'track_registration'){
-    const srn = String(args.p_srn || '').toUpperCase();
-    const last = String(args.p_last || '').toUpperCase();
-    if(srn !== 'SRN-T100' || last !== 'TESTINO') return { found:false };
-    return { found:true,
-             trainee:{ no:'TRN-2026-0007', srn:'SRN-T100', last:'Testino', first:'Tomas' },
-             registrations:[{ no:'REG-2026-0007', ref:'AB12CD', submitted:'2026-08-25', status:'Registered' }],
-             enrollments:[{ no:'ENR-1', course:'BT', center:'PNTC', start:'2026-03-01', end:'2026-03-05', status:'Enrolled' },
-                          { no:'ENR-2', course:'AFF', center:'PNTC', start:'2026-01-05', end:'2026-01-09', status:'Enrolled' }] };
-  }
-  throw new Error('unexpected rpc ' + fn);
+ctx.__rpc.track_registration = (args) => {
+  const srn = String(args.p_srn || '').toUpperCase();
+  const last = String(args.p_last || '').toUpperCase();
+  if(srn !== 'SRN-T100' || last !== 'TESTINO') return { found:false };
+  return { found:true,
+    trainee:{ no:'TRN-2026-0007', srn:'SRN-T100', last:'Testino', first:'Tomas' },
+    registrations:[{ no:'REG-2026-0007', ref:'AB12CD', submitted:'2026-08-25', status:'Registered' }],
+    enrollments:[{ no:'ENR-1', course:'BT', center:'PNTC', start:'2026-03-01', end:'2026-03-05', status:'Enrolled' },
+                 { no:'ENR-2', course:'AFF', center:'PNTC', start:'2026-01-05', end:'2026-01-09', status:'Enrolled' }] };
 };
-
 console.log('\n- delivery is one of four values -');
 const DELIVERY = ['Face-to-Face','Module','Distance Learning','Non-Appearance'];
 check('the list is exactly those four', () =>
@@ -820,6 +830,55 @@ console.log('\n- old stores lose their passwords -');
      more than the rest: never let a failed submission look like a successful
      one. Somebody who walks away believing they have enrolled, when nothing
      reached the office, is worse off than somebody shown an error. */
+  /* ---------- whose account is this? ----------
+     The office is four people who share a room, so staff may read each other's
+     rows — which meant "select from staff limit 1" came back with whoever
+     sorted first rather than whoever had just signed in. The admin signed in
+     and was handed the front desk's name, and the front desk's permissions with
+     it. Authentication was never wrong; the query was. */
+  console.log('\n- the signed-in account is the one that loads -');
+  {
+    const KYLA = '11111111-1111-1111-1111-111111111111';
+    const JOCELYN = '22222222-2222-2222-2222-222222222222';
+
+    run('CLOUD.keepSession(' + JSON.stringify({
+      access_token:'tok', refresh_token:'ref',
+      expires_at:Math.floor(Date.now()/1000) + 3600,
+      user:{ id:KYLA, email:'kyla.esguerra24@gmail.com' },
+    }) + ')');
+
+    /* Put the router back afterwards. Leaving this one in place fed the portal
+       checks below the wrong answers, which looked like a bug in the portal. */
+    const prevReply = ctx.__reply;
+    ctx.__fetches = [];
+    ctx.__reply = (url) => {
+      /* The server honours a filter. If the client forgets to send one, this
+         hands back the front desk first — exactly as the real table did. */
+      if(url.indexOf('/staff') >= 0){
+        const all = [
+          { id:JOCELYN, name:'Jocelyn Eala', role:'frontdesk' },
+          { id:KYLA,    name:'Kyla Esguerra', role:'owner' },
+        ];
+        const m = url.match(/id=eq\.([^&]+)/);
+        return { body: m ? all.filter(x => x.id === decodeURIComponent(m[1])) : all };
+      }
+      return { body:{} };
+    };
+
+    const r = await run('CLOUD.me()');
+    check('signing in as the admin loads the admin', () =>
+      (r && r.name === 'Kyla Esguerra') || 'loaded ' + (r && r.name));
+    check('and the admin role, not the front desk', () =>
+      (r && r.role === 'owner') || 'got role ' + (r && r.role));
+    check('the staff row is asked for by account id', () =>
+      ctx.__fetches.some(f => /\/staff\?.*id=eq\./.test(f.url)) || 'no id filter was sent');
+    check('never by "just give me the first row"', () =>
+      !ctx.__fetches.some(f => /\/staff\?.*limit=1/.test(f.url)) || 'limit=1 came back');
+
+    ctx.__reply = prevReply;
+    run('CLOUD.keepSession(null)');
+  }
+
   console.log('\n- the public page, on its own account -');
 
   await (async () => {
@@ -832,13 +891,13 @@ console.log('\n- old stores lose their passwords -');
     check('an incomplete form is refused before it is sent', () =>
       (stopped && errs.length > 0) || 'it was sent anyway');
     check('and nothing was sent', () =>
-      !ctx.CLOUD.calls.some(c => c.fn === 'submit_registration') || 'the office was called');
+      !ctx.__fetches.some(f => /rpc\/submit_registration/.test(f.url)) || 'the office was called');
 
     /* a complete one goes, and comes back as the slip */
     const full = run('(' + FORM + ')');
     const res = await APPS_submit(full);
     check('a complete form reaches the office', () =>
-      ctx.CLOUD.calls.some(c => c.fn === 'submit_registration') || 'never called');
+      ctx.__fetches.some(f => /rpc\/submit_registration/.test(f.url)) || 'never called');
     check('the reference comes back for the applicant to quote', () =>
       res.ref === 'AB12CD' || String(res.ref));
     check('the slip carries the registration number', () =>
@@ -849,11 +908,11 @@ console.log('\n- old stores lose their passwords -');
       res.termsVersion === run('TERMS.version') || String(res.termsVersion));
 
     /* the office cannot be reached */
-    const good = ctx.CLOUD.rpc;
-    ctx.CLOUD.rpc = async () => { throw new Error('Failed to fetch'); };
+    const good = ctx.__reply;
+    ctx.__reply = () => { throw new Error('Failed to fetch'); };
     let told = '';
     try{ await APPS_submit(full); }catch(e){ told = e.message; }
-    ctx.CLOUD.rpc = good;
+    ctx.__reply = good;
     check('a dropped connection is reported, not swallowed', () =>
       /no connection/i.test(told) || 'said: ' + told);
     check('and it says nothing was sent, so it is safe to try again', () =>
@@ -890,8 +949,7 @@ console.log('\n- old stores lose their passwords -');
   });
 
   /* an empty project, answering the way PostgREST would */
-  ctx.CLOUD = { selectAll:async () => [], rest:async () => [],
-                upsert:async () => 0, remove:async () => 0 };
+  ctx.__reply = () => ({ body: [] });
 
   await run('DB.connect()');
 

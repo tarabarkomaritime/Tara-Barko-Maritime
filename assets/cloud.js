@@ -198,11 +198,35 @@ const CLOUD = (() => {
     return rest(`rpc/${fn}`, { method:'POST', body:args || {} });
   }
 
+  /* Who Supabase says this session belongs to. The sign-in response carries it,
+     but a session restored from a reset link does not, so it can be asked for. */
+  async function whoami(){
+    if(session && session.user && session.user.id) return session.user;
+    if(!signedIn()) return null;
+    if(stale()) await refresh();
+    const r = await fetch(`${URL_BASE}/auth/v1/user`, {
+      headers:{ 'apikey':ANON_KEY, 'Authorization':`Bearer ${session.access_token}` },
+    });
+    if(!r.ok) return null;
+    const user = await r.json().catch(() => null);
+    if(user && user.id) keepSession({ ...session, user });
+    return user;
+  }
+
   /* Is this signed-in account actually one of the office's people? Being
      authenticated and being staff are different questions — RLS answers the
-     second one, and a stranger who signs up gets rows back from nothing. */
+     second one, and a stranger who signs up gets rows back from nothing.
+
+     The row has to be asked for by id. Staff may read each other — the office
+     is four people who share a room — so "select from staff limit 1" returns
+     whoever happens to sort first, not whoever just signed in. It did exactly
+     that: the admin signed in and was handed the front desk's name, and the
+     front desk's permissions with it. Authentication was never the problem;
+     the query was. */
   async function me(){
-    const rows = await rest('staff?select=*&limit=1');
+    const user = await whoami();
+    if(!user || !user.id) return null;
+    const rows = await rest(`staff?select=*&id=eq.${encodeURIComponent(user.id)}`);
     return (rows && rows[0]) || null;
   }
 
@@ -214,7 +238,7 @@ const CLOUD = (() => {
   loadSession();
 
   return { URL_BASE, SCHEMA, signIn, signOut, refresh, resetPassword, updatePassword, signedIn, currentUser,
-           loadSession, keepSession, selectAll, upsert, remove, rpc, rest, me, reachable };
+           loadSession, keepSession, selectAll, upsert, remove, rpc, rest, me, whoami, reachable };
 })();
 
 if(typeof module !== 'undefined' && module.exports) module.exports = CLOUD;
