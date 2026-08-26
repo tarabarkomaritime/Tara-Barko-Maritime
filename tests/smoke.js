@@ -793,6 +793,22 @@ check('only the catalogue is ever deleted from', () =>
   Object.entries(run('SYNC.MAP')).every(([k, m]) => m.table === 'courses' || k !== 'courses')
   || 'a delete path opened somewhere it should not have');
 
+/* The audit trail was the one collection with no table behind it, so it lived
+   in whichever browser happened to do the thing. It goes up now — append only,
+   because a log you can edit is a log worth nothing. */
+check('the activity log has somewhere to go', () =>
+  run("SYNC.MAP.log.table") === 'activity_log' || 'no table for the log');
+check('its columns are renamed to the ones that exist', () => {
+  const r = run("SYNC.toRow('log', { ts:'2026-08-26T01:00:00Z', user:'Kyla', action:'Signed in', ref:'' })");
+  return (r.at && r.who === 'Kyla' && r.action === 'Signed in' && 'reference' in r) || JSON.stringify(r);
+});
+check('the row id the server made is never sent back', () => {
+  const r = run("SYNC.toRow('log', { id:99, ts:'2026-08-26T01:00:00Z', user:'K', action:'X' })");
+  return !('id' in r) || 'the bigserial id was echoed back';
+});
+check('the log is append only — nothing is updated or deleted', () =>
+  run('SYNC.MAP.log.insertOnly') === true || 'the log could be rewritten');
+
 
 /* A password taken out of the source is still sitting in every browser that
    already copied the old store. Those are the machines actually in the office,

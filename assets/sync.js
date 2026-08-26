@@ -92,6 +92,20 @@ const SYNC = (() => {
             'reversal_of','posted_by'],
       blankToNull:['reversal_of'],
     },
+    /* Who did what, and when. It was the one collection with no table behind
+       it, so the audit trail lived in whichever browser happened to do the
+       thing — which is no audit trail at all once there are three desks.
+
+       Append only, and keyed on the moment rather than an id, because the
+       entries have never carried one. Nothing here is ever updated or deleted:
+       a log you can edit is a log worth nothing. */
+    log:{
+      table:'activity_log', insertOnly:true,
+      keyOf:r => [r.ts, r.action, r.ref || ''].join('|'),
+      rename:{ ts:'at', user:'who', ref:'reference' },
+      cols:['at','who','action','reference'],
+      drop:['id'],
+    },
     applications:{
       table:'registrations', key:'id',
       rename:{ submitted:'submitted_at' },
@@ -117,6 +131,7 @@ const SYNC = (() => {
     for(const [k, v] of Object.entries(obj)){
       if(v === undefined) continue;
       if((m.derived || []).includes(k)) continue;
+      if((m.drop || []).includes(k)) continue;
       const col = (m.rename || {})[k] || snake(k);
       if(!m.cols.includes(col)){ unknown.push(`${k} → ${col}`); continue; }
 
@@ -163,7 +178,13 @@ const SYNC = (() => {
   async function pull(){
     const store = {};
     for(const name of Object.keys(MAP)){
-      const rows = await CLOUD.selectAll(MAP[name].table);
+      const m = MAP[name];
+      /* The log is the one table that only grows. Reading all of it would mean
+         a slower sign-in every week of the office's life, and nothing on any
+         screen looks further back than the last few hundred entries. */
+      const rows = m.insertOnly
+        ? (await CLOUD.rest(m.table + '?select=*&order=at.desc&limit=300')) || []
+        : await CLOUD.selectAll(m.table);
       store[name] = rows.map(r => fromRow(name, r));
     }
 
@@ -217,15 +238,21 @@ const SYNC = (() => {
      store. Two people working at once is the ordinary case now, and a cashier
      saving a receipt must not post the entire database back over whatever the
      registrar just did at the next desk. */
-  const fingerprint = rows => {
+  /* Most rows are keyed on their id; the chart of accounts on its code; the
+     log on the moment it recorded, having neither. */
+  const keyer = name => (MAP[name] && MAP[name].keyOf)
+    || (r => String(r.id != null ? r.id : r.code));
+
+  const fingerprint = (rows, name) => {
+    const key = keyer(name);
     const out = {};
-    (rows || []).forEach(r => { out[r.id != null ? r.id : r.code] = JSON.stringify(r); });
+    (rows || []).forEach(r => { out[key(r)] = JSON.stringify(r); });
     return out;
   };
 
   function snapshot(store){
     const out = {};
-    Object.keys(MAP).forEach(name => { out[name] = fingerprint(store[name]); });
+    Object.keys(MAP).forEach(name => { out[name] = fingerprint(store[name], name); });
     out.company = JSON.stringify(store.company || {});
     out.seq = JSON.stringify(store.seq || {});
     return out;
@@ -235,17 +262,19 @@ const SYNC = (() => {
     const done = { upserts:0, deletes:0, tables:[] };
     for(const name of Object.keys(MAP)){
       const m = MAP[name];
-      const now = fingerprint(store[name]);
+      const now = fingerprint(store[name], name);
       const was = (base && base[name]) || {};
+      const key = keyer(name);
 
-      const changed = (store[name] || []).filter(r => {
-        const k = r.id != null ? r.id : r.code;
-        return now[k] !== was[k];
-      });
-      const gone = Object.keys(was).filter(k => !(k in now));
+      /* An append-only table sends what the server has not seen and nothing
+         else — never a rewrite of an entry already recorded. */
+      const changed = (store[name] || []).filter(r =>
+        m.insertOnly ? !(key(r) in was) : now[key(r)] !== was[key(r)]);
+      const gone = m.insertOnly ? [] : Object.keys(was).filter(k => !(k in now));
 
       if(changed.length){
-        await CLOUD.upsert(m.table, changed.map(r => toRow(name, r)));
+        /* No id to merge on, so this is a plain insert rather than an upsert. */
+        await CLOUD.upsert(m.table, changed.map(r => toRow(name, r)), 500, !m.insertOnly);
         done.upserts += changed.length;
         done.tables.push(`${m.table} +${changed.length}`);
       }

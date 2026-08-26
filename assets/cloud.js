@@ -172,14 +172,18 @@ const CLOUD = (() => {
   }
 
   /* Upsert in batches: one enormous body is the request most likely to be the
-     one that times out halfway through a day's work. */
-  async function upsert(table, rows, batch = 500){
+     one that times out halfway through a day's work.
+
+     merge:false makes it a plain insert. An append-only table has no id to
+     merge on, and asking PostgREST to resolve duplicates against a key that is
+     not there fails the whole batch. */
+  async function upsert(table, rows, batch = 500, merge = true){
     if(!rows || !rows.length) return 0;
     for(let i = 0; i < rows.length; i += batch){
       await rest(table, {
         method:'POST',
         body:rows.slice(i, i + batch),
-        headers:{ 'Prefer':'resolution=merge-duplicates,return=minimal' },
+        headers:{ 'Prefer':(merge ? 'resolution=merge-duplicates,' : '') + 'return=minimal' },
       });
     }
     return rows.length;
