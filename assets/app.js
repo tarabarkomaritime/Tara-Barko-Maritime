@@ -2397,14 +2397,29 @@ VIEWS.settings = () => {
             <dt>Storage</dt><dd>${(JSON.stringify(d).length/1024).toFixed(1)} KB in this browser</dd>
           </dl>
           <div class="note warn" style="margin:14px 0 10px">Records live in this browser's local storage. Download a backup regularly and keep it with your other business records.</div>
-          ${DB.salvaged().length ? `<div class="note bad" style="margin:14px 0 10px">
-            <b>${DB.salvaged().length} unreadable store(s) found.</b> A previous session left records
-            this browser could not read back. They were kept rather than written over. Download the
-            file and send it to whoever maintains the system — it may be repairable.
-            ${DB.salvaged().map(s => `<div style="margin-top:8px">
-              <button class="btn btn-ghost btn-xs" data-act="salvage" data-id="${UI.esc(s.key)}">Download
-              ${UI.esc(s.kb)} KB from ${UI.date(s.when.toISOString().slice(0,10))}</button></div>`).join('')}
-          </div>` : ''}
+          ${(() => {
+            const broken = DB.salvaged(), kept = DB.snapshots();
+            const when = s => s.when ? UI.date(s.when.toISOString().slice(0,10)) : 'an earlier session';
+            let out = '';
+            /* A store that would not parse is a fault worth interrupting for. */
+            if(broken.length) out += `<div class="note bad" style="margin:14px 0 10px">
+              <b>${broken.length} unreadable store${broken.length > 1 ? 's' : ''}.</b>
+              Records this browser could not read back were kept rather than written over.
+              Send the file to whoever maintains the system.
+              ${broken.map(s => `<div style="margin-top:8px"><button class="btn btn-ghost btn-xs"
+                 data-act="salvage" data-id="${UI.esc(s.key)}">Download ${UI.esc(s.kb)} KB from
+                 ${when(s)}</button></div>`).join('')}</div>`;
+            /* Everything else is routine, so it says so quietly and offers the
+               most recent one rather than a wall of identical buttons. */
+            if(kept.length) out += `<div class="note" style="margin:14px 0 10px">
+              <b>Safety copy.</b> This browser keeps a copy of its records from just before it
+              last connected to the server — ${kept.length === 1 ? 'one' : 'the last ' + Math.min(kept.length, 3)},
+              oldest first cleared automatically. Nothing is wrong; it is there in case something is.
+              <div style="margin-top:8px"><button class="btn btn-ghost btn-xs"
+                 data-act="salvage" data-id="${UI.esc(kept[0].key)}">Download the latest
+                 (${UI.esc(kept[0].kb)} KB, ${when(kept[0])})</button></div></div>`;
+            return out;
+          })()}
           <div class="chips">
             <button class="btn btn-ghost btn-sm" data-act="backup">Download backup</button>
             <button class="btn btn-ghost btn-sm" data-act="restore">Restore from file</button>

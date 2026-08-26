@@ -1062,8 +1062,15 @@ console.log('\n- old stores lose their passwords -');
   check('they are counted as carried up', () =>
     run('DB.get().carriedUp') >= 3 || 'carriedUp was ' + run('DB.get().carriedUp'));
   check('a copy of the old store is kept aside', () =>
-    Object.keys(store).some(k => k.indexOf('tbm_is_v1.unreadable.preupload.') === 0)
-    || 'no pre-upload copy was kept');
+    Object.keys(store).some(k => k.indexOf('tbm_is_v1.snapshot.') === 0)
+    || 'no safety copy was kept');
+  check('and it is not reported as a fault', () =>
+    run('DB.salvaged().length') === 0 || 'a routine copy was called unreadable');
+  check('the safety copies are capped rather than piling up', () => {
+    for(let i = 0; i < 8; i++) store['tbm_is_v1.snapshot.' + (1700000000000 + i)] = '{}';
+    run('DB.pruneSnapshots()');
+    return run('DB.snapshots().length') <= 3 || 'kept ' + run('DB.snapshots().length');
+  });
   check('the counters do not go backwards', () => {
     const s = run('DB.get().seq');
     return (s.receipt >= 7 && s.trainee >= 7) || JSON.stringify(s);

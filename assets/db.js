@@ -3,8 +3,22 @@
 
 const DB = (() => {
   const KEY = 'tbm_is_v1';
-  /* Where a store that would not parse is put instead of being written over. */
-  const SALVAGE = 'tbm_is_v1.unreadable.';
+  /* Two different things, and they were sharing a name.
+
+     SALVAGE is a store that would not parse — a genuine fault, rare, and worth
+     shouting about.
+
+     SNAPSHOT is the copy taken before this browser hands its records to the
+     server. That is routine: it happens on every sign-in. Filing it under
+     "unreadable" meant twelve ordinary safety copies were reported to the
+     office as twelve corrupted stores, dated 1970 because the timestamp did
+     not parse, and none of them ever cleared. At 75KB each they were also on
+     their way to filling the browser's storage, which is what causes the save
+     failures this copy exists to protect against. */
+  const SALVAGE  = 'tbm_is_v1.unreadable.';
+  const SNAPSHOT = 'tbm_is_v1.snapshot.';
+  /* Enough to cover a bad afternoon, not enough to fill the drawer. */
+  const KEEP_SNAPSHOTS = 3;
   let data = null;
 
   /* ---------- Chart of accounts ----------
@@ -477,19 +491,45 @@ const DB = (() => {
     return data;
   }
 
-  /* Copies of stores that could not be read, newest first. */
-  function salvaged(){
+  /* The moment a key was written. Anything that is not a plain number is from
+     an older build that put the word "preupload" in the middle; those are
+     snapshots, and they are dated by falling back to the number on the end. */
+  function stampOf(key, prefix){
+    const tail = key.slice(prefix.length);
+    const n = Number(tail.replace(/^preupload\./, ''));
+    return Number.isFinite(n) && n > 0 ? new Date(n) : null;
+  }
+
+  function listing(prefix, filter){
     const out = [];
     try{
       for(let i = 0; i < localStorage.length; i++){
         const k = localStorage.key(i);
-        if(k && k.indexOf(SALVAGE) === 0){
-          const v = localStorage.getItem(k) || '';
-          out.push({ key:k, when:new Date(Number(k.slice(SALVAGE.length)) || 0), kb:(v.length/1024).toFixed(1) });
-        }
+        if(!k || k.indexOf(prefix) !== 0) continue;
+        if(filter && !filter(k)) continue;
+        const v = localStorage.getItem(k) || '';
+        out.push({ key:k, when:stampOf(k, prefix), kb:(v.length / 1024).toFixed(1) });
       }
     }catch(e){}
-    return out.sort((a,b) => b.when - a.when);
+    return out.sort((a, b) => (b.when || 0) - (a.when || 0));
+  }
+
+  /* Stores that would not parse. A real fault, and nothing routine in here. */
+  const salvaged = () => listing(SALVAGE, k => k.indexOf('preupload') < 0);
+
+  /* The copy taken before this browser last handed its records over. Includes
+     the ones an older build misfiled under the unreadable prefix. */
+  const snapshots = () => listing(SNAPSHOT)
+    .concat(listing(SALVAGE, k => k.indexOf('preupload') >= 0))
+    .sort((a, b) => (b.when || 0) - (a.when || 0));
+
+  /* Keep a few and drop the rest. One per sign-in, unbounded, at 75KB each is
+     how a browser runs out of room — and running out of room is the thing that
+     stops records being saved at all. */
+  function pruneSnapshots(){
+    try{
+      snapshots().slice(KEEP_SNAPSHOTS).forEach(s => localStorage.removeItem(s.key));
+    }catch(e){}
   }
   function downloadSalvaged(key){
     const raw = localStorage.getItem(key);
@@ -497,7 +537,10 @@ const DB = (() => {
     const blob = new Blob([raw], { type:'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `TBM-unreadable-${key.slice(SALVAGE.length)}.json`;
+    a.download = 'TBM-' + (key.indexOf(SNAPSHOT) === 0 || key.indexOf('preupload') > 0
+                          ? 'backup' : 'unreadable') + '-'
+                        + (stampOf(key, key.indexOf(SNAPSHOT) === 0 ? SNAPSHOT : SALVAGE) || new Date())
+                            .toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.json';
     a.click();
     URL.revokeObjectURL(a.href);
     return true;
@@ -650,7 +693,8 @@ const DB = (() => {
        Settings — payment modes, charges, the dropdown lists — had nothing set
        aside before it was replaced. That is precisely the case that lost work. */
     if(local && local.meta){
-      try{ localStorage.setItem(SALVAGE + 'preupload.' + Date.now(), JSON.stringify(local)); }catch(e){}
+      try{ localStorage.setItem(SNAPSHOT + Date.now(), JSON.stringify(local)); }catch(e){}
+      pruneSnapshots();
     }
     if(brought.carried){
       console.warn('Tara Barko: carried up from this browser — ' + brought.where.join(', '));
@@ -834,7 +878,7 @@ const DB = (() => {
   }
 
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
-           salvaged, downloadSalvaged,
+           salvaged, snapshots, pruneSnapshots, downloadSalvaged,
            connect, disconnect, flush, refreshFromCloud, onCloud, cloudStatus,
            PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS,
            list, listWith, LIST_DEFS, LIST_DEFAULTS };
