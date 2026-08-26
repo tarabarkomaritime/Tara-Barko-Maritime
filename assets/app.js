@@ -315,6 +315,11 @@ function initLogin(){
   box.onkeydown = e => { if(e.key === 'Enter') document.getElementById('loginPass').focus(); };
   document.getElementById('loginPass').onkeydown = e => { if(e.key === 'Enter') go(); };
 
+  if(sessionStorage.getItem('tbm_idle_out')){
+    sessionStorage.removeItem('tbm_idle_out');
+    say('Signed out after ' + IDLE_MINUTES + ' minutes with nobody at the screen. Everything was saved.');
+  }
+
   /* Somebody arriving from a reset email. They are signed in by the link
      itself, which is the whole point of it — so let them in and put the change
      password form in front of them straight away, rather than showing a login
@@ -352,6 +357,64 @@ function initLogin(){
    The whole reason this system moved off one browser is that a day of encoding
    could disappear without anybody being told. So the answer to "did that save"
    is on screen at all times rather than assumed. */
+/* Half an hour of nobody touching it and the session ends.
+
+   The sign-in is remembered in the browser and renews itself, so without this
+   it lasts indefinitely: whoever opens that browser next is the cashier, with
+   her receipts and her refunds, days later. That is fine for a personal laptop
+   and wrong for a desk three people share.
+
+   Two things it must not do. It must not throw away work — whatever has not
+   reached the server is pushed first, and if that push fails the countdown
+   starts again rather than signing out over the top of it. And it must not
+   happen without warning: a minute before, it says so, and any key or click
+   calls the whole thing off. */
+const IDLE_MINUTES = 30;
+
+function initIdleTimeout(){
+  const LIMIT = IDLE_MINUTES * 60 * 1000;
+  const WARN  = 60 * 1000;
+  let last = Date.now(), warned = null;
+
+  const clearWarning = () => { if(warned){ warned.remove(); warned = null; } };
+
+  const touched = () => { last = Date.now(); clearWarning(); };
+  ['pointerdown','keydown','wheel','touchstart','focus'].forEach(e =>
+    window.addEventListener(e, touched, { passive:true, capture:true }));
+
+  function warn(seconds){
+    if(warned) return;
+    warned = document.createElement('div');
+    warned.id = 'idleWarn';
+    warned.setAttribute('role', 'alert');
+    warned.textContent = `Signing out in ${seconds} seconds — nobody has touched this screen. `
+      + 'Press any key to stay.';
+    document.body.appendChild(warned);
+  }
+
+  async function endIt(){
+    /* Never sign out on top of unsaved work. If it will not go up, stay put
+       and try again — being signed in is the lesser problem. */
+    const s = DB.cloudStatus();
+    if(s.on && s.pending){
+      await DB.flush().catch(() => {});
+      if(DB.cloudStatus().pending){ last = Date.now(); clearWarning(); return; }
+    }
+    clearWarning();
+    try{ await CLOUD.signOut(); }catch(e){}
+    DB.disconnect();
+    sessionStorage.setItem('tbm_idle_out', '1');
+    location.reload();
+  }
+
+  setInterval(() => {
+    if(!SESSION) return;
+    const idle = Date.now() - last;
+    if(idle >= LIMIT) endIt();
+    else if(idle >= LIMIT - WARN) warn(Math.max(1, Math.round((LIMIT - idle) / 1000)));
+  }, 5000);
+}
+
 function initSaveState(){
   const bar = document.createElement('div');
   bar.id = 'saveState';
@@ -3742,3 +3805,4 @@ document.getElementById('globalSearch').onkeydown = e => {
 DB.load();
 initLogin();
 initSaveState();
+initIdleTimeout();

@@ -389,3 +389,12 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
   background:#b3001b; color:#fff; text-align:center;
   box-shadow:0 -2px 14px rgba(0,0,0,.28);
 }
+
+/* The last minute before an idle sign-out. Loud enough to catch somebody
+   walking back to the desk, and it disappears the moment they touch anything. */
+#idleWarn{
+  position:fixed; left:50%; top:18px; transform:translateX(-50%); z-index:99999;
+  background:#8a6410; color:#fff; border-radius:8px;
+  font:600 13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;
+  padding:10px 16px; box-shadow:0 6px 22px rgba(0,0,0,.3);
+}
