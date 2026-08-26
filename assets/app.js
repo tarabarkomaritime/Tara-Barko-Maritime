@@ -422,11 +422,15 @@ function initSaveState(){
   const WORDS = {
     off:     ['', ''],
     ready:   ['ok',   'Saved'],
+    partial: ['work', 'Saved — except the settings'],
     dirty:   ['work', 'Saving…'],
     saving:  ['work', 'Saving…'],
     error:   ['bad',  'NOT SAVED'],
   };
   DB.onCloud((state, note) => {
+    /* 'Saved' must not be said over a table that was not sent. */
+    const s = DB.cloudStatus();
+    if(state === 'ready' && s.skipped && s.skipped.length) state = 'partial';
     const [cls, label] = WORDS[state] || WORDS.off;
     if(!label){ bar.className = ''; bar.textContent = ''; return; }
     bar.className = 'save-' + cls;

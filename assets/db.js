@@ -572,13 +572,15 @@ const DB = (() => {
      letting somebody close the laptop believing it landed. */
   let cloudOn = false, baseline = null, pushTimer = null, pushing = false, dirty = false;
   let cloudState = 'off', cloudNote = '';
+  let skippedTables = [];
   const watchers = [];
   const onCloud = fn => { watchers.push(fn); fn(cloudState, cloudNote); };
   function setState(s, note){
     cloudState = s; cloudNote = note || '';
     watchers.forEach(f => { try{ f(cloudState, cloudNote); }catch(e){} });
   }
-  const cloudStatus = () => ({ on:cloudOn, state:cloudState, note:cloudNote, pending:dirty });
+  const cloudStatus = () => ({ on:cloudOn, state:cloudState, note:cloudNote,
+                               pending:dirty, skipped:skippedTables.slice() });
 
   /* The catalogue and the chart of accounts are what the system needs to be
      able to take a booking at all. A project with neither is not a fresh start,
@@ -719,11 +721,17 @@ const DB = (() => {
       /* Anything skipped stays out of the baseline, so it is not mistaken for
          saved — the next admin to sign in pushes it. */
       baseline = SYNC.snapshot(data);
+      /* A skipped table is not a saved table. Saying 'Saved' over the top of one
+         is the same quiet loss this whole layer exists to stop, so the state
+         carries the names and the screen says them out loud. */
+      skippedTables = (done.skipped || []).slice();
       (done.skipped || []).forEach(t => {
         const name = Object.keys(SYNC.MAP).find(k => SYNC.MAP[k].table === t);
         if(name) delete baseline[name]; else if(t === 'company') delete baseline.company;
       });
-      setState('ready');
+      setState('ready', skippedTables.length
+        ? 'not sent, and an admin has to: ' + skippedTables.join(', ')
+        : '');
     }catch(e){
       /* Put the flag back up. The rows are still in memory and still in the
          cache, so the next save — or the next retry — carries them again. */
