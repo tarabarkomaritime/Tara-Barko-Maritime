@@ -36,14 +36,22 @@ const CLOUD = (() => {
     catch(e){ session = null; }
     return session;
   }
+  /* If the browser will not keep this, the next reload is a sign-out and there
+     is nothing else to conclude from. The old comment claimed it was handled
+     loudly somewhere else; it was not, and somebody in private browsing was
+     being asked for their password every time they pressed refresh with no
+     explanation offered. */
+  let storageRefused = false;
   function keepSession(s){
     session = s && s.access_token ? s : null;
     try{
       if(session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       else localStorage.removeItem(SESSION_KEY);
-    }catch(e){ /* a browser refusing to store is handled loudly elsewhere */ }
+      storageRefused = false;
+    }catch(e){ storageRefused = true; }
     return session;
   }
+  const sessionRemembered = () => !storageRefused;
   const signedIn = () => !!(session && session.access_token);
   const currentUser = () => (session && session.user) || null;
 
@@ -261,7 +269,7 @@ const CLOUD = (() => {
   loadSession();
 
   return { URL_BASE, SCHEMA, signIn, signOut, refresh, resetPassword, updatePassword, signedIn, currentUser,
-           loadSession, keepSession, selectAll, upsert, remove, rpc, rest, me, whoami, reachable };
+           loadSession, keepSession, sessionRemembered, selectAll, upsert, remove, rpc, rest, me, whoami, reachable };
 })();
 
 if(typeof module !== 'undefined' && module.exports) module.exports = CLOUD;

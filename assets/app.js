@@ -343,13 +343,54 @@ function initLogin(){
     return;
   }
 
-  /* A session that is still good should not ask again on every reload. */
+  /* A session that is still good should not ask again on every reload — and
+     when it does ask, it has to say why.
+
+     This used to swallow every failure and leave a blank login box: a slow
+     answer, a dropped packet, a server having a bad second, all of it looked
+     identical to being signed out, and the session was often still perfectly
+     good underneath. So a failure that might be temporary is retried before
+     anything is concluded from it, and only an answer from the server saying
+     the credentials are dead ends the session. */
+  async function resume(attempt){
+    attempt = attempt || 0;
+    try{
+      const staff = await CLOUD.me();
+      if(staff){
+        await DB.connect(staff);
+        say('');
+        enterShell(staff);
+        if(!CLOUD.sessionRemembered()){
+          UI.toast('This browser will not remember the sign-in, so it will ask again '
+                 + 'every time the page reloads.', 'bad');
+        }
+        return;
+      }
+      /* A clear answer, not a failure: this account is authenticated and is not
+         one of the office's people. */
+      await CLOUD.signOut().catch(() => {});
+      say('That account is not on this office\'s staff list. Ask the admin to add it.');
+    }catch(e){
+      const dead = e.status === 400 || e.status === 401;
+      if(!dead && attempt < 2){
+        await new Promise(r => setTimeout(r, 700 * (attempt + 1)));
+        return resume(attempt + 1);
+      }
+      if(dead){
+        await CLOUD.signOut().catch(() => {});
+        say('Your sign-in has expired. Please sign in again.');
+      }else{
+        /* Still signed in. Saying otherwise would send somebody hunting for a
+           password they do not need. */
+        say('Cannot reach the server just now — you are still signed in. '
+          + 'Check the connection and reload.');
+      }
+    }
+  }
+
   if(CLOUD.signedIn()){
     say('Signing back in…');
-    CLOUD.me()
-      .then(staff => staff ? DB.connect(staff).then(() => { say(''); enterShell(staff); })
-                           : CLOUD.signOut().then(() => say('')))
-      .catch(() => say(''));
+    resume();
   }
 }
 

@@ -907,6 +907,24 @@ console.log('\n- old stores lose their passwords -');
     check('and the session survives its own refresh', () =>
       run('CLOUD.signedIn()') === true || 'signed out by its own refresh');
 
+    /* A browser that will not keep the session is a browser that signs you out
+       on every reload. It used to do that silently. */
+    {
+      const realSet = ctx.localStorage.setItem;
+      ctx.localStorage.setItem = (k) => {
+        if(k === 'tbm_session') throw new Error('refused');
+        return realSet(k, arguments && arguments[1]);
+      };
+      run('CLOUD.keepSession(' + JSON.stringify({ access_token:'a', refresh_token:'b',
+        expires_at:Math.floor(Date.now()/1000)+3600, user:{ id:'u' } }) + ')');
+      check('a browser refusing to keep the session says so', () =>
+        run('CLOUD.sessionRemembered()') === false || 'it was reported as remembered');
+      ctx.localStorage.setItem = realSet;
+      run('CLOUD.keepSession(null)');
+      check('and it clears once storage works again', () =>
+        run('CLOUD.sessionRemembered()') === true || 'still reporting refused');
+    }
+
     ctx.__reply = prevReply;
     run('CLOUD.keepSession(null)');
   }
