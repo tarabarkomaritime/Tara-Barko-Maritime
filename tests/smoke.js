@@ -1051,6 +1051,65 @@ console.log('\n- old stores lose their passwords -');
       miss === null || 'leaked ' + JSON.stringify(miss));
     const miss2 = await run(`APPS.track('SRN-NOPE','Testino')`);
     check('an unknown SRN is a miss', () => miss2 === null || 'leaked a record');
+  /* ---------- the ledger is written once ----------
+     A wrong entry is corrected by a reversing entry, never by an edit, and the
+     server enforces that with a grant: voided is the only column authenticated
+     may write. An upsert cannot satisfy that — its update half touches every
+     column — so saving anything after a void failed outright with "permission
+     denied for table journal". Entries are inserted; a void is patched. */
+  console.log('\n- the ledger is inserted, never rewritten -');
+  {
+    const prevReply = ctx.__reply;
+    const existing = [{ id:'j1', no:'JV-1', date:'2026-08-20', memo:'posted earlier',
+                        lines:[], debit:100, credit:100, voided:false,
+                        ref_type:'', ref_no:'', ref_id:'', posted_by:'' }];
+    Object.keys(store).forEach(k => delete store[k]);
+    run('CLOUD.keepSession(' + JSON.stringify({
+      access_token:'t', refresh_token:'r',
+      expires_at:Math.floor(Date.now()/1000) + 3600, user:{ id:'u1' },
+    }) + ')');
+    run('DB.reset(true)');
+    ctx.__reply = (url) => {
+      if(url.indexOf('/journal') >= 0 && url.indexOf('select=') >= 0) return { body:existing };
+      if(url.indexOf('/courses') >= 0 && url.indexOf('select=') >= 0) return { body:run('DB.get().courses') };
+      if(url.indexOf('/accounts') >= 0 && url.indexOf('select=') >= 0) return { body:run('DB.get().accounts') };
+      if(url.indexOf('/company') >= 0) return { body:[{ profile:run('DB.get().company') }] };
+      return { body:[] };
+    };
+    await run("DB.connect({ id:'u1', name:'Kyla', role:'owner' })");
+
+    ctx.__fetches = [];
+    run("(() => { const j = DB.get().journal.find(x => x.id === 'j1'); j.voided = true;"
+      + " DB.get().journal.push({ id:'j2', no:'JV-2', date:DB.today(), memo:'new',"
+      + " lines:[], debit:5, credit:5, voided:false }); DB.save(); })()");
+    await run('DB.flush()');
+
+    const writes = ctx.__fetches.filter(f => /\/journal/.test(f.url) && (f.opts.method || 'GET') !== 'GET');
+    const posts = writes.filter(f => f.opts.method === 'POST');
+    const patches = writes.filter(f => f.opts.method === 'PATCH');
+
+    check('a new entry is inserted', () => {
+      const rows = posts.length ? JSON.parse(posts[0].opts.body) : [];
+      return (posts.length === 1 && rows.length === 1 && rows[0].id === 'j2')
+        || 'posted ' + JSON.stringify(rows.map(r => r.id));
+    });
+    check('an entry already posted is never sent back whole', () => {
+      const ids = posts.flatMap(p => JSON.parse(p.opts.body).map(r => r.id));
+      return !ids.includes('j1') || 'the ledger row was rewritten';
+    });
+    check('a void is patched, and only the void', () => {
+      if(patches.length !== 1) return 'sent ' + patches.length + ' patches';
+      const body = JSON.parse(patches[0].opts.body);
+      return (Object.keys(body).join(',') === 'voided' && body.voided === true)
+        || 'patched ' + Object.keys(body).join(',');
+    });
+    check('the patch names the row it is voiding', () =>
+      /id=eq\.j1/.test(patches[0] ? patches[0].url : '') || 'no row named');
+
+    ctx.__reply = prevReply;
+    run('CLOUD.keepSession(null)');
+  }
+
   })();
   console.log('\n- moving a browser onto the server -');
   const KEY = 'tbm_is_v1';

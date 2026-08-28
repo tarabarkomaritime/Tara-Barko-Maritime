@@ -86,8 +86,17 @@ const SYNC = (() => {
       blankToNull:['approved_by','approved_on','decided_by','decided_on'],
       blankToDefault:['date'],
     },
+    /* Append only, like the log, and for a stronger reason: a wrong entry is
+       corrected by a reversing entry, never by an edit. The one thing that ever
+       changes on a posted entry is the void flag.
+
+       That is enforced by the grant on the server, where voided is the only
+       column authenticated may write — which an upsert cannot satisfy, since the
+       update half of an upsert touches every column and Postgres refuses the
+       lot. It said so plainly: permission denied for table journal. So entries
+       are inserted, and a void is sent as a patch of that one column. */
     journal:{
-      table:'journal', key:'id',
+      table:'journal', key:'id', insertOnly:true, patchOnly:['voided'],
       cols:['id','no','date','memo','ref_type','ref_no','ref_id','lines','debit','credit','voided',
             'reversal_of','posted_by'],
       blankToNull:['reversal_of'],
@@ -299,6 +308,25 @@ const SYNC = (() => {
         done.upserts += changed.length;
         done.tables.push(`${m.table} +${changed.length}`);
       }
+      /* An entry already on the server is never rewritten — but a void has to
+         reach it, so the one column that may change is patched on its own. */
+      if(m.insertOnly && m.patchOnly){
+        const flipped = (store[name] || []).filter(r => {
+          const had = was[key(r)];
+          if(!had) return false;
+          const before = JSON.parse(had);
+          return m.patchOnly.some(f => JSON.stringify(before[f]) !== JSON.stringify(r[f]));
+        });
+        for(const r of flipped){
+          const body = {};
+          m.patchOnly.forEach(f => { body[(m.rename || {})[f] || snake(f)] = r[f]; });
+          await CLOUD.rest(`${m.table}?${m.key || 'id'}=eq.${encodeURIComponent(r[m.key || 'id'])}`,
+            { method:'PATCH', headers:{ 'Prefer':'return=minimal' }, body });
+          done.upserts++;
+        }
+        if(flipped.length) done.tables.push(`${m.table} ~${flipped.length}`);
+      }
+
       /* Only the catalogue may lose rows. Nothing else in this system deletes:
          a receipt is voided, an entry is reversed, a booking is cancelled —
          all of which are rows that still exist and still say what happened. */
