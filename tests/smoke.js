@@ -757,6 +757,37 @@ check('an emptied list falls back rather than offering nothing', () => {
 check('modes of learning are editable too', () =>
   run("DB.list('delivery').includes('Face-to-Face')") === true || 'no default delivery modes');
 
+/* ---------- how a person's name is spelled ----------
+   The office asked for the middle name in full. It matters past preference:
+   the name on this screen is the name a training center is given, and a
+   certificate that does not match the trainee's documents is a reprint the
+   trainee pays for. */
+console.log('\n- a name is spelled the way the documents spell it -');
+{
+  const of = o => run('APPS.forName(' + JSON.stringify(o) + ')');
+
+  check('a middle name on file is written out in full', () =>
+    of({ last:'SAMPILO', first:'MARK DANIEL', middle:'YABUT', suffix:'' })
+      === 'SAMPILO, MARK DANIEL YABUT' || of({ last:'SAMPILO', first:'MARK DANIEL', middle:'YABUT', suffix:'' }));
+
+  check('a suffix stays with the surname it belongs to', () =>
+    of({ last:'BENITEZ', first:'JOEBER', middle:'GARCIA', suffix:'JR' })
+      === 'BENITEZ JR, JOEBER GARCIA' || of({ last:'BENITEZ', first:'JOEBER', middle:'GARCIA', suffix:'JR' }));
+
+  /* Only an initial was ever recorded for some seafarers. Rendering it bare
+     reads as this function having cut something off. */
+  check('a middle name that is only an initial keeps its full stop', () =>
+    of({ last:'DELA CRUZ', first:'JUAN', middle:'S', suffix:'' })
+      === 'DELA CRUZ, JUAN S.' || of({ last:'DELA CRUZ', first:'JUAN', middle:'S', suffix:'' }));
+
+  check('no middle name leaves no gap behind the first', () =>
+    of({ last:'OCCENA', first:'RICKY', middle:'', suffix:'' })
+      === 'OCCENA, RICKY' || of({ last:'OCCENA', first:'RICKY', middle:'', suffix:'' }));
+
+  check('nobody at all is a dash, not the word undefined', () =>
+    run('APPS.forName(null)') === '\u2014' || run('APPS.forName(null)'));
+}
+
 /* ---------- the shape the database is given ----------
    This is the test that earns its keep. A sync layer meeting a field it has no
    column for will, unless stopped, leave it behind — and nobody finds out until

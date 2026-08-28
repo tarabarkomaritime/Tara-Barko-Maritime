@@ -68,16 +68,12 @@ const PAY  = id => D().payments.find(x => x.id === id);
    trainee still shows what was actually entered. */
 const caps = s => String(s || '').toUpperCase();
 
-/* Trainees and applications carry the same name fields, so one formatter serves both. */
+/* Trainees and applications carry the same name fields, so one formatter serves
+   both — and there is only the one, deliberately. There used to be two, a short
+   spelling for tables and a full one for anything leaving the office, which is
+   two chances to show a trainee a different name for themselves than the
+   certificate they are about to be handed. */
 const name = t => caps(APPS.forName(t));
-
-/* The same person, spelled out. APPS.forName initials the middle name, which
-   is right for a table and wrong for anything a training center will type onto
-   a certificate — a name that does not match their documents is a reprint the
-   trainee pays for. */
-const fullName = t => t
-  ? caps(`${t.last}${t.suffix ? ' ' + t.suffix : ''}, ${t.first}${t.middle ? ' ' + t.middle : ''}`.trim())
-  : '—';
 
 /* ---------- handing a trainee to a training center ----------
    The center re-keys these into its own form, or the office pastes them into
@@ -87,7 +83,7 @@ const fullName = t => t
 function endorsementText(t, e){
   const c = e && CRS(e.courseId);
   const lines = [
-    'NAME: ' + fullName(t),
+    'NAME: ' + name(t),
     'TRAINEE NO: ' + (t && t.no || ''),
     'SRN: ' + (t && t.srn || ''),
     'DATE OF BIRTH: ' + (t && t.birth || ''),
@@ -2634,7 +2630,7 @@ function traineeProfile(t){
   const bal = traineeBalance(t.id);
 
   UI.modal({
-    title: fullName(t), sub:`${t.no} · ${t.rank || 'No rank on file'} · ${t.agency || 'No company'}`, wide:true,
+    title: name(t), sub:`${t.no} · ${t.rank || 'No rank on file'} · ${t.agency || 'No company'}`, wide:true,
     hideSubmit:true,
     footExtra:`<button type="button" class="btn btn-ghost" id="editTrainee">Edit details</button>
                <button type="button" class="btn btn-accent" id="enrollHere">Book a course</button>`,
@@ -2819,7 +2815,7 @@ function enrollmentForm(existing, presetTrainee){
            name — booking the wrong one is not a mistake anybody catches until
            the center turns them away. A record with no SRN yet falls back to
            its trainee number so the line is never ambiguous. */
-        .map(t => ({ v:t.id, l:`${fullName(t)} — ${t.srn || t.no}` })),
+        .map(t => ({ v:t.id, l:`${name(t)} — ${t.srn || t.no}` })),
         { req:true, blank:'— search or select trainee —' })}
     <p class="p-note-inline muted" style="margin:-6px 0 12px;font-size:12px">
       Not on the list? <a href="#" data-act="new-trainee-here">Register a new trainee</a> first.</p>
@@ -2983,7 +2979,7 @@ function enrollmentModal(e){
       ${e.status !== 'Cancelled' ? `<button type="button" class="btn btn-danger" id="cancelEnr">Cancel booking</button>` : ''}`,
     body: `
       <dl class="def def-tight">
-        <dt>Trainee</dt><dd><b>${UI.esc(fullName(t))}</b></dd>
+        <dt>Trainee</dt><dd><b>${UI.esc(name(t))}</b></dd>
         <dt>Trainee no.</dt><dd class="mono">${UI.esc(t?.no || '—')}</dd>
         <dt>Training center</dt><dd>${UI.esc(e.center || '—')}</dd>
         <dt>Scheduled date</dt><dd>${e.start ? UI.dateRange(e.start, e.end) : '—'}

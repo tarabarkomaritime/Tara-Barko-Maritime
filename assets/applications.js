@@ -305,11 +305,23 @@ const APPS = (() => {
 
   const registrationsFor = traineeId => D().applications.filter(a => a.traineeId === traineeId);
 
-  /* "Dela Cruz Jr., Juan M." — surname first, suffix attached to it, middle
-     initialled. Works for registrations and trainees alike; both carry the same
-     name fields. */
+  /* A middle name that is on file in full is written out in full. It used to be
+     cut to an initial, which is tidier in a column and wrong everywhere the name
+     leaves this office: a training center re-keys what it is given, and a
+     certificate that does not match the trainee's documents is a reprint they
+     pay for.
+
+     A record that only ever held an initial still reads as one — "Juan S." and
+     not a bare "Juan S", which looks like this function truncating something. */
+  const middleOf = m => {
+    const s = String(m || '').trim();
+    return s ? ' ' + (/^[A-Za-z]$/.test(s) ? s + '.' : s) : '';
+  };
+
+  /* "Dela Cruz Jr., Juan Santos" — surname first, suffix attached to it. Works
+     for registrations and trainees alike; both carry the same name fields. */
   const forName = a => a
-    ? `${a.last}${a.suffix ? ' ' + a.suffix : ''}, ${a.first}${a.middle ? ' ' + a.middle[0] + '.' : ''}`
+    ? `${a.last}${a.suffix ? ' ' + a.suffix : ''}, ${a.first}${middleOf(a.middle)}`.trim()
     : '—';
 
   return {
