@@ -215,6 +215,7 @@ const SYNC = (() => {
   /* ---------- the whole store ---------- */
   async function pull(){
     const store = {};
+    const missing = [];
     for(const name of Object.keys(MAP)){
       const m = MAP[name];
       /* Some tables only grow, and reading all of one would mean a slower
@@ -227,9 +228,16 @@ const SYNC = (() => {
          The ledger is not capped. A trial balance that quietly stopped at the
          last three hundred entries would be a wrong trial balance, and wrong
          quietly is the one thing the books must never be. */
-      const rows = m.pullLimit
-        ? (await CLOUD.rest(`${m.table}?select=*&order=${m.pullOrder}&limit=${m.pullLimit}`)) || []
-        : await CLOUD.selectAll(m.table);
+      let rows;
+      try{
+        rows = m.pullLimit
+          ? (await CLOUD.rest(`${m.table}?select=*&order=${m.pullOrder}&limit=${m.pullLimit}`)) || []
+          : await CLOUD.selectAll(m.table);
+      }catch(e){
+        if(!notThere(e)) throw e;
+        rows = [];
+        missing.push(m.table);
+      }
       store[name] = rows.map(r => fromRow(name, r));
     }
 
@@ -312,6 +320,19 @@ const SYNC = (() => {
      Skipping is right rather than lossy here. A cashier has no Courses screen
      and no Settings screen — the difference is migration noise, not their work,
      and an admin signing in pushes the same thing properly. */
+  /* A migration ships in the same commit as the code that needs it, but it is
+     applied by a person, and the gap between the deploy and that person is
+     however long they are away from their desk.
+
+     For the whole of that gap every table after the new one in this map would
+     have gone unsynced, and a sign-in would have failed outright — the load
+     reads each table in turn, so one 404 takes the rest of the office's records
+     down with it. A missing table is a table nobody has created yet. It is not
+     a reason to refuse somebody their trainees. */
+  const notThere = e =>
+    e && (e.status === 404
+      || /PGRST205|does not exist|Could not find the table|schema cache/i.test(e.message || ''));
+
   async function push(store, base, opts){
     const admin = !opts || opts.isAdmin !== false;
     const done = { upserts:0, deletes:0, tables:[], skipped:[] };
@@ -329,10 +350,20 @@ const SYNC = (() => {
       const gone = m.insertOnly ? [] : Object.keys(was).filter(k => !(k in now));
 
       if(changed.length){
-        /* No id to merge on, so this is a plain insert rather than an upsert. */
-        await CLOUD.upsert(m.table, changed.map(r => toRow(name, r)), 500, !m.insertOnly);
-        done.upserts += changed.length;
-        done.tables.push(`${m.table} +${changed.length}`);
+        try{
+          /* No id to merge on, so this is a plain insert rather than an upsert. */
+          await CLOUD.upsert(m.table, changed.map(r => toRow(name, r)), 500, !m.insertOnly);
+          done.upserts += changed.length;
+          done.tables.push(`${m.table} +${changed.length}`);
+        }catch(e){
+          if(!notThere(e)) throw e;
+          /* Held in the browser, and sent the moment the table exists — the
+             fingerprint of what the server has seen is only advanced by a write
+             that actually landed, so nothing is lost by waiting. */
+          done.missing = done.missing || [];
+          done.missing.push(m.table);
+          continue;
+        }
       }
       /* An entry already on the server is never rewritten — but a void has to
          reach it, so the one column that may change is patched on its own. */

@@ -1240,6 +1240,62 @@ console.log('\n- old stores lose their passwords -');
   check('the catalogue is supplied when the project has none', () =>
     run('DB.get().courses.length') > 300 || run('DB.get().courses.length'));
 
+  /* ---------- a table the server has not been given yet ----------
+     The migration ships with the code and is applied by a person, so there is a
+     gap. Records load one table at a time, which meant a single 404 in the
+     middle of that list took every table after it down and failed the sign-in
+     outright. Nobody should lose their trainees because a table they have never
+     heard of has not been created yet. */
+  console.log('\n- a table that has not been created yet -');
+  {
+    const prevReply = ctx.__reply;
+    Object.keys(store).forEach(k => delete store[k]);
+    run('CLOUD.keepSession(' + JSON.stringify({
+      access_token:'t', refresh_token:'r',
+      expires_at:Math.floor(Date.now()/1000) + 3600, user:{ id:'u1' },
+    }) + ')');
+    run('DB.reset(true)');
+
+    ctx.__reply = (url) => {
+      if(url.indexOf('/booking_changes') >= 0) return { ok:false, status:404,
+        body:{ message:"Could not find the table 'tbm.booking_changes' in the schema cache" } };
+      if(url.indexOf('/trainees') >= 0 && url.indexOf('select=') >= 0)
+        return { body:[{ id:'t9', no:'T-9', srn:'SRN-9', last:'REYES', first:'ANA',
+                         middle:'', suffix:'', registered:'2026-08-01' }] };
+      if(url.indexOf('/courses') >= 0 && url.indexOf('select=') >= 0)
+        return { body:run('DB.get().courses') };
+      if(url.indexOf('/company') >= 0) return { body:[{ profile:run('DB.get().company') }] };
+      return { body:[] };
+    };
+
+    let failed = null;
+    try{ await run("DB.connect({ id:'u1', name:'Kyla', role:'owner' })"); }
+    catch(e){ failed = e.message; }
+
+    check('signing in survives it', () => !failed || failed);
+    check('the tables that do exist still arrive', () =>
+      run('DB.get().trainees.length') === 1
+        || 'loaded ' + run('DB.get().trainees.length') + ' trainee(s)');
+    check('the one that does not is simply empty', () =>
+      (Array.isArray(run('DB.get().changes')) && run('DB.get().changes.length') === 0)
+        || 'changes: ' + JSON.stringify(run('DB.get().changes')));
+
+    /* And a request raised before the table exists is kept, not thrown away —
+       the record of what the server has seen only moves on a write that landed. */
+    run("(() => { DB.get().changes.push({ id:'c9', no:'CHG-9', enrollmentId:'e9',"
+      + " traineeId:'t9', date:DB.today(), raisedBy:'Jocelyn', was:{}, to:{},"
+      + " reason:'x', state:'Pending' }); DB.save(); })()");
+    let flushBlew = null;
+    try{ await run('DB.flush()'); }catch(e){ flushBlew = e.message; }
+
+    check('saving the rest of the office still goes through', () => !flushBlew || flushBlew);
+    check('a correction raised meanwhile is held, not lost', () =>
+      run('DB.get().changes.length') === 1 || 'it was dropped on the floor');
+
+    ctx.__reply = prevReply;
+    run('CLOUD.keepSession(null)');
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
