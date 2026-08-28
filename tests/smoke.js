@@ -833,6 +833,20 @@ check('only the catalogue is ever deleted from', () =>
 /* The audit trail was the one collection with no table behind it, so it lived
    in whichever browser happened to do the thing. It goes up now — append only,
    because a log you can edit is a log worth nothing. */
+/* A capped read has to name a column the table actually has. This assumed
+   "at" — the activity log column — so the moment the ledger became
+   append-only too, signing in failed outright with "column journal.at does
+   not exist" and nobody could get in at all. */
+check('every capped read orders by a real column', () => {
+  const bad = Object.entries(run('SYNC.MAP'))
+    .filter(([, m]) => m.pullLimit)
+    .filter(([, m]) => !m.cols.includes(String(m.pullOrder || '').split('.')[0]))
+    .map(([n]) => n);
+  return bad.length === 0 || bad.join(', ') + ' order by a column that is not there';
+});
+check('the ledger is never capped — a short trial balance is a wrong one', () =>
+  !run('SYNC.MAP.journal.pullLimit') || 'the journal would load only part of itself');
+
 check('the activity log has somewhere to go', () =>
   run("SYNC.MAP.log.table") === 'activity_log' || 'no table for the log');
 check('its columns are renamed to the ones that exist', () => {

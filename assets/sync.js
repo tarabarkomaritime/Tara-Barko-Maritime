@@ -110,6 +110,7 @@ const SYNC = (() => {
        a log you can edit is a log worth nothing. */
     log:{
       table:'activity_log', insertOnly:true,
+      pullOrder:'at.desc', pullLimit:300,
       keyOf:r => [r.ts, r.action, r.ref || ''].join('|'),
       rename:{ ts:'at', user:'who', ref:'reference' },
       cols:['at','who','action','reference'],
@@ -198,11 +199,18 @@ const SYNC = (() => {
     const store = {};
     for(const name of Object.keys(MAP)){
       const m = MAP[name];
-      /* The log is the one table that only grows. Reading all of it would mean
-         a slower sign-in every week of the office's life, and nothing on any
-         screen looks further back than the last few hundred entries. */
-      const rows = m.insertOnly
-        ? (await CLOUD.rest(m.table + '?select=*&order=at.desc&limit=300')) || []
+      /* Some tables only grow, and reading all of one would mean a slower
+         sign-in every week of the office's life. Those say so, and say which
+         column to read backwards from — this used to assume "at", which is the
+         activity log's column and not the ledger's, so the moment the journal
+         became append-only too, signing in failed outright with "column
+         journal.at does not exist".
+
+         The ledger is not capped. A trial balance that quietly stopped at the
+         last three hundred entries would be a wrong trial balance, and wrong
+         quietly is the one thing the books must never be. */
+      const rows = m.pullLimit
+        ? (await CLOUD.rest(`${m.table}?select=*&order=${m.pullOrder}&limit=${m.pullLimit}`)) || []
         : await CLOUD.selectAll(m.table);
       store[name] = rows.map(r => fromRow(name, r));
     }
