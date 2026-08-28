@@ -835,6 +835,33 @@ const DB = (() => {
   }
 
   /* ---------- seed ---------- */
+  /* Which training centers let the office keep the rebate back from what it
+     remits, agreed center by center.
+
+     Every row used to be imported as "do not deduct" — safe, and not the
+     office's actual arrangement with anybody, so the whole catalogue said
+     something untrue about the money. NEW WAVE is the one center split by
+     course rather than by name: its STCW courses are remitted in full and the
+     rebate settled afterwards, everything else it runs deducts.
+
+     GRAMCARE is deliberately absent. Nothing was agreed either way, so it stays
+     on the cautious side rather than being guessed at.
+
+     This decides what a fresh install starts with. Editing a single course in
+     the catalogue still overrides it, and migrate() never touches deduct — a
+     rule that reached back and rewrote the office's own corrections would be
+     the expense-category bug all over again. */
+  const REBATE_DEDUCTED = [
+    'MARIANA', 'GREAT SEAS', 'RAJ', 'PNTC', 'UNITED INTERNATIONAL',
+    'JVV', 'COMPASS', 'GRANDLINE', 'HEALTHLINE', 'TONSBERG', 'NEW WAVE',
+  ];
+  const NEW_WAVE_STCW = ['AFF', 'SCRB', 'BTR', 'AFFR', 'BT', 'SCRBR', 'BTOC', 'BTLGT'];
+  function deductsRebate(center, code){
+    const c = String(center || '').trim().toUpperCase();
+    if(c === 'NEW WAVE') return !NEW_WAVE_STCW.includes(String(code || '').trim().toUpperCase());
+    return REBATE_DEDUCTED.includes(c);
+  }
+
   function seed(){
     /* The catalogue is generated from the internal price matrix by
        tools/import-courses.js — 239 courses, duplicates already collapsed, and
@@ -858,10 +885,7 @@ const DB = (() => {
         center:c.center || '',
         amount:r2(c.amount || 0),
         rebate:r2(c.rebate || 0),
-        /* Whether the rebate comes off what the trainee pays. The matrix does not
-           say, and getting it wrong changes a price, so it starts as "do not
-           deduct" and the office sets it per course. */
-        deduct:false,
+        deduct:deductsRebate(c.center, c.code),
       };
     });
     data.seq.course = data.courses.length;

@@ -488,13 +488,34 @@ check('rebates come from the matrix', () => {
   const withRebate = run('DB.get().courses.filter(c => c.rebate > 0).length');
   return withRebate > 250 || 'only ' + withRebate + ' courses carry a rebate';
 });
-/* Imported courses arrive on do-not-deduct terms — the matrix does not say
-   which rebates come off a payable, and guessing misstates what a partner is
-   owed. The seed then flips a handful so the payables screen shows both paths. */
-check('imported courses do not deduct by default', () => {
-  const deducting = run('DB.get().courses.filter(c => c.deduct).length');
-  const total = run('DB.get().courses.length');
-  return (deducting < 10 && total > 300) || `${deducting} of ${total} deduct`;
+/* The rebate arrangement is per training center, agreed with each of them.
+   Every row used to be imported as "do not deduct" — safe, and untrue of the
+   office's actual agreements, so the whole catalogue said something wrong
+   about the money. NEW WAVE is the one center split by course. */
+check('the rebate treatment follows the center', () => {
+  const c = run('DB.get().courses');
+  const all = (name, want) => c.filter(x => x.center.toUpperCase() === name)
+    .every(x => x.deduct === want);
+  const bad = ['MARIANA','GREAT SEAS','RAJ','PNTC','UNITED INTERNATIONAL','JVV','COMPASS',
+               'GRANDLINE','HEALTHLINE','TONSBERG'].find(n => !all(n, true))
+    || ['ALTITUDE MARITIME','FAREAST','NAUTICAL OPTIONS','NAVIGATOR','GRAMCARE'].find(n => !all(n, false));
+  return !bad || bad + ' is on the wrong side';
+});
+check('NEW WAVE deducts except on its STCW courses', () => {
+  const nw = run('DB.get().courses').filter(x => x.center.toUpperCase() === 'NEW WAVE');
+  const stcw = ['AFF','SCRB','BTR','AFFR','BT','SCRBR','BTOC','BTLGT'];
+  const wrong = nw.filter(x => x.deduct === stcw.includes(x.code.toUpperCase()));
+  return wrong.length === 0 || wrong.length + ' NEW WAVE course(s) on the wrong side';
+});
+/* The rule decides what a fresh install starts with and nothing else. A
+   migration that reached back and re-applied it on every load would undo the
+   office's own corrections — which is exactly how the expense categories were
+   being deleted. */
+check('loading again does not re-apply the rule over an edit', () => {
+  run("DB.get().courses.filter(c => c.center.toUpperCase() === 'PNTC').forEach(c => c.deduct = false)");
+  run('DB.save()'); run('DB.reload()');
+  const back = run("DB.get().courses.filter(c => c.center.toUpperCase() === 'PNTC' && c.deduct).length");
+  return back === 0 || back + ' PNTC course(s) were flipped back by the loader';
 });
 check('every course entry names the center that quoted it', () =>
   run('DB.get().courses.every(c => !!c.center)') === true || 'an entry has no center');
