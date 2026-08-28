@@ -315,6 +315,38 @@ function initLogin(){
   box.onkeydown = e => { if(e.key === 'Enter') document.getElementById('loginPass').focus(); };
   document.getElementById('loginPass').onkeydown = e => { if(e.key === 'Enter') go(); };
 
+  /* An admin can send somebody a reset link from Settings, and until now that
+     was the only way one could be sent at all. That holds up right until the
+     person locked out is the admin — and then the single door out of the
+     building opens only from the inside, and the office waits on somebody with
+     a laptop and a database to let them back in.
+
+     Supabase answers 'recover' the same way whether or not the address has an
+     account, and so does this: a stranger typing addresses into the box learns
+     nothing about who works here. Nobody, this screen included, ever sees the
+     new password — the link signs them in once and they set it themselves. */
+  let sending = false;
+  const forgot = document.getElementById('forgotPass');
+  if(forgot) forgot.onclick = ev => {
+    ev.preventDefault();
+    if(sending) return;
+    const typed = String(box.value || '').trim().toLowerCase();
+    if(!typed){ box.focus(); return say('Type your email address above first, then click again.'); }
+
+    sending = true; say('Sending the link…');
+    CLOUD.resetPassword(typed)
+      .then(() => say('If ' + typed + ' has an account here, a reset link is on its way to it. '
+                    + 'It works once and expires within the hour — check the spam folder if it '
+                    + 'does not arrive in a few minutes.'))
+      .catch(e => say(/rate|429/i.test(e.message || '')
+        ? 'Too many reset emails have gone out just now. Wait a few minutes, then try again.'
+        : 'The email did not go: ' + (e.message || 'unknown error')))
+      /* Held shut for a moment afterwards. The failure this prevents is not an
+         attack but an ordinary one: nothing appears to happen, so it gets
+         clicked again, and the fourth link invalidates the first three. */
+      .finally(() => setTimeout(() => { sending = false; }, 30000));
+  };
+
   if(sessionStorage.getItem('tbm_idle_out')){
     sessionStorage.removeItem('tbm_idle_out');
     say('Signed out after ' + IDLE_MINUTES + ' minutes with nobody at the screen. Everything was saved.');
