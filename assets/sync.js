@@ -53,6 +53,24 @@ const SYNC = (() => {
                    'rebate_received_on','rebate_method','rebate_ref','center_payable'],
       blankToDefault:['date_encoded'],
     },
+    /* A correction to a booking, waiting for an admin. It has to reach the
+       server or the whole step is theatre: registration raises it on one
+       machine and the admin never sees it on the other.
+
+       Inserted once and then only decided, which is the ledger's shape and for
+       the ledger's reason — the server grants update on the decision columns
+       alone, and the update half of an upsert touches every column it is given,
+       so the whole write is refused. */
+    changes:{
+      table:'booking_changes', key:'id', insertOnly:true,
+      patchOnly:['state','approvedBy','approvedOn','decidedBy','decidedOn','decisionNote','selfApproved'],
+      /* `to` is a reserved word in Postgres and `was` reads like one. */
+      rename:{ was:'was_state', to:'to_state' },
+      cols:['id','no','enrollment_id','trainee_id','date','raised_by','was_state','to_state','reason',
+            'state','approved_by','approved_on','decided_by','decided_on','decision_note','self_approved'],
+      blankToNull:['approved_by','approved_on','decided_by','decided_on'],
+      blankToDefault:['date'],
+    },
     invoices:{
       table:'invoices', key:'id',
       /* Neither is a column, and neither should be. `paid` was a stored number

@@ -808,10 +808,11 @@ VIEWS.enrollments = () => {
   const due    = ACC.r2(rows.reduce((s,e) => { const i = invOf(e.id); return s + (i ? ACC.balanceOf(ACC.recomputeInvoice(i)) : 0); }, 0));
 
   return `
+    ${changePanel(pendingChanges())}
     <div class="toolbar">
       <input type="search" data-q="enr" value="${UI.esc(state.q.enr||'')}" placeholder="Search trainee, SRN, course or center…" style="min-width:250px">
       <select data-q="enrStatus" style="min-width:150px">
-        ${['','Reserved','Enrolled','Completed','Cancelled'].map(s =>
+        ${['','On Process','Enrolled','Open Schedule','Reserved','Completed','Cancelled'].map(s =>
           `<option value="${s}" ${f===s?'selected':''}>${s||'All statuses'}</option>`).join('')}
       </select>
       <span class="muted">${rows.length} record(s) · billed ${UI.peso(billed)} · due ${UI.peso(due)}</span>
@@ -2676,6 +2677,14 @@ function traineeProfile(t){
             if(!i) return '<span class="muted">not billed</span>';
             const due = ACC.balanceOf(ACC.recomputeInvoice(i));
             return due > 0.004 ? `<span class="neg">${UI.peso(due)} left</span>` : 'Paid'; } },
+        /* One request at a time per booking. Two people asking for different
+           dates on the same seat is a queue where whichever is signed second
+           silently wins, so the second is refused while the first is open. */
+        { h:'', k:e => { const held = pendingChangeFor(e.id);
+            return held
+              ? `<span class="muted" style="font-size:11.5px">${UI.esc(held.no)} awaiting the admin</span>`
+              : `<button class="btn btn-ghost btn-xs" data-act="change-booking" data-id="${e.id}">Edit</button>`;
+          }, w:'150px' },
       ], enr, { empty:'No courses booked yet.' })}
       <div class="hr"></div>
       <h4 style="margin:0 0 8px;font-size:13px">Bills And Payments</h4>
@@ -2798,6 +2807,254 @@ function courseForm(c){
    front of you, so the date is typed rather than chosen from a list, and the fee
    is the amount agreed with them for that center. A trainee may be enrolled as
    many times as they come back; nothing here blocks a repeat. */
+/* One list of three hundred lines, every one of them reading COURSE — CENTER,
+   was one list to scroll and the wrong half to scroll it by: the desk knows
+   which center it is sending somebody to before it knows which course. So the
+   center is asked first and the courses narrow to it.
+
+   A course with no center on file still has to be reachable. Filtering on a
+   field some rows leave blank is how a row quietly stops existing, so blanks
+   get a bucket of their own and sort to the bottom rather than disappearing.
+
+   Shared, because the booking form and the change-request form have to offer
+   the same catalogue. Two copies of this would drift, and the day they drifted
+   the desk would be able to book a course it could not afterwards correct. */
+const NO_CENTER = '— no training center on file —';
+const centerOf = c => String(c.center || '').trim() || NO_CENTER;
+
+function coursePickers(){
+  const active = D().courses;
+  /* Which course-at-center pairs appear more than once, so only those labels
+     have to carry the delivery. */
+  const seenPair = {}, sameTwice = new Set();
+  active.forEach(c => { const k = c.title + '@' + c.center;
+    if(seenPair[k]) sameTwice.add(k); else seenPair[k] = 1; });
+
+  /* Inside one center the center's name is redundant, so the label is the
+     course — except where that center runs the same course two ways at two
+     prices, which without the delivery reads as the same line twice. */
+  const labelOf = c => c.title
+    + (sameTwice.has(c.title + '@' + c.center) ? ` · ${c.modes.join(' + ')}` : '');
+
+  return {
+    labelOf,
+    CENTERS:[...new Set(active.map(centerOf))].sort((a, b) =>
+      a === NO_CENTER ? 1 : b === NO_CENTER ? -1 : a.localeCompare(b)),
+    coursesAt:ctr => active.filter(c => centerOf(c) === ctr)
+      .sort((a, b) => labelOf(a).localeCompare(labelOf(b))),
+  };
+}
+
+/* ---------- correcting a booking ----------
+   The desk gets these wrong in the ordinary way — the trainee moves to another
+   center, the center moves the date, a seat asked for is not yet confirmed. It
+   could not be corrected at all before, so it was corrected by booking a second
+   seat and leaving the first, which bills twice and remits twice.
+
+   It is not simply editable either. The booking is what the center is endorsed
+   against and what the trainee was billed for, so a change to it goes through
+   the same gate the money does: registration raises it, an admin signs it. */
+const BOOKING_STATES = ['On Process', 'Enrolled', 'Open Schedule'];
+
+const CHANGE_FIELDS = [
+  { k:'center',   h:'Training center', show:v => v || '—' },
+  { k:'courseId', h:'Course',          show:v => (CRS(v) || {}).title || '—' },
+  { k:'start',    h:'Starts',          show:v => v ? UI.date(v) : '—' },
+  { k:'end',      h:'Ends',            show:v => v ? UI.date(v) : '—' },
+  { k:'status',   h:'Booking',         show:v => v || '—' },
+];
+
+const same = (a, b) => String(a == null ? '' : a) === String(b == null ? '' : b);
+const changeLines = ch => CHANGE_FIELDS
+  .filter(f => !same(ch.was[f.k], ch.to[f.k]))
+  .map(f => `${f.h}: ${f.show(ch.was[f.k])} → <b>${f.show(ch.to[f.k])}</b>`);
+
+const pendingChanges = () => D().changes.filter(c => c.state === 'Pending')
+  .sort((a, b) => a.date.localeCompare(b.date));
+const pendingChangeFor = id =>
+  D().changes.find(c => c.state === 'Pending' && c.enrollmentId === id);
+
+/* What was billed against what the new course costs. The booking is corrected
+   here; the bill is not, because reissuing an invoice somebody has already paid
+   against is not a thing to do behind an admin's back. So it is said out loud
+   instead, and the desk decides. */
+function feeGap(ch){
+  if(same(ch.was.courseId, ch.to.courseId)) return null;
+  const now = CRS(ch.to.courseId);
+  if(!now) return null;
+  const e = ENR(ch.enrollmentId);
+  const was = e ? ACC.r2(e.fee || 0) : 0;
+  const next = ACC.r2(now.amount || 0);
+  return same(was, next) ? null : { was, next };
+}
+
+function bookingChangeForm(e){
+  if(!e) return;
+  const held = pendingChangeFor(e.id);
+  if(held){
+    UI.toast('A change to this booking is already waiting for the admin.', 'bad');
+    return;
+  }
+  const { CENTERS, labelOf, coursesAt } = coursePickers();
+  const t = T(e.traineeId);
+
+  /* The three the office asked for — plus whatever this booking already is, if
+     it is something else. A dropdown that cannot express the current value is a
+     dropdown that silently changes it the moment anything else is edited. */
+  const states = BOOKING_STATES.includes(e.status)
+    ? BOOKING_STATES : BOOKING_STATES.concat(e.status || []);
+
+  const startCenter = centerOf({ center:e.center });
+
+  UI.modal({
+    title:'Request a change to this booking',
+    sub:`${e.no} · ${name(t)} — an admin has to approve it before it takes effect`,
+    wide:true,
+    submitLabel:'Send for approval',
+    body:`
+      ${UI.row(
+        UI.f.select('center','Training center', startCenter, CENTERS.map(c => ({ v:c, l:c })),
+          { req:true }),
+        UI.f.select('courseId','Course', e.courseId, [], { req:true }))}
+      ${UI.row(UI.f.date('start','Training starts', e.start || '', { req:true }),
+               UI.f.date('end','Training ends', e.end || '', { req:true }))}
+      ${UI.f.select('status','Booking', e.status, states.map(s => ({ v:s, l:s })), { req:true })}
+      ${UI.f.area('reason','Why is it changing?', '',
+        { req:true, ph:'e.g. the center moved the run to the following week' })}
+      <div class="note" id="chgNote" style="margin:10px 0 0"></div>`,
+    onSubmit: fd => {
+      if(!fd.reason || !String(fd.reason).trim()){
+        UI.toast('Say why it is changing — the admin approves the reason, not just the dates.', 'bad');
+        return false;
+      }
+      if(fd.end && fd.start && fd.end < fd.start){
+        UI.toast('The end date cannot fall before the start date.', 'bad'); return false;
+      }
+      const to = { center:fd.center === NO_CENTER ? '' : fd.center, courseId:fd.courseId,
+                   start:fd.start, end:fd.end, status:fd.status };
+      const was = {}; CHANGE_FIELDS.forEach(f => { was[f.k] = e[f.k]; });
+      if(CHANGE_FIELDS.every(f => same(was[f.k], to[f.k]))){
+        UI.toast('Nothing on the booking is different — there is nothing to approve.', 'bad');
+        return false;
+      }
+      D().changes.push({
+        id:DB.uid('chg'), no:DB.nextNo('change','CHG'),
+        enrollmentId:e.id, traineeId:e.traineeId,
+        date:DB.today(), raisedBy:SESSION.name,
+        was, to, reason:String(fd.reason).trim(), state:'Pending',
+      });
+      DB.save();
+      DB.activity('Asked to change a booking', e.no);
+      UI.toast(`Sent for approval — ${e.no} stays as it is until an admin signs it.`);
+      refresh();
+    },
+  });
+
+  const form = document.getElementById('mForm');
+  const fillCourses = () => {
+    const list = coursesAt(form.center.value);
+    form.courseId.innerHTML = '<option value="">— select course —</option>'
+      + list.map(c => `<option value="${UI.esc(c.id)}" ${c.id === e.courseId ? 'selected' : ''}>${UI.esc(labelOf(c))}</option>`).join('');
+    note();
+  };
+  /* Said in front of the person raising it, not discovered by the admin later:
+     a different course is usually a different price, and the bill already sent
+     does not move on its own. */
+  const note = () => {
+    const c = CRS(form.courseId.value);
+    const box = document.getElementById('chgNote');
+    if(!c || c.id === e.courseId){ box.textContent = ''; box.style.display = 'none'; return; }
+    box.style.display = '';
+    const was = ACC.r2(e.fee || 0), next = ACC.r2(c.amount || 0);
+    box.innerHTML = same(was, next)
+      ? `${UI.esc(c.title)} costs the same ${UI.peso(next)} — the bill does not change.`
+      : `<b>The bill will not follow this by itself.</b> ${UI.esc(c.title)} is on the price list at
+         ${UI.peso(next)}; this booking was billed ${UI.peso(was)}. Approving the change corrects the
+         booking only — someone has to revise or reissue the bill.`;
+  };
+  form.center.onchange = fillCourses;
+  form.courseId.onchange = note;
+  fillCourses();
+}
+
+function changePanel(rows, opts){
+  opts = opts || {};
+  if(!rows.length) return '';
+  return UI.card(opts.title || 'Booking Changes Waiting For Approval', UI.table([
+    { h:'Request', k:c => `<b class="mono">${UI.esc(c.no)}</b><br>
+        <span class="muted" style="font-size:11.5px">${UI.esc((ENR(c.enrollmentId)||{}).no || '—')}</span>`, w:'135px' },
+    { h:'Trainee', k:c => UI.esc(name(T(c.traineeId))) },
+    { h:'What changes', k:c => changeLines(c).join('<br>') || '<span class="muted">nothing</span>' },
+    { h:'Why', k:c => UI.esc(c.reason || '—') },
+    { h:'Asked by', k:c => `${UI.esc(c.raisedBy || '—')}<br>
+        <span class="muted" style="font-size:11.5px">${UI.date(c.date)}</span>` },
+    { h:'', k:c => {
+        const gap = feeGap(c);
+        const warn = gap
+          ? `<div class="muted" style="font-size:11.5px;margin-bottom:4px">billed ${UI.peso(gap.was)},
+             price list says ${UI.peso(gap.next)} — the bill is not changed</div>` : '';
+        return warn + (canApprove()
+          ? `<button class="btn btn-accent btn-xs" data-act="approve-change" data-id="${c.id}">Approve</button>
+             <button class="btn btn-ghost btn-xs" data-act="reject-change" data-id="${c.id}">Reject</button>`
+          : '<span class="muted">the admin decides</span>'); }, w:'210px' },
+  ], rows), { flush:true,
+      sub:opts.sub || 'The booking stays exactly as it is until one of these is signed' })
+    + '<div style="height:18px"></div>';
+}
+
+function approveChange(id, ok, note){
+  const ch = D().changes.find(x => x.id === id);
+  if(!ch) return;
+  if(ch.state !== 'Pending'){ UI.toast('That request has already been decided.', 'bad'); return; }
+  if(!canApprove()){ UI.toast('Only an admin can approve a change to a booking.', 'bad'); return; }
+
+  const e = ENR(ch.enrollmentId);
+  if(!e){ UI.toast('That booking is no longer on file.', 'bad'); return; }
+
+  /* The same two-pairs-of-eyes rule the money goes through, and it only bites
+     where there is a second pair to be had. */
+  const approvers = D().users.filter(u => (DB.PERMS[u.role] || []).includes('approvals'));
+  const selfApproving = ch.raisedBy && SESSION && ch.raisedBy === SESSION.name;
+  if(ok && selfApproving && approvers.length > 1){
+    UI.toast('Somebody other than the person who asked for it has to approve it.', 'bad');
+    return;
+  }
+
+  if(!ok){
+    ch.state = 'Rejected';
+    ch.decidedBy = SESSION.name; ch.decidedOn = DB.today(); ch.decisionNote = note || '';
+    DB.save();
+    DB.activity('Rejected a booking change', e.no);
+    UI.toast(`Rejected — ${e.no} is unchanged.`);
+    refresh();
+    return;
+  }
+
+  /* Raised against a booking that has moved since. Writing the request on top
+     of it now would quietly undo whatever happened in between, and the person
+     who did that would never be told. */
+  const drifted = CHANGE_FIELDS.filter(f => !same(e[f.k], ch.was[f.k]));
+  if(drifted.length){
+    UI.toast('This booking has changed since the request was raised ('
+      + drifted.map(f => f.h.toLowerCase()).join(', ')
+      + '). Reject it and raise it again against how it stands now.', 'bad');
+    return;
+  }
+
+  const gap = feeGap(ch);
+  CHANGE_FIELDS.forEach(f => { e[f.k] = ch.to[f.k]; });
+  ch.state = 'Approved';
+  ch.approvedBy = SESSION.name; ch.approvedOn = DB.today();
+  ch.selfApproved = !!selfApproving;
+  DB.save();
+  DB.activity('Approved a booking change',
+    e.no + ' · ' + changeLines(ch).join('; ').replace(/<\/?b>/g, ''));
+  UI.toast(gap
+    ? `${e.no} updated. The bill still reads ${UI.peso(gap.was)} — revise it if it should say ${UI.peso(gap.next)}.`
+    : `${e.no} updated.`, gap ? 'warn' : '');
+  refresh();
+}
+
 function enrollmentForm(existing, presetTrainee){
   const roster = D().trainees.slice().sort((a,b) => a.last.localeCompare(b.last));
   if(!roster.length){ UI.toast('Register the trainee first — the registry is empty.', 'bad'); return; }
@@ -2807,6 +3064,8 @@ function enrollmentForm(existing, presetTrainee){
   const seenPair = {}, sameTwice = new Set();
   active.forEach(c => { const k = c.title + '@' + c.center;
     if(seenPair[k]) sameTwice.add(k); else seenPair[k] = 1; });
+
+  const { CENTERS, labelOf, coursesAt } = coursePickers();
 
   const body = `
     ${UI.f.select('traineeId','Trainee', presetTrainee || '', roster
@@ -2821,13 +3080,11 @@ function enrollmentForm(existing, presetTrainee){
       Not on the list? <a href="#" data-act="new-trainee-here">Register a new trainee</a> first.</p>
 
     <h4 style="margin:0 0 8px;font-size:13px">Course And Training Date</h4>
-    ${UI.f.select('courseId','Course', '', active
-        .map(c => ({ v:c.id, l:`${c.title}${c.center ? ' — ' + c.center : ''}`
-          /* A center can run the same course two ways — face to face and
-             blended, at different prices. Without the delivery those two read
-             as the same line and the desk picks whichever comes first. */
-          + (sameTwice.has(c.title + '@' + c.center) ? ` · ${c.modes.join(' + ')}` : '') })),
-        { req:true, blank:'— select course —' })}
+    ${UI.row(
+      UI.f.select('centerPick','Training center', '', CENTERS.map(c => ({ v:c, l:c })),
+        { req:true, blank:'— select training center —' }),
+      UI.f.select('courseId','Course', '', [],
+        { req:true, blank:'— choose the training center first —' }))}
     ${UI.row(UI.f.date('start','Training starts', DB.today(), { req:true }),
              UI.f.date('end','Training ends', '', { req:true,
                hint:'filled from the course length — change it if the run is longer' }))}
@@ -2888,9 +3145,27 @@ ${addons().map((a,i) => `
      it runs at and the amount, less the rebate when the rebate is one that gets
      deducted. Both stay editable: the list is the usual price, not the only one. */
   form.end.onchange = () => { form.end.dataset.touched = '1'; fillEnd(); };
+
+  /* The course box is filled from whichever center is showing, and emptied
+     when none is. It starts disabled rather than empty-and-clickable: an
+     enabled box with nothing in it reads as a catalogue that failed to load. */
+  const fillCourses = () => {
+    const ctr = form.centerPick.value;
+    const list = ctr ? coursesAt(ctr) : [];
+    form.courseId.innerHTML =
+      `<option value="">${ctr ? '— select course —' : '— choose the training center first —'}</option>`
+      + list.map(c => `<option value="${UI.esc(c.id)}">${UI.esc(labelOf(c))}</option>`).join('');
+    form.courseId.disabled = !ctr;
+  };
+  form.centerPick.onchange = () => { fillCourses(); form.courseId.onchange(); };
+  fillCourses();
+
   form.courseId.onchange = () => {
     const c = CRS(form.courseId.value);
-    if(!c) return;
+    /* Changing the center clears the course under it, and the fee has to go
+       with it. Leaving the last course's price sitting in the box is how a
+       booking gets billed at another center's rate. */
+    if(!c){ form.fee.value = '0.00'; fillEnd(); recalc(); return; }
     /* The trainee pays the course amount. The rebate is settled between us
        and the center and never reaches this figure. */
     /* Always the list price. The desk does not negotiate here — a different
@@ -3872,6 +4147,14 @@ document.addEventListener('click', ev => {
                        UI.confirm('Reject this document?', fd => approveDoc(k, i, false, fd.reason),
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
+    'change-booking':() => { ev.stopPropagation(); bookingChangeForm(ENR(id)); },
+    'approve-change':() => UI.confirm('Approve this change to the booking?',
+                       () => approveChange(id, true),
+                       { yes:'Approve the change',
+                         detail:'The booking is corrected now. Any bill already raised against it is not touched.' }),
+    'reject-change': () => UI.confirm('Reject this change?', fd => approveChange(id, false, fd.reason),
+                       { danger:true, reason:true, yes:'Reject',
+                         detail:'The booking stays exactly as it is. The request stays on file marked rejected.' }),
     'pay-center':    () => centerVoucherForm(id),
     'paya-only':     () => { state.q.payaCenter = id; render(); },
     'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },

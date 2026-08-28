@@ -891,6 +891,41 @@ check('the row id the server made is never sent back', () => {
 check('the log is append only — nothing is updated or deleted', () =>
   run('SYNC.MAP.log.insertOnly') === true || 'the log could be rewritten');
 
+/* ---------- a correction to a booking ----------
+   Registration raises it on one machine and the admin signs it on another, so
+   if it does not reach the server the approval step is theatre. */
+console.log('\n- a booking correction reaches the admin -');
+{
+  check('a change request has a column for every field it carries', () => {
+    try{ run('SYNC.toRow("changes",' + "{\"id\":\"chg1\",\"no\":\"CHG-2026-0001\",\"enrollmentId\":\"e1\",\"traineeId\":\"t1\",\"date\":\"2026-08-28\",\"raisedBy\":\"Jocelyn\",\"was\":{\"center\":\"PNTC\",\"courseId\":\"c1\",\"start\":\"2026-09-01\",\"end\":\"2026-09-05\",\"status\":\"Enrolled\"},\"to\":{\"center\":\"MARIANA\",\"courseId\":\"c2\",\"start\":\"2026-09-08\",\"end\":\"2026-09-12\",\"status\":\"On Process\"},\"reason\":\"the center moved the run to the following week\",\"state\":\"Pending\",\"approvedBy\":\"\",\"approvedOn\":\"\",\"decidedBy\":\"\",\"decidedOn\":\"\",\"decisionNote\":\"\",\"selfApproved\":false}" + ')'); return true; }
+    catch(e){ return e.message; }
+  });
+
+  check('the before and after avoid the words Postgres has taken', () => {
+    const r = run('SYNC.toRow("changes",' + "{\"id\":\"chg1\",\"no\":\"CHG-2026-0001\",\"enrollmentId\":\"e1\",\"traineeId\":\"t1\",\"date\":\"2026-08-28\",\"raisedBy\":\"Jocelyn\",\"was\":{\"center\":\"PNTC\",\"courseId\":\"c1\",\"start\":\"2026-09-01\",\"end\":\"2026-09-05\",\"status\":\"Enrolled\"},\"to\":{\"center\":\"MARIANA\",\"courseId\":\"c2\",\"start\":\"2026-09-08\",\"end\":\"2026-09-12\",\"status\":\"On Process\"},\"reason\":\"the center moved the run to the following week\",\"state\":\"Pending\",\"approvedBy\":\"\",\"approvedOn\":\"\",\"decidedBy\":\"\",\"decidedOn\":\"\",\"decisionNote\":\"\",\"selfApproved\":false}" + ')');
+    return (r.was_state && r.to_state && !('to' in r) && !('was' in r))
+      || 'sent ' + Object.keys(r).join(',');
+  });
+
+  /* An undecided request carries empty strings where the decision will go, and
+     a date column will not take an empty string for an answer. */
+  check('an undecided request sends no empty date', () => {
+    const r = run('SYNC.toRow("changes",' + "{\"id\":\"chg1\",\"no\":\"CHG-2026-0001\",\"enrollmentId\":\"e1\",\"traineeId\":\"t1\",\"date\":\"2026-08-28\",\"raisedBy\":\"Jocelyn\",\"was\":{\"center\":\"PNTC\",\"courseId\":\"c1\",\"start\":\"2026-09-01\",\"end\":\"2026-09-05\",\"status\":\"Enrolled\"},\"to\":{\"center\":\"MARIANA\",\"courseId\":\"c2\",\"start\":\"2026-09-08\",\"end\":\"2026-09-12\",\"status\":\"On Process\"},\"reason\":\"the center moved the run to the following week\",\"state\":\"Pending\",\"approvedBy\":\"\",\"approvedOn\":\"\",\"decidedBy\":\"\",\"decidedOn\":\"\",\"decisionNote\":\"\",\"selfApproved\":false}" + ')');
+    return (r.approved_on === null && r.decided_on === null)
+      || 'approved_on=' + JSON.stringify(r.approved_on) + ' decided_on=' + JSON.stringify(r.decided_on);
+  });
+
+  check('a request is written once and only its decision is patched', () =>
+    (run('SYNC.MAP.changes.insertOnly') === true
+      && run('SYNC.MAP.changes.patchOnly').indexOf('state') >= 0)
+    || 'a correction already approved could be rewritten into one nobody signed');
+
+  check('a store written before corrections existed still opens', () => {
+    run('DB.reset(true)');
+    return Array.isArray(run('DB.get().changes')) || 'no place to keep them';
+  });
+}
+
 /* migrate() fills in company, course and account defaults on every load, so
    those three always look changed — and the front desk, who has no Courses
    screen and no Settings screen, was having its first save refused for a table
