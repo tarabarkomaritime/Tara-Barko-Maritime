@@ -106,6 +106,16 @@ const SYNC = (() => {
       cols:['at','who','action','reference'],
       drop:['id'],
     },
+    /* One row per day. adminOnly here matches the policy on the table rather
+       than replacing it: the cashier's browser does not try to write a count,
+       and the server would refuse it if it did. */
+    cashCounts:{
+      table:'cash_counts', adminOnly:true,
+      keyOf:r => String(r.date),
+      rename:{ date:'on_date' },
+      cols:['on_date','opening','closing','note','counted_by'],
+      blankToNull:['opening','closing'],
+    },
     applications:{
       table:'registrations', key:'id',
       rename:{ submitted:'submitted_at' },

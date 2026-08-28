@@ -269,7 +269,7 @@ const DB = (() => {
       users:USERS.map(u => ({...u})),
       accounts:COA.map(a => ({...a})),
       seq:{ trainee:0, course:0, enrollment:0, invoice:0, receipt:0, voucher:0, refund:0, journal:0, application:0 },
-      applications:[],
+      applications:[], cashCounts:[],
       trainees:[], courses:[], enrollments:[],
       invoices:[], payments:[], expenses:[], refunds:[], journal:[],
       log:[],
@@ -280,6 +280,7 @@ const DB = (() => {
      collection gets a default here rather than a version-bump migration script. */
   function migrate(d){
     d.applications = d.applications || [];
+    d.cashCounts   = d.cashCounts || [];
     /* Staff added since a store was written. A code the office has already
        changed is left alone — this fills gaps, it does not reset anybody: an
        upgrade that quietly restored a temporary password would be a way in that

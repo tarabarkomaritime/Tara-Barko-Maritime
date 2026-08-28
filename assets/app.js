@@ -1917,6 +1917,55 @@ function refundForm(traineeId){
 
    What is still waiting is shown at the bottom, clearly outside the totals, so
    the day is not read as complete when three vouchers are sitting unsigned. */
+/* What the drawer held, counted by hand, against what the books say it should
+   have held. The system can only ever compute the second — a till that is two
+   hundred pesos short is a fact about the room, not about the arithmetic, and
+   the difference between the two figures is the only reason to count at all. */
+const cashCountFor = on => (D().cashCounts || []).find(c => c.date === on) || null;
+
+function cashCountRows(on, openingBalance, cashIn, cashOut){
+  const c = cashCountFor(on);
+  const expected = ACC.r2(openingBalance + cashIn - cashOut);
+  const counted = c && c.closing != null && c.closing !== '' ? ACC.r2(Number(c.closing)) : null;
+  return {
+    count:c,
+    opening: c && c.opening != null && c.opening !== '' ? ACC.r2(Number(c.opening)) : null,
+    openingBooks:ACC.r2(openingBalance),
+    cashIn, cashOut, expected, counted,
+    over: counted == null ? null : ACC.r2(counted - expected),
+  };
+}
+
+function cashCountForm(on){
+  if(!canApprove()) return UI.toast('Only an admin records the cash count.', 'bad');
+  const c = cashCountFor(on) || { date:on, opening:'', closing:'', note:'' };
+  UI.modal({
+    title:'Cash count — ' + UI.date(on),
+    sub:'What was actually in the drawer',
+    body:`
+      ${UI.row(UI.f.num('opening','Opening (counted)', c.opening, { min:0, step:'0.01',
+                 hint:'in the drawer before the first receipt' }),
+               UI.f.num('closing','Closing (counted)', c.closing, { min:0, step:'0.01',
+                 hint:'after the last one' }))}
+      ${UI.f.area('note','Note', c.note || '')}
+      <div class="note">Leave a box empty if it has not been counted yet. The system works out
+        what the drawer <i>should</i> hold; this is what it actually held, and the difference
+        is what the day is short or over.</div>`,
+    submitLabel:'Save the count',
+    onSubmit: fd => {
+      const num = v => String(v).trim() === '' ? '' : ACC.r2(Number(v));
+      const rec = D().cashCounts.find(x => x.date === on);
+      const next = { date:on, opening:num(fd.opening), closing:num(fd.closing),
+                     note:(fd.note || '').trim(), countedBy:(SESSION && SESSION.name) || '' };
+      if(rec) Object.assign(rec, next); else D().cashCounts.push(next);
+      DB.activity('Recorded the cash count', UI.date(on));
+      DB.save();
+      UI.toast('Cash count saved.');
+      refresh();
+    }
+  });
+}
+
 VIEWS.daily = () => {
   const d = D();
   const on = state.q.day || DB.today();
@@ -2008,6 +2057,55 @@ VIEWS.daily = () => {
         UI.kpi('Cash on hand', UI.peso(bal(ACC.methods()[0].account)),
                `${UI.peso(ACC.r2(inBy[ACC.methods()[0].name] || 0))} taken in cash today`, '')}
     </div>
+
+    ${(() => {
+      /* The drawer at the start of the day is the drawer at the end of the one
+         before, which the ledger already knows. */
+      const cashAcct = ACC.methods()[0].account;
+      const prev = new Date(on + 'T00:00:00'); prev.setDate(prev.getDate() - 1);
+      const yesterday = prev.toISOString().slice(0, 10);
+      const ytb = ACC.trialBalance(yesterday);
+      const openingBooks = (ytb.rows.find(r => r.code === cashAcct) || { balance:0 }).balance;
+      const cashIn  = ACC.r2(inBy[ACC.methods()[0].name] || 0);
+      const cashOut = ACC.r2(outBy[ACC.methods()[0].name] || 0);
+      const c = cashCountRows(on, openingBooks, cashIn, cashOut);
+      const money = v => v == null ? '<span class="muted">not counted</span>' : UI.num(v);
+
+      const rows = [
+        { k:'Opening — what the books carried forward', v:UI.num(c.openingBooks), muted:true },
+        { k:'Opening — counted in the drawer',          v:money(c.opening) },
+        { k:'Cash received today',                      v:UI.num(c.cashIn), muted:true },
+        { k:'Cash paid out today',                      v:'(' + UI.num(c.cashOut) + ')', muted:true },
+        { k:'Closing — what the drawer should hold',    v:UI.num(c.expected), strong:true },
+        { k:'Closing — counted in the drawer',          v:money(c.counted) },
+      ];
+      const variance = c.over == null ? '' :
+        `<div class="note ${Math.abs(c.over) < 0.005 ? 'ok' : 'bad'}" style="margin:12px 0 0">
+           ${Math.abs(c.over) < 0.005
+             ? '<b>The drawer balances.</b> Counted and expected agree to the peso.'
+             : '<b>' + UI.peso(Math.abs(c.over)) + (c.over > 0 ? ' over' : ' short') + '.</b> '
+               + 'The drawer holds ' + (c.over > 0 ? 'more' : 'less') + ' than the day\'s receipts and '
+               + 'payments account for. Worth finding before tomorrow.'}
+         </div>`;
+
+      return UI.card('Cash On Hand', `<table class="tbl"><tbody>
+          ${rows.map(r => `<tr>
+            <td${r.muted ? ' class="muted"' : (r.strong ? ' style="font-weight:600"' : '')}>${r.k}</td>
+            <td class="num"${r.strong ? ' style="font-weight:600"' : ''}>${r.v}</td></tr>`).join('')}
+        </tbody></table>${variance}
+        ${c.count && c.count.note ? `<div class="note" style="margin-top:10px">${UI.esc(c.count.note)}</div>` : ''}
+        ${c.count && c.count.countedBy ? `<p class="muted" style="margin:8px 0 0;font-size:11.5px">
+           Counted by ${UI.esc(c.count.countedBy)}</p>` : ''}`,
+        { flush:true,
+          sub:'Counted by hand, against what the day\'s receipts and payments say it should be',
+          /* The cashier reads it; the admin records it. Hiding the button is
+             the courtesy — the table on the server is what actually refuses. */
+          actions:canApprove()
+            ? `<button class="btn btn-ghost btn-xs" data-act="cash-count" data-id="${on}">
+                 ${c.count ? 'Edit the count' : 'Record the count'}</button>`
+            : '<span class="muted" style="font-size:11.5px">recorded by the admin</span>' })
+        + '<div style="height:18px"></div>';
+    })()}
 
     ${UI.card('Money By Channel', UI.table([
       { h:'Channel', k:r => `<b>${UI.esc(r.label)}</b>` },
@@ -3761,6 +3859,7 @@ document.addEventListener('click', ev => {
                         UI.close();
                         refresh(); },
     'edit-categories':() => categoriesForm(),
+    'cash-count':    () => cashCountForm(id),
     'my-password':   () => myPasswordForm(),
     'new-user':      () => userForm(),
     'edit-user':     () => userForm(rosterRows().find(u => String(u.email).toLowerCase() === String(id).toLowerCase())),
