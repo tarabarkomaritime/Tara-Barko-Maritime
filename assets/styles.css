@@ -248,6 +248,11 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
 .toolbar input,.toolbar select{width:auto;min-width:150px}
 .toolbar .spacer{flex:1}
+/* A search box that takes whatever room is left over. The override is needed
+   because .toolbar input pins every control to one width, which is right for a
+   date and wrong for a name: the other fields hold eight characters and this
+   one holds somebody's full name and the company that sent them. */
+.toolbar .grow{flex:1 1 320px;min-width:240px}
 
 /* ---------- Modal ---------- */
 .modal-backdrop{position:fixed;inset:0;background:rgba(10,28,51,.55);display:grid;place-items:center;padding:20px;z-index:100;overflow-y:auto}

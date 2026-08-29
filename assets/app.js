@@ -729,9 +729,16 @@ VIEWS.trainees = () => {
     : `between ${UI.date(from)} and ${UI.date(to)}`;
 
   return `
+    <!-- Searching and filtering are two different jobs and the office does far
+         more of the first, so the search gets a line to itself and the width
+         that comes with it. A name and a company do not fit in the gap left
+         beside two date boxes. -->
+    <div class="toolbar" style="margin-bottom:8px">
+      <input type="search" data-q="trainee" class="grow" value="${UI.esc(state.q.trainee||'')}"
+             placeholder="Search name, SRN, company or mobile…">
+      <button class="btn btn-primary btn-sm" data-act="new-trainee">+ Register trainee</button>
+    </div>
     <div class="toolbar">
-      <input type="search" data-q="trainee" value="${UI.esc(state.q.trainee||'')}"
-             placeholder="Search name, SRN, company or mobile…" style="min-width:280px">
       <label class="fld" style="margin:0">
         <span>Signed up from</span>
         <input type="date" data-q="tfrom" value="${from}" max="${DB.today()}" ${q ? 'disabled' : ''}>
@@ -743,8 +750,6 @@ VIEWS.trainees = () => {
       <span class="muted">${q
         ? `${rows.length} match(es) across all ${all.length} record(s)`
         : `${rows.length} signed up ${spanLabel}`}</span>
-      <span class="spacer"></span>
-      <button class="btn btn-primary btn-sm" data-act="new-trainee">+ Register trainee</button>
     </div>
     ${UI.card('', UI.table([
       { h:'Trainee No.', k:t => `<span class="mono">${UI.esc(t.no)}</span>`, w:'130px' },
