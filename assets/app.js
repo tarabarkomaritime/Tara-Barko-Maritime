@@ -1757,8 +1757,6 @@ function approveDoc(kind, id, ok, note){
      bites when somebody else could actually do it — and self-approval is
      stamped as such either way, so the audit trail says what happened. */
   const selfApproving = rec.raisedBy && SESSION && rec.raisedBy === SESSION.name;
-  const blocked = ok && secondPairOfEyes(rec.raisedBy);
-  if(blocked){ UI.toast(blocked, 'bad'); return; }
 
   if(!ok){
     rec.state = 'Rejected';
@@ -3015,11 +3013,18 @@ function bookingChangeForm(e){
 
   const startCenter = centerOf({ center:e.center });
 
+  /* The admin is not asking anybody. Same form, same record, same reason
+     written down — what differs is only whether it waits, and for the admin
+     there is nobody it could be waiting on. */
+  const direct = canApprove();
+
   UI.modal({
-    title:'Request a change to this booking',
-    sub:`${e.no} · ${name(t)} — an admin has to approve it before it takes effect`,
+    title:direct ? 'Change this booking' : 'Request a change to this booking',
+    sub:direct
+      ? `${e.no} · ${name(t)}`
+      : `${e.no} · ${name(t)} — an admin has to approve it before it takes effect`,
     wide:true,
-    submitLabel:'Send for approval',
+    submitLabel:direct ? 'Save the change' : 'Send for approval',
     body:`
       ${UI.row(
         UI.f.select('center','Training center', startCenter, CENTERS.map(c => ({ v:c, l:c })),
@@ -3032,8 +3037,13 @@ function bookingChangeForm(e){
         { req:true, ph:'e.g. the center moved the run to the following week' })}
       <div class="note" id="chgNote" style="margin:10px 0 0"></div>`,
     onSubmit: fd => {
+      /* Still required of the admin. Nobody approves it, but somebody reads it
+         a month later wondering why the dates moved, and by then the reason is
+         the only part nobody can reconstruct. */
       if(!fd.reason || !String(fd.reason).trim()){
-        UI.toast('Say why it is changing — the admin approves the reason, not just the dates.', 'bad');
+        UI.toast(direct
+          ? 'Say why it is changing — it goes on the record.'
+          : 'Say why it is changing — the admin approves the reason, not just the dates.', 'bad');
         return false;
       }
       if(fd.end && fd.start && fd.end < fd.start){
@@ -3046,12 +3056,24 @@ function bookingChangeForm(e){
         UI.toast('Nothing on the booking is different — there is nothing to approve.', 'bad');
         return false;
       }
-      D().changes.push({
-        id:DB.uid('chg'), no:DB.nextNo('change','CHG'),
+      const rec = {
+        id:DB.uid('chg'), no:DB.nextNo('change','CHG'), kind:'edit',
         enrollmentId:e.id, traineeId:e.traineeId,
         date:DB.today(), raisedBy:SESSION.name,
         was, to, reason:String(fd.reason).trim(), state:'Pending',
-      });
+      };
+      D().changes.push(rec);
+
+      /* The admin's own change goes straight through the same door it would
+         have queued at. Writing the request first and approving it in the next
+         breath is deliberate: the booking is corrected by exactly one piece of
+         code, so the drift check and the warning about the bill apply to the
+         admin as much as to anybody, and the file shows what was changed and
+         why rather than a booking that silently reads differently today. */
+      if(direct){
+        approveChange(rec.id, true);
+        return;
+      }
       DB.save();
       DB.activity('Asked to change a booking', e.no);
       UI.toast(`Sent for approval — ${e.no} stays as it is until an admin signs it.`);
@@ -3114,30 +3136,19 @@ function changePanel(rows, opts){
     + '<div style="height:18px"></div>';
 }
 
-/* Who else could sign this. Not simply "everyone with the permission" — an
-   entry left on the roster for an account that no longer exists is not a second
-   pair of eyes, it is a deadlock: the rule below would hold a request open
-   forever, waiting on somebody who cannot open the system to come and look at
-   it. Deactivated staff are excluded for the same reason.
+/* There is no countersignature. An admin's own hand is the signature here, on
+   their own documents as much as on anybody else's — which is the office the
+   owner actually runs, with one admin in it.
 
-   Naming them matters as much as counting them. "Somebody other than you has to
-   approve it" is a dead end; "ask Kate" is an instruction, and on the day the
-   only name it can offer is somebody who has left, that tells the office
-   exactly what is wrong. */
-function otherApprovers(raisedBy){
-  return D().users.filter(u =>
-    u.active !== false
-    && (DB.PERMS[u.role] || []).includes('approvals')
-    && u.name !== raisedBy);
-}
+   The control that remains is the record rather than the block: a document
+   approved by the person who raised it is stamped selfApproved and reads that
+   way on the Recently Decided list, so the audit trail still says plainly who
+   did both halves. What is gone is the refusal, which in a one-admin office
+   protected nothing and stopped everything.
 
-function secondPairOfEyes(raisedBy){
-  if(!raisedBy || !SESSION || raisedBy !== SESSION.name) return '';
-  const others = otherApprovers(raisedBy);
-  if(!others.length) return '';
-  return 'You asked for this one, so somebody else has to approve it — '
-    + others.map(u => u.name).join(' or ') + ' can.';
-}
+   Written down because it is a real loosening and not an oversight: the usual
+   reason to separate raising from approving is that money leaves on a single
+   person's say-so, and here it now does. */
 
 function approveChange(id, ok, note){
   const ch = D().changes.find(x => x.id === id);
@@ -3148,11 +3159,7 @@ function approveChange(id, ok, note){
   const e = ENR(ch.enrollmentId);
   if(!e){ UI.toast('That booking is no longer on file.', 'bad'); return; }
 
-  /* The same two-pairs-of-eyes rule the money goes through, and it only bites
-     where there is a second pair to be had. */
   const selfApproving = ch.raisedBy && SESSION && ch.raisedBy === SESSION.name;
-  const blocked = ok && secondPairOfEyes(ch.raisedBy);
-  if(blocked){ UI.toast(blocked, 'bad'); return; }
 
   if(!ok){
     ch.state = 'Rejected';
