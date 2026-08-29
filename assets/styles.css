@@ -385,6 +385,21 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
   transition:background .18s ease, color .18s ease;
 }
 #saveState:empty{ display:none }
+
+/* Not a pill either. Running yesterday's code against today's database is the
+   fault that looks like every other fault, so it says so plainly and gives the
+   one button that fixes it. */
+#newBuild{
+  position:fixed; left:0; right:0; bottom:0; z-index:9999;
+  display:flex; gap:12px; align-items:center; justify-content:center;
+  padding:11px 16px; background:#0d3b66; color:#fff;
+  font:500 13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;
+  box-shadow:0 -2px 14px rgba(0,0,0,.28);
+}
+#newBuild button{
+  background:#fff; color:#0d3b66; border:none; border-radius:6px;
+  padding:6px 14px; font:700 12.5px/1 inherit; cursor:pointer;
+}
 .save-ok  { background:rgba(22,140,90,.12);  color:#12805a; border:1px solid rgba(22,140,90,.28) }
 .save-work{ background:rgba(190,140,20,.14); color:#8a6410; border:1px solid rgba(190,140,20,.30) }
 /* Not a pill. If the work is not saved that should be hard to look past. */

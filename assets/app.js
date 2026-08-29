@@ -490,6 +490,59 @@ function initIdleTimeout(){
   }, 5000);
 }
 
+/* ---------- the tab that has been open since this morning ----------
+   Fingerprinting the asset URLs fixed the browser serving a stale script on
+   reload. It does nothing for a page that never reloads, and the office does
+   not reload: the system is opened when the door opens and left up until it
+   closes. So every fault fixed during the day was still sitting on their screen
+   afterwards, and three separate rounds went on proving a bug that had already
+   been gone for hours — the last one arguing about a message that no longer
+   existed in the code.
+
+   The page knows which build it is; the fingerprint is on its own script tag.
+   It asks the server what the current one is and says so when they differ. It
+   does not reload by itself: doing that under somebody mid-way through encoding
+   a booking would lose the form they were filling in, which is a worse fault
+   than the one it is fixing. */
+const MY_BUILD = (() => {
+  const el = document.querySelector('script[src*="assets/app.js"]');
+  const m = el && String(el.getAttribute('src') || '').match(/[?&]v=([^&"]+)/);
+  return m ? m[1] : '';
+})();
+
+function initBuildWatch(){
+  if(!MY_BUILD) return;          /* served unstamped — nothing to compare against */
+  let told = false;
+
+  const announce = () => {
+    if(told) return;
+    told = true;
+    const bar = document.createElement('div');
+    bar.id = 'newBuild';
+    bar.innerHTML = '<span>A newer version of the system is ready. '
+      + 'This tab is still running the one it opened with.</span>'
+      + '<button type="button">Reload now</button>';
+    bar.querySelector('button').onclick = () => location.reload();
+    document.body.appendChild(bar);
+  };
+
+  const look = async () => {
+    if(told || document.hidden) return;
+    try{
+      const r = await fetch('index.html', { cache:'no-store' });
+      if(!r.ok) return;
+      const m = (await r.text()).match(/assets\/app\.js\?v=([A-Za-z0-9]+)/);
+      if(m && m[1] !== MY_BUILD) announce();
+    }catch(e){ /* offline, or the deploy is mid-flight. Ask again later. */ }
+  };
+
+  /* Twice an hour, and whenever somebody comes back to the tab — which is when
+     they are about to do something, and the moment worth catching them. */
+  setInterval(look, 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) look(); });
+  setTimeout(look, 20 * 1000);
+}
+
 function initSaveState(){
   const bar = document.createElement('div');
   bar.id = 'saveState';
@@ -4427,3 +4480,4 @@ DB.load();
 initLogin();
 initSaveState();
 initIdleTimeout();
+initBuildWatch();

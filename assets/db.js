@@ -288,11 +288,38 @@ const DB = (() => {
        upgrade that quietly restored a temporary password would be a way in that
        nobody knew was open. */
     if(Array.isArray(d.users)){
+      /* Matched on the address, not on the seed's own id.
+         The seed calls Kyla u1 and Kate u4. The server calls them by their
+         Supabase uid, and signing in replaces this list with the server's. So
+         on the next load nothing here had id u4 any more, a second Kate was
+         added back, and the load after that found the same gap again. The
+         office ended up with every member of staff listed twice — which is why
+         a message naming who else could approve read "Kate Esguerra or Kate
+         Esguerra". The email is the one identity both halves agree on. */
+      const samePerson = (a, b) => {
+        const ae = String(a.email || '').toLowerCase();
+        const be = String(b.email || '').toLowerCase();
+        return a.id === b.id || (!!ae && ae === be);
+      };
       USERS.forEach(seedUser => {
-        const mine = d.users.find(u => u.id === seedUser.id);
+        const mine = d.users.find(u => samePerson(u, seedUser));
         if(!mine){ d.users.push({ ...seedUser }); return; }
         if(!mine.email && seedUser.email) mine.email = seedUser.email;
       });
+
+      /* The stores that already collected the duplicates keep them until
+         something takes them out. Where there are two rows for one address the
+         server's wins: it carries the id the staff table actually uses, and the
+         placeholder's id matches nobody. */
+      const seedIds = new Set(USERS.map(u => u.id));
+      const keep = [], at = {};
+      d.users.forEach(u => {
+        const key = String(u.email || '').toLowerCase();
+        if(!key){ keep.push(u); return; }
+        if(!(key in at)){ at[key] = keep.length; keep.push(u); return; }
+        if(seedIds.has(keep[at[key]].id) && !seedIds.has(u.id)) keep[at[key]] = u;
+      });
+      d.users = keep;
       /* Any store written before authentication moved to Supabase still has the
          passwords sitting in it in clear text. Taking them out of the source
          does nothing for the browsers that already copied them, and those are
