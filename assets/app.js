@@ -1751,12 +1751,9 @@ function approveDoc(kind, id, ok, note){
      would otherwise be unable to approve anything it raised, so the rule only
      bites when somebody else could actually do it — and self-approval is
      stamped as such either way, so the audit trail says what happened. */
-  const approvers = D().users.filter(u => (DB.PERMS[u.role] || []).includes('approvals'));
   const selfApproving = rec.raisedBy && SESSION && rec.raisedBy === SESSION.name;
-  if(ok && selfApproving && approvers.length > 1){
-    UI.toast('Somebody other than the person who raised it has to approve it.', 'bad');
-    return;
-  }
+  const blocked = ok && secondPairOfEyes(rec.raisedBy);
+  if(blocked){ UI.toast(blocked, 'bad'); return; }
 
   if(!ok){
     rec.state = 'Rejected';
@@ -1816,18 +1813,10 @@ VIEWS.approvals = () => {
   const kindOf = d => d._kind === 'refunds' ? 'Refund'
     : d.kind === 'remittance' ? 'Center remittance' : 'Disbursement';
 
+  /* No tiles. Three of them counted the queue that is printed directly
+     underneath, which is the one page where a summary of the list adds nothing
+     the list does not already say more precisely. */
   return `
-    <div class="grid g3" style="margin-bottom:18px">
-      ${UI.kpi('Waiting for approval', UI.int(pend.length + pendingChanges().length),
-               pend.length + pendingChanges().length ? 'nothing has taken effect yet' : 'nothing outstanding',
-               pend.length + pendingChanges().length ? 'warn' : 'ok')}
-      ${UI.kpi('Value held up', UI.peso(ACC.r2(pend.reduce((s,d) => s + d.amount, 0))),
-               'not on the books until approved', '')}
-      ${UI.kpi('Approved today', UI.peso(ACC.r2([...D().expenses, ...D().refunds]
-                 .filter(d => d.state === 'Approved' && d.approvedOn === DB.today())
-                 .reduce((s,d) => s + d.amount, 0))), 'posted to the ledger', 'ok')}
-    </div>
-
     ${changePanel(pendingChanges())}
 
     ${UI.card('Waiting For Approval', UI.table([
@@ -3120,6 +3109,31 @@ function changePanel(rows, opts){
     + '<div style="height:18px"></div>';
 }
 
+/* Who else could sign this. Not simply "everyone with the permission" — an
+   entry left on the roster for an account that no longer exists is not a second
+   pair of eyes, it is a deadlock: the rule below would hold a request open
+   forever, waiting on somebody who cannot open the system to come and look at
+   it. Deactivated staff are excluded for the same reason.
+
+   Naming them matters as much as counting them. "Somebody other than you has to
+   approve it" is a dead end; "ask Kate" is an instruction, and on the day the
+   only name it can offer is somebody who has left, that tells the office
+   exactly what is wrong. */
+function otherApprovers(raisedBy){
+  return D().users.filter(u =>
+    u.active !== false
+    && (DB.PERMS[u.role] || []).includes('approvals')
+    && u.name !== raisedBy);
+}
+
+function secondPairOfEyes(raisedBy){
+  if(!raisedBy || !SESSION || raisedBy !== SESSION.name) return '';
+  const others = otherApprovers(raisedBy);
+  if(!others.length) return '';
+  return 'You asked for this one, so somebody else has to approve it — '
+    + others.map(u => u.name).join(' or ') + ' can.';
+}
+
 function approveChange(id, ok, note){
   const ch = D().changes.find(x => x.id === id);
   if(!ch) return;
@@ -3131,12 +3145,9 @@ function approveChange(id, ok, note){
 
   /* The same two-pairs-of-eyes rule the money goes through, and it only bites
      where there is a second pair to be had. */
-  const approvers = D().users.filter(u => (DB.PERMS[u.role] || []).includes('approvals'));
   const selfApproving = ch.raisedBy && SESSION && ch.raisedBy === SESSION.name;
-  if(ok && selfApproving && approvers.length > 1){
-    UI.toast('Somebody other than the person who asked for it has to approve it.', 'bad');
-    return;
-  }
+  const blocked = ok && secondPairOfEyes(ch.raisedBy);
+  if(blocked){ UI.toast(blocked, 'bad'); return; }
 
   if(!ok){
     ch.state = 'Rejected';
