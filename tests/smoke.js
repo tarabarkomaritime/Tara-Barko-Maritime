@@ -915,6 +915,13 @@ console.log('\n- a booking correction reaches the admin -');
       || 'approved_on=' + JSON.stringify(r.approved_on) + ' decided_on=' + JSON.stringify(r.decided_on);
   });
 
+  /* A void and an edit that merely sets the status to Void look identical from
+     the diff alone, and only one of the two reverses a bill. */
+  check('a void says so on the row rather than leaving it to be inferred', () => {
+    const r = run('SYNC.toRow("changes",' + "{\"id\": \"chg2\", \"no\": \"CHG-2026-0002\", \"kind\": \"void\", \"enrollmentId\": \"e1\", \"traineeId\": \"t1\", \"date\": \"2026-08-28\", \"raisedBy\": \"Jocelyn\", \"was\": {\"center\": \"PNTC\", \"courseId\": \"c1\", \"start\": \"2026-09-01\", \"end\": \"2026-09-05\", \"status\": \"Enrolled\"}, \"to\": {\"center\": \"PNTC\", \"courseId\": \"c1\", \"start\": \"2026-09-01\", \"end\": \"2026-09-05\", \"status\": \"Void\"}, \"reason\": \"encoded twice\", \"state\": \"Pending\", \"approvedBy\": \"\", \"approvedOn\": \"\", \"decidedBy\": \"\", \"decidedOn\": \"\", \"decisionNote\": \"\", \"selfApproved\": false}" + ')');
+    return r.kind === 'void' || 'kind came out as ' + JSON.stringify(r.kind);
+  });
+
   check('a request is written once and only its decision is patched', () =>
     (run('SYNC.MAP.changes.insertOnly') === true
       && run('SYNC.MAP.changes.patchOnly').indexOf('state') >= 0)

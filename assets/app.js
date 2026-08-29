@@ -33,6 +33,12 @@ const NAV = [
   { id:'expenses',    label:'Disbursements',ico:'▼' },
   { id:'payroll',     label:'Payroll',      ico:'₱' },
   { id:'ledger',      label:'General Ledger',ico:'≡' },
+  /* Money out and corrections to bookings both wait here. It was taken off the
+     nav when approving moved onto the screen each document came from, which is
+     still where approving happens — but with nowhere listing what is waiting,
+     an admin had to already know it was there to go and look. Admin only: for
+     everybody else it is a page of other people's decisions. */
+  { id:'approvals',   label:'Approvals',    ico:'✓', adminOnly:true },
   { group:'System' },
   { id:'settings',    label:'Settings',     ico:'⚙' },
 ];
@@ -527,13 +533,14 @@ function renderNav(){
   NAV.forEach(n => {
     if(n.group){ html += `<div class="nav-group">${n.group}</div>`; return; }
     if(!allowed.includes(n.id)) return;
+    if(n.adminOnly && !canApprove()) return;
     let badge = '';
     if(n.id === 'enrollments'){
       const c = D().enrollments.filter(e => e.status === 'Reserved').length;
       if(c) badge = `<span class="badge">${c}</span>`;
     }
     if(n.id === 'approvals'){
-      const c = pendingMoneyOut().length;
+      const c = pendingMoneyOut().length + pendingChanges().length;
       if(c) badge = `<span class="badge">${c}</span>`;
     }
     if(n.id === 'payables'){
@@ -702,25 +709,40 @@ VIEWS.dashboard = () => {
    would report "not found" for a trainee who is plainly on file. */
 VIEWS.trainees = () => {
   const q = (state.q.trainee || '').toLowerCase().trim();
-  const day = state.q.tday || DB.today();
+  /* A single day answered "who signed up today" and nothing else. The office
+     asks for a week, or for last month, far more often than it asks for one
+     date — and the way it used to get one was by clicking through the days one
+     at a time and adding them up on paper. */
+  let from = state.q.tfrom || DB.today();
+  let to   = state.q.tto   || DB.today();
+  /* Typed backwards is a range the office meant, not an error worth a message,
+     and a silently empty table would look like nobody signed up that month. */
+  if(from > to){ const x = from; from = to; to = x; }
   const all = D().trainees;
 
   const matches = t => [t.no,t.last,t.first,t.srn,t.rank,t.agency,t.mobile]
     .join(' ').toLowerCase().includes(q);
-  const rows = q ? all.filter(matches) : all.filter(t => t.registered === day);
-  const isToday = day === DB.today();
+  const rows = q ? all.filter(matches)
+                 : all.filter(t => t.registered >= from && t.registered <= to);
+  const spanLabel = from === to
+    ? (from === DB.today() ? 'today' : 'on ' + UI.date(from))
+    : `between ${UI.date(from)} and ${UI.date(to)}`;
 
   return `
     <div class="toolbar">
       <input type="search" data-q="trainee" value="${UI.esc(state.q.trainee||'')}"
              placeholder="Search name, SRN, company or mobile…" style="min-width:280px">
       <label class="fld" style="margin:0">
-        <span>Signed up on</span>
-        <input type="date" data-q="tday" value="${day}" max="${DB.today()}" ${q ? 'disabled' : ''}>
+        <span>Signed up from</span>
+        <input type="date" data-q="tfrom" value="${from}" max="${DB.today()}" ${q ? 'disabled' : ''}>
+      </label>
+      <label class="fld" style="margin:0">
+        <span>to</span>
+        <input type="date" data-q="tto" value="${to}" max="${DB.today()}" ${q ? 'disabled' : ''}>
       </label>
       <span class="muted">${q
         ? `${rows.length} match(es) across all ${all.length} record(s)`
-        : `${rows.length} signed up ${isToday ? 'today' : 'on ' + UI.date(day)}`}</span>
+        : `${rows.length} signed up ${spanLabel}`}</span>
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-trainee">+ Register trainee</button>
     </div>
@@ -736,7 +758,7 @@ VIEWS.trainees = () => {
       { h:'', k:t => `<button class="btn btn-accent btn-xs" data-act="enroll-trainee" data-id="${t.id}">Enroll</button>`, w:'90px' },
     ], rows, { empty: q
         ? 'Nobody matches that search.'
-        : `Nobody signed up ${isToday ? 'today' : 'on ' + UI.date(day)}. Type a name above to search the whole registry.`,
+        : `Nobody signed up ${spanLabel}. Type a name above to search the whole registry.`,
         rowClass:'clickable',
         rowAttrs:t => `data-act="view-trainee" data-id="${t.id}"` }), { flush:true })}
   `;
@@ -890,7 +912,7 @@ VIEWS.invoices = () => {
    center's statement is written at. */
 function rebatesDue(){
   return D().enrollments
-    .filter(e => (e.rebateReceivable || 0) > 0)
+    .filter(e => (e.rebateReceivable || 0) > 0 && e.status !== 'Void')
     .map(e => ({
       e,
       center:String(e.center || '').toUpperCase(),
@@ -962,7 +984,7 @@ function rebateReceiveForm(enrId){
 function partPaid(){
   const today = DB.today();
   return D().enrollments
-    .filter(e => !['Cancelled','Dropped'].includes(e.status))
+    .filter(e => !['Cancelled','Dropped','Void'].includes(e.status))
     .map(e => {
       const inv = invOf(e.id);
       if(!inv) return null;
@@ -1778,6 +1800,12 @@ function approveDoc(kind, id, ok, note){
 }
 
 VIEWS.approvals = () => {
+  /* Everything on this page is somebody else's decision unless you are the one
+     making it. The nav already hides it; this is the same rule for anybody who
+     typed the address. */
+  if(!canApprove()) return UI.card('Approvals',
+    '<div class="empty"><span class="big">⚓</span>These are the admin\'s decisions to make.</div>');
+
   const pend = pendingMoneyOut();
   const decided = [
     ...D().expenses.filter(v => v.state && v.state !== 'Pending').map(v => ({ ...v, _kind:'expenses' })),
@@ -1790,14 +1818,17 @@ VIEWS.approvals = () => {
 
   return `
     <div class="grid g3" style="margin-bottom:18px">
-      ${UI.kpi('Waiting for approval', UI.int(pend.length),
-               pend.length ? 'nothing has posted yet' : 'nothing outstanding', pend.length ? 'warn' : 'ok')}
+      ${UI.kpi('Waiting for approval', UI.int(pend.length + pendingChanges().length),
+               pend.length + pendingChanges().length ? 'nothing has taken effect yet' : 'nothing outstanding',
+               pend.length + pendingChanges().length ? 'warn' : 'ok')}
       ${UI.kpi('Value held up', UI.peso(ACC.r2(pend.reduce((s,d) => s + d.amount, 0))),
                'not on the books until approved', '')}
       ${UI.kpi('Approved today', UI.peso(ACC.r2([...D().expenses, ...D().refunds]
                  .filter(d => d.state === 'Approved' && d.approvedOn === DB.today())
                  .reduce((s,d) => s + d.amount, 0))), 'posted to the ledger', 'ok')}
     </div>
+
+    ${changePanel(pendingChanges())}
 
     ${UI.card('Waiting For Approval', UI.table([
       { h:'Document', k:d => `<b class="mono">${UI.esc(d.no)}</b><br>
@@ -2680,11 +2711,14 @@ function traineeProfile(t){
         /* One request at a time per booking. Two people asking for different
            dates on the same seat is a queue where whichever is signed second
            silently wins, so the second is refused while the first is open. */
-        { h:'', k:e => { const held = pendingChangeFor(e.id);
+        { h:'', k:e => {
+            if(e.status === 'Void') return '<span class="muted" style="font-size:11.5px">voided</span>';
+            const held = pendingChangeFor(e.id);
             return held
               ? `<span class="muted" style="font-size:11.5px">${UI.esc(held.no)} awaiting the admin</span>`
-              : `<button class="btn btn-ghost btn-xs" data-act="change-booking" data-id="${e.id}">Edit</button>`;
-          }, w:'150px' },
+              : `<button class="btn btn-ghost btn-xs" data-act="change-booking" data-id="${e.id}">Edit</button>
+                 <button class="btn btn-ghost btn-xs" data-act="void-booking" data-id="${e.id}">Void</button>`;
+          }, w:'190px' },
       ], enr, { empty:'No courses booked yet.' })}
       <div class="hr"></div>
       <h4 style="margin:0 0 8px;font-size:13px">Bills And Payments</h4>
@@ -2888,8 +2922,89 @@ function feeGap(ch){
   return same(was, next) ? null : { was, next };
 }
 
+/* ---------- a booking encoded twice ----------
+   It happens the ordinary way: the desk enrolls, nothing on the screen visibly
+   moves, and it enrolls again. The second booking bills the trainee a second
+   time and puts the office down a second remittance for a seat nobody sat in,
+   and until now the only way out was to leave both standing.
+
+   Nothing is deleted. The booking stays on file marked Void and the entries it
+   made are reversed beside them, because a record that vanishes takes the
+   reason it was wrong with it — and the second copy is exactly the thing
+   somebody will ask about a month later. */
+function canVoidBooking(e){
+  if(!e) return 'That booking is no longer on file.';
+  if(e.status === 'Void') return 'That booking is already void.';
+  /* Money has already gone to the center for this seat. Reversing our side of
+     it here would say the debt never existed while the cash plainly left. */
+  if(e.remitNo || (e.centerPaid || 0) > 0)
+    return 'The center has already been remitted for this seat — settle it with them first.';
+  const inv = invOf(e.id);
+  if(inv && !inv.voided && ACC.r2(ACC.recomputeInvoice(inv).paid || 0) > 0)
+    return 'This booking has payments against it. Void the receipts first, then the booking.';
+  return '';
+}
+
+function voidEnrollment(e, reason){
+  const why = canVoidBooking(e);
+  if(why){ UI.toast(why, 'bad'); return false; }
+  const inv = invOf(e.id);
+  if(inv && !inv.voided){
+    inv.voided = true; inv.status = 'Void';
+    ACC.reverse(inv.id, reason || 'Booking voided');
+  }
+  /* The debt to the centre was posted the moment the seat was booked, not when
+     the trainee paid, so it has to come off too or the payables list keeps
+     asking to remit for a booking that no longer exists. */
+  ACC.reverse(e.id, reason || 'Booking voided');
+  e.status = 'Void';
+  return true;
+}
+
+/* Registration raises it, the admin does it. Same document either way — what
+   differs is only whether it needs a second signature, and for the admin there
+   is nobody above them to ask. */
+function voidBooking(e){
+  if(!e) return;
+  const why = canVoidBooking(e);
+  if(why){ UI.toast(why, 'bad'); return; }
+  if(pendingChangeFor(e.id)){
+    UI.toast('A change to this booking is already waiting for the admin.', 'bad'); return;
+  }
+  const direct = canApprove();
+
+  UI.confirm(direct ? `Void ${e.no}?` : `Ask the admin to void ${e.no}?`, fd => {
+    const reason = String(fd.reason || '').trim();
+    if(!reason){ UI.toast('Say why it is being voided — a void with no reason is a gap in the file.', 'bad'); return; }
+
+    if(direct){
+      if(!voidEnrollment(e, reason)) return;
+      DB.save();
+      DB.activity('Voided a booking', e.no + ' — ' + reason);
+      UI.toast(`${e.no} voided. The bill against it was reversed.`);
+    }else{
+      const was = {}; CHANGE_FIELDS.forEach(f => { was[f.k] = e[f.k]; });
+      D().changes.push({
+        id:DB.uid('chg'), no:DB.nextNo('change','CHG'), kind:'void',
+        enrollmentId:e.id, traineeId:e.traineeId,
+        date:DB.today(), raisedBy:SESSION.name,
+        was, to:{ ...was, status:'Void' }, reason, state:'Pending',
+      });
+      DB.save();
+      DB.activity('Asked to void a booking', e.no);
+      UI.toast(`Sent for approval — ${e.no} and its bill stay as they are until an admin signs it.`);
+    }
+    refresh();
+  }, { danger:true, reason:true,
+       yes:direct ? 'Void the booking' : 'Send for approval',
+       detail:direct
+         ? 'Nothing is deleted. The booking stays on file marked void, and the bill raised against it is reversed rather than erased.'
+         : 'Nothing changes yet. The booking and its bill stay exactly as they are until the admin signs it off.' });
+}
+
 function bookingChangeForm(e){
   if(!e) return;
+  if(e.status === 'Void'){ UI.toast('That booking is void — there is nothing left to change.', 'bad'); return; }
   const held = pendingChangeFor(e.id);
   if(held){
     UI.toast('A change to this booking is already waiting for the admin.', 'bad');
@@ -2984,7 +3099,10 @@ function changePanel(rows, opts){
     { h:'Request', k:c => `<b class="mono">${UI.esc(c.no)}</b><br>
         <span class="muted" style="font-size:11.5px">${UI.esc((ENR(c.enrollmentId)||{}).no || '—')}</span>`, w:'135px' },
     { h:'Trainee', k:c => UI.esc(name(T(c.traineeId))) },
-    { h:'What changes', k:c => changeLines(c).join('<br>') || '<span class="muted">nothing</span>' },
+    { h:'What changes', k:c => c.kind === 'void'
+        ? `<b class="neg">Void the whole booking</b><br>
+           <span class="muted" style="font-size:11.5px">the bill raised against it is reversed too</span>`
+        : (changeLines(c).join('<br>') || '<span class="muted">nothing</span>') },
     { h:'Why', k:c => UI.esc(c.reason || '—') },
     { h:'Asked by', k:c => `${UI.esc(c.raisedBy || '—')}<br>
         <span class="muted" style="font-size:11.5px">${UI.date(c.date)}</span>` },
@@ -3042,16 +3160,25 @@ function approveChange(id, ok, note){
   }
 
   const gap = feeGap(ch);
-  CHANGE_FIELDS.forEach(f => { e[f.k] = ch.to[f.k]; });
+  if(ch.kind === 'void'){
+    /* The guards are checked again here, not only when it was raised: a receipt
+       may have been taken against the booking in the meantime, and voiding it
+       then would leave money collected against nothing. */
+    if(!voidEnrollment(e, ch.reason)) return;
+  }else{
+    CHANGE_FIELDS.forEach(f => { e[f.k] = ch.to[f.k]; });
+  }
   ch.state = 'Approved';
   ch.approvedBy = SESSION.name; ch.approvedOn = DB.today();
   ch.selfApproved = !!selfApproving;
   DB.save();
   DB.activity('Approved a booking change',
     e.no + ' · ' + changeLines(ch).join('; ').replace(/<\/?b>/g, ''));
-  UI.toast(gap
-    ? `${e.no} updated. The bill still reads ${UI.peso(gap.was)} — revise it if it should say ${UI.peso(gap.next)}.`
-    : `${e.no} updated.`, gap ? 'warn' : '');
+  UI.toast(ch.kind === 'void'
+    ? `${e.no} voided. The bill against it was reversed.`
+    : gap
+      ? `${e.no} updated. The bill still reads ${UI.peso(gap.was)} — revise it if it should say ${UI.peso(gap.next)}.`
+      : `${e.no} updated.`, gap ? 'warn' : '');
   refresh();
 }
 
@@ -4148,6 +4275,7 @@ document.addEventListener('click', ev => {
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'change-booking':() => { ev.stopPropagation(); bookingChangeForm(ENR(id)); },
+    'void-booking':  () => { ev.stopPropagation(); voidBooking(ENR(id)); },
     'approve-change':() => UI.confirm('Approve this change to the booking?',
                        () => approveChange(id, true),
                        { yes:'Approve the change',

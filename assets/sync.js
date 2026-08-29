@@ -66,7 +66,7 @@ const SYNC = (() => {
       patchOnly:['state','approvedBy','approvedOn','decidedBy','decidedOn','decisionNote','selfApproved'],
       /* `to` is a reserved word in Postgres and `was` reads like one. */
       rename:{ was:'was_state', to:'to_state' },
-      cols:['id','no','enrollment_id','trainee_id','date','raised_by','was_state','to_state','reason',
+      cols:['id','no','kind','enrollment_id','trainee_id','date','raised_by','was_state','to_state','reason',
             'state','approved_by','approved_on','decided_by','decided_on','decision_note','self_approved'],
       blankToNull:['approved_by','approved_on','decided_by','decided_on'],
       blankToDefault:['date'],

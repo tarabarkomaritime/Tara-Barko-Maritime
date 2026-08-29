@@ -18,6 +18,13 @@ create table if not exists tbm.booking_changes (
   date           date not null default current_date,
   raised_by      text not null default '',
 
+  -- A correction, or a request to void the booking outright. Both wait for the
+  -- same signature and both are one row, so which of the two it is has to be
+  -- on the row rather than inferred from what changed -- a void and a status
+  -- edit to Void would otherwise be indistinguishable, and only one of them
+  -- reverses a bill.
+  kind           text not null default 'edit',
+
   -- The booking as it stood when the request was raised, and as it is being
   -- asked to stand. Both are kept: approving a request written against a
   -- booking that has since moved would quietly undo whatever happened in
