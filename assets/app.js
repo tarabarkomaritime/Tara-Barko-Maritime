@@ -28,6 +28,7 @@ const NAV = [
   { group:'Finance' },
   { id:'invoices',    label:'Billing',      ico:'₱' },
   { id:'payments',    label:'Collections',  ico:'◉' },
+  { id:'reconcile',   label:'Bank Reconciliation', ico:'⊜' },
   { id:'payables',    label:'Center Payables',ico:'⇄' },
   { id:'refunds',     label:'Refunds',      ico:'↩' },
   { id:'expenses',    label:'Disbursements',ico:'▼' },
@@ -53,6 +54,7 @@ const TITLES = {
   enrollments:['Enrollments','Bookings encoded per trainee, with billing status and results'],
   invoices:['Billing','Statements of account issued to trainees'],
   payments:['Collections','Payments taken and cash position'],
+  reconcile:['Bank Reconciliation','Every reference set beside the statement it should match'],
   payables:['Payables To Training Centers','What each center is owed, and the vouchers that settle it'],
   payroll:['Payroll','Salaries and wages — admin only'],
   expenses:['Disbursements','Vouchers for operating expenses'],
@@ -1005,14 +1007,27 @@ VIEWS.invoices = () => {
    as a receivable at booking time and had no way of ever being cleared, which
    meant 1250 only ever grew. One row per booking, because that is the level the
    center's statement is written at. */
-function rebatesDue(){
+/* Every rebate on the books, not only the ones somebody has to go and collect.
+
+   The two kinds are settled differently and the list only ever showed one of
+   them. Where a centre lets us keep the rebate back from what we remit, there
+   is nothing receivable — it is netted off the payable at the moment the seat
+   is booked — so MARIANA, PNTC, JVV and the rest simply were not there, and the
+   page read as though those centres owed no rebate at all.
+
+   They owe it. It is already in our hands. So they are listed, saying which of
+   the two it is, and only the ones that have to be chased carry a button. */
+function rebatesAll(){
   return D().enrollments
-    .filter(e => (e.rebateReceivable || 0) > 0 && e.status !== 'Void')
+    .filter(e => (e.rebate || 0) > 0 && e.status !== 'Void')
     .map(e => ({
       e,
       center:String(e.center || '').toUpperCase(),
-      amount:ACC.r2(e.rebateReceivable),
-      received:!!e.rebateReceivedOn,
+      amount:ACC.r2(e.rebate),
+      deduct:!!e.deduct,
+      /* Deducted rebates are settled the day the remittance goes out, because
+         that is the payment they were taken off. */
+      received:e.deduct ? !!e.remitNo : !!e.rebateReceivedOn,
     }))
     /* Grouped under the center, because a rebate is chased one center at a
        time — you ring PNTC about everything PNTC owes, not about one seafarer.
@@ -1168,14 +1183,19 @@ VIEWS.payments = () => {
     ({ label:m, value:v, color:['#1d4571','#0f7b8a','#c9a227','#12805c','#7a8aa3'][i%5] }));
   const chase = partPaid();
   const chaseDue = ACC.r2(chase.reduce((t,r) => t + r.due, 0));
-  const allRebates = rebatesDue();
+  const allRebates = rebatesAll();
   /* Every center that owes a rebate stays in the picker whatever is selected —
      a filter that empties its own control cannot be undone. */
   const rebCenters = [...new Set(allRebates.map(r => r.center))].sort();
   const rebPick = state.q.rebCenter || '';
   const rebates = allRebates.filter(r => !rebPick || r.center === rebPick);
-  const dueRebates    = ACC.r2(rebates.filter(r => !r.received).reduce((s,r) => s + r.amount, 0));
-  const bankedRebates = ACC.r2(rebates.filter(r =>  r.received).reduce((s,r) => s + r.amount, 0));
+  /* Three figures, not two. Money still to be chased and money we are simply
+     keeping back are both owed to us and neither is the other, so adding them
+     into one "still to collect" would overstate what anybody has to ring a
+     centre about. */
+  const toCollect = ACC.r2(rebates.filter(r => !r.deduct && !r.received).reduce((s,r) => s + r.amount, 0));
+  const collected = ACC.r2(rebates.filter(r => !r.deduct &&  r.received).reduce((s,r) => s + r.amount, 0));
+  const deducted  = ACC.r2(rebates.filter(r =>  r.deduct).reduce((s,r) => s + r.amount, 0));
 
   return `
     <div class="toolbar">
@@ -1226,19 +1246,33 @@ VIEWS.payments = () => {
           { h:'Course', k:r => UI.esc((CRS(r.e.courseId)||{}).title || '—') },
           { h:'Training', k:r => r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—' },
           { h:'Rebate', k:r => `<b>${UI.num(r.amount)}</b>`, cls:'num' },
-          { h:'Received', k:r => r.received
-              ? `${UI.date(r.e.rebateReceivedOn)}<br><span class="muted" style="font-size:11px">${UI.esc(r.e.rebateMethod||'')}${r.e.rebateRef ? ' · ' + UI.esc(r.e.rebateRef) : ''}</span>`
-              : '<span class="muted">—</span>', cls:'center', w:'150px' },
-          { h:'', k:r => r.received
-              ? UI.tag('Received','ok')
-              : (can('payments')
-                  ? `<button class="btn btn-accent btn-xs" data-act="receive-rebate" data-id="${r.e.id}">Receive</button>`
-                  : '<span class="muted">—</span>'), w:'110px' },
+          { h:'How it settles', k:r => r.deduct
+              ? UI.tag('Kept from remittance','sea')
+              : UI.tag('Collected separately','warn'), cls:'center', w:'165px' },
+          { h:'Settled', k:r => {
+              if(r.deduct) return r.received
+                ? `${UI.date(r.e.remitDate)}<br><span class="muted" style="font-size:11px">on ${UI.esc(r.e.remitNo)}</span>`
+                : '<span class="muted">when we remit</span>';
+              return r.received
+                ? `${UI.date(r.e.rebateReceivedOn)}<br><span class="muted" style="font-size:11px">${UI.esc(r.e.rebateMethod||'')}${r.e.rebateRef ? ' · ' + UI.esc(r.e.rebateRef) : ''}</span>`
+                : '<span class="muted">—</span>'; }, cls:'center', w:'150px' },
+          /* Nothing to press on a deducted rebate. The money never comes in as
+             its own payment, so a Receive button would be asking the office to
+             record an arrival that will not happen. */
+          { h:'', k:r => r.deduct
+              ? (r.received ? UI.tag('Deducted','ok') : '<span class="muted">—</span>')
+              : r.received
+                ? UI.tag('Received','ok')
+                : (can('payments')
+                    ? `<button class="btn btn-accent btn-xs" data-act="receive-rebate" data-id="${r.e.id}">Receive</button>`
+                    : '<span class="muted">—</span>'), w:'110px' },
         ], rebates, { empty:rebPick
             ? `Nothing recorded against ${rebPick}.`
-            : 'No rebate is owed by a center — every booking either deducts it or has been settled.' }),
+            : 'No booking carries a rebate yet.' }),
           { flush:true,
-            sub:`${UI.peso(dueRebates)} still to collect${bankedRebates ? ` · ${UI.peso(bankedRebates)} already received` : ''}`
+            sub:`${UI.peso(toCollect)} still to collect`
+                + (collected ? ` · ${UI.peso(collected)} already received` : '')
+                + (deducted ? ` · ${UI.peso(deducted)} kept from remittances` : '')
                 + (rebPick ? ` · ${rebPick}` : ''),
             actions:rebCenters.length > 1 ? `
               <select data-q="rebCenter" style="min-width:200px;font-size:12.5px">
@@ -1766,6 +1800,174 @@ function payrollForm(){
       refresh();
     }
   });
+}
+
+/* ---------- bank reconciliation ----------
+   Cash is counted; everything else is a claim. A GCash or bank reference typed
+   at the counter is the only thing tying a receipt to money that actually
+   arrived, and until somebody sets it beside the statement it is a number
+   somebody typed — possibly the right one, possibly the previous customer's,
+   possibly nothing at all.
+
+   So this is the two jobs that finding out consists of. It totals what the
+   books say arrived by each method, which is the figure to compare against the
+   statement; and it lists every reference behind that figure so each can be
+   ticked off. What is ticked is kept on the tender itself, which already
+   travels to the server, so a reconciliation done once stays done and does not
+   have to be repeated on the other machine. */
+function bankLines(from, to){
+  const out = [];
+  D().payments.forEach(p => {
+    if(p.voided || p.date < from || p.date > to) return;
+    const list = p.tenders && p.tenders.length
+      ? p.tenders : [{ method:p.method, ref:p.ref, amount:p.amount }];
+    list.forEach((t, i) => {
+      /* Cash has nothing to match against and no reference to check. Asking
+         somebody to tick it off a bank statement it was never on is how a
+         reconciliation stops being done at all. */
+      if(!ACC.needsRef(t.method)) return;
+      out.push({ p, t, i, key:`${p.id}:${i}` });
+    });
+  });
+  return out.sort((a,b) => a.p.date.localeCompare(b.p.date) || String(a.p.no).localeCompare(String(b.p.no)));
+}
+
+/* The same reference on two different receipts is either one payment banked
+   twice or a number copied from the row above, and both are worth stopping on.
+
+   Twice on the SAME receipt is neither: one GCash transfer settling three
+   trainings is split across three rows by design, and every one of them
+   carries the reference of the transfer it came from. Flagging that would
+   train the office to ignore the flag. */
+function refClashes(lines){
+  const seen = {};
+  lines.forEach(l => {
+    const ref = String(l.t.ref || '').trim().toLowerCase();
+    if(!ref) return;
+    const k = l.t.method + '|' + ref;
+    (seen[k] || (seen[k] = new Set())).add(l.p.no);
+  });
+  const bad = new Set();
+  Object.keys(seen).forEach(k => { if(seen[k].size > 1) bad.add(k); });
+  return l => {
+    const ref = String(l.t.ref || '').trim().toLowerCase();
+    return !!ref && bad.has(l.t.method + '|' + ref);
+  };
+}
+
+VIEWS.reconcile = () => {
+  const from = state.q.recFrom || firstOfMonth();
+  const to   = state.q.recTo   || DB.today();
+  const only = state.q.recOnly || '';          /* '', 'open', 'flagged' */
+  const meth = state.q.recMethod || '';
+
+  const all = bankLines(from, to);
+  const clashes = refClashes(all);
+  const flagged = l => clashes(l) || !String(l.t.ref || '').trim();
+
+  const lines = all.filter(l =>
+    (!meth || l.t.method === meth)
+    && (only !== 'open' || !l.t.cleared)
+    && (only !== 'flagged' || flagged(l)));
+
+  /* What the books say arrived by each method — the figure to hold the
+     statement against — and how much of it has been agreed so far. */
+  const byMethod = {};
+  all.forEach(l => {
+    const m = byMethod[l.t.method] || (byMethod[l.t.method] = { total:0, cleared:0, n:0, open:0 });
+    m.total = ACC.r2(m.total + l.t.amount);
+    m.n++;
+    if(l.t.cleared) m.cleared = ACC.r2(m.cleared + l.t.amount);
+    else m.open = ACC.r2(m.open + l.t.amount);
+  });
+
+  const problems = all.filter(flagged);
+  const openTotal = ACC.r2(all.filter(l => !l.t.cleared).reduce((s,l) => s + l.t.amount, 0));
+
+  return `
+    <div class="toolbar" style="margin-bottom:8px">
+      <label class="muted" style="font-size:12px">From</label>
+      <input type="date" data-q="recFrom" value="${from}">
+      <label class="muted" style="font-size:12px">To</label>
+      <input type="date" data-q="recTo" value="${to}">
+      <select data-q="recMethod" style="min-width:150px">
+        <option value="">All methods</option>
+        ${Object.keys(byMethod).sort().map(m =>
+          `<option value="${UI.esc(m)}" ${m === meth ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}
+      </select>
+      <select data-q="recOnly" style="min-width:190px">
+        <option value="">Everything</option>
+        <option value="open" ${only === 'open' ? 'selected' : ''}>Not yet matched</option>
+        <option value="flagged" ${only === 'flagged' ? 'selected' : ''}>Needs looking at</option>
+      </select>
+      <span class="muted">${lines.length} of ${all.length} line(s)</span>
+    </div>
+
+    <div class="kpi-row" style="margin-bottom:16px">
+      ${Object.keys(byMethod).sort().map(m => UI.kpi(m, UI.peso(byMethod[m].total),
+          byMethod[m].open
+            ? `${UI.peso(byMethod[m].open)} not yet matched`
+            : `all ${byMethod[m].n} matched`,
+          byMethod[m].open ? 'warn' : 'ok')).join('')
+        || UI.kpi('Nothing to reconcile', '—', 'no bank or e-wallet receipts in this period', '')}
+    </div>
+
+    ${problems.length ? `<div class="note bad">
+      <b>${problems.length} line(s) need looking at.</b>
+      A reference on two different receipts is either one payment banked twice or
+      a number copied from the row above; a missing one cannot be matched at all.
+      ${only === 'flagged' ? '' : ' Choose <b>Needs looking at</b> above to see only those.'}
+    </div>` : ''}
+
+    ${UI.card('Against The Statement', UI.table([
+      { h:'Date', k:l => UI.date(l.p.date), w:'110px' },
+      { h:'Receipt', k:l => `<b class="mono">${UI.esc(l.p.no)}</b>`, w:'135px' },
+      { h:'From', k:l => UI.esc(name(T(l.p.traineeId))) },
+      { h:'Bill', k:l => { const i = INV(l.p.invoiceId);
+          return i ? `<span class="mono">${UI.esc(i.no)}</span>` : '<span class="muted">—</span>'; }, w:'135px' },
+      { h:'Method', k:l => UI.tag(l.t.method, 'sea'), w:'100px' },
+      { h:'Reference', k:l => {
+          const ref = String(l.t.ref || '').trim();
+          if(!ref) return '<span class="neg">none entered</span>';
+          return `<span class="mono">${UI.esc(ref)}</span>`
+            + (clashes(l) ? '<br><span class="neg" style="font-size:11px">also on another receipt</span>' : ''); } },
+      { h:'Amount', k:l => `<b>${UI.num(l.t.amount)}</b>`, cls:'num', w:'110px' },
+      { h:'Matched', k:l => l.t.cleared
+          ? `${UI.date(l.t.cleared)}<br><span class="muted" style="font-size:11px">${UI.esc(l.t.clearedBy || '')}</span>`
+          : '<span class="muted">—</span>', cls:'center', w:'130px' },
+      { h:'', k:l => can('payments')
+          ? `<button class="btn ${l.t.cleared ? 'btn-ghost' : 'btn-accent'} btn-xs"
+               data-act="match-tender" data-id="${l.key}">${l.t.cleared ? 'Unmatch' : 'Matched'}</button>`
+          : '', w:'110px' },
+    ], lines, { empty:only || meth
+        ? 'Nothing here with those filters.'
+        : 'No bank or e-wallet receipts in this period — cash needs no reconciling.' }),
+      { flush:true,
+        sub:`${UI.peso(openTotal)} still to agree against the statement`
+            + (problems.length ? ` · ${problems.length} needing attention` : '') })}`;
+};
+
+/* Ticking a line off is a fact about a bank statement somebody is holding, so
+   it carries who said so and when. It is kept on the tender rather than in a
+   table of its own, which means it reaches the other desk with the receipt it
+   belongs to and needs nothing new on the server. */
+function matchTender(key, on){
+  const [payId, idx] = String(key).split(':');
+  const p = PAY(payId);
+  if(!p){ UI.toast('That receipt is gone.', 'bad'); return; }
+  const list = p.tenders && p.tenders.length ? p.tenders : null;
+  if(!list || !list[idx]){ UI.toast('That line is gone.', 'bad'); return; }
+  if(on){
+    list[idx].cleared = DB.today();
+    list[idx].clearedBy = SESSION.name;
+  }else{
+    delete list[idx].cleared;
+    delete list[idx].clearedBy;
+  }
+  DB.save();
+  DB.activity(on ? 'Matched a receipt to the statement' : 'Unmatched a receipt',
+    `${p.no} · ${list[idx].method} ${list[idx].ref || 'no ref'}`);
+  refresh();
 }
 
 /* ---------- approvals ----------
@@ -4582,6 +4784,11 @@ document.addEventListener('click', ev => {
     'new-payment':   () => paymentForm(null),
     'view-receipt':  () => receiptModal(PAY(id)),
     'receive-rebate':() => { ev.stopPropagation(); rebateReceiveForm(id); },
+    'match-tender':  () => { ev.stopPropagation();
+                       const [pid, i] = String(id).split(':');
+                       const p = PAY(pid);
+                       const t = p && p.tenders && p.tenders[i];
+                       matchTender(id, !(t && t.cleared)); },
     'remind-pay':    () => { ev.stopPropagation(); reminderModal(id); },
     'new-expense':   () => expenseForm(),
     'new-payroll':   () => payrollForm(),

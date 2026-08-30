@@ -102,8 +102,8 @@ const DB = (() => {
        role deliberately has no ledger — two people posting entries by hand into
        the same journal is how a journal stops being trustworthy — and somebody
        who does both jobs needs the one screen the other admins do not get. */
-    owner:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','payroll','approvals','ledger','reports','settings'],
-    admin:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','payables','refunds','expenses','payroll','approvals','reports','settings'],
+    owner:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','reconcile','payables','refunds','expenses','payroll','approvals','ledger','reports','settings'],
+    admin:      ['dashboard','daily','trainees','courses','enrollments','invoices','payments','reconcile','payables','refunds','expenses','payroll','approvals','reports','settings'],
     /* Registration and the cash window are one job at this office — the same
        person takes the enrollment and then takes the money for it — so they are
        one role rather than two accounts to sign in and out of between a
@@ -112,7 +112,7 @@ const DB = (() => {
        three chances to give somebody the wrong one.
        It does not touch the course list: prices and rebates are the admin's. */
     frontdesk:  ['dashboard','daily','trainees','enrollments','invoices','payments','refunds','reports'],
-    accounting: ['dashboard','daily','invoices','payments','payables','refunds','expenses','approvals','ledger','reports','settings'],
+    accounting: ['dashboard','daily','invoices','payments','reconcile','payables','refunds','expenses','approvals','ledger','reports','settings'],
   };
 
   const DEFAULT_COMPANY = {
