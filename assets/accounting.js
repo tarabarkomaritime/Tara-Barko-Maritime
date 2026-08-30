@@ -223,13 +223,35 @@ const ACC = (() => {
     return [{ method:'Cash', ref:'', amount:r2(fallbackAmount) }];
   }
 
-  function buildPayment({ invoiceId, traineeId, date, amount, method, ref, note, tenders }){
+  /* Draw an amount off a running list of tenders, in order, marking down what
+     is left of each. One collection settling three bills has to put every peso
+     in the account it actually arrived in: a receipt that posted cash money to
+     GCash would still balance, and would still be wrong the moment anybody
+     counted the drawer against it. */
+  function drawTenders(queue, amount){
+    const out = [];
+    let need = r2(amount);
+    for(const t of queue){
+      if(need <= 0.004) break;
+      if(t.left <= 0.004) continue;
+      const take = r2(Math.min(t.left, need));
+      out.push({ method:t.method, ref:t.ref, amount:take });
+      t.left = r2(t.left - take);
+      need = r2(need - take);
+    }
+    return out;
+  }
+
+  /* `no` is passed when one document covers several bills — the trainee handed
+     over one sum and is given one receipt, so the number is taken once and
+     every row that makes up that receipt carries it. */
+  function buildPayment({ no, invoiceId, traineeId, date, amount, method, ref, note, tenders }){
     const list = tenders
       ? normalTenders(tenders, amount)
       : [{ method:normalMethod(method), ref:String(ref||'').trim(), amount:r2(amount) }];
     const total = r2(list.reduce((s,t) => s + t.amount, 0));
     return {
-      id:DB.uid('pay'), no:DB.nextNo('receipt','OR'),
+      id:DB.uid('pay'), no:no || DB.nextNo('receipt','OR'),
       invoiceId, traineeId, date:date||DB.today(),
       amount:total,
       tenders:list,
@@ -483,7 +505,7 @@ const ACC = (() => {
   return {
     r2, computeInvoice, post, reverse, acct,
     methods, methodNames, needsRef, DEFAULT_METHODS,
-    buildInvoice, postInvoice, buildPayment, postPayment, postExpense,
+    buildInvoice, postInvoice, buildPayment, drawTenders, postPayment, postExpense,
     postRefund, creditBalance, refundable, splitRefund,
     recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
     centerSettlement, postCenterPayable, postCenterRemittance, postRebateReceipt,

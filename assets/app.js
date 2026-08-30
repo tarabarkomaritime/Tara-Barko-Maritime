@@ -3640,14 +3640,63 @@ function invoiceModal(inv){
    Full payment or part payment is a button, not arithmetic the cashier does in
    their head: "Full balance" fills the amount, and any shortfall is shown as the
    balance that will remain. */
-function paymentForm(inv){
-  const open = D().invoices.map(i => (ACC.recomputeInvoice(i), i))
-    .filter(i => !i.voided && ACC.balanceOf(i) > 0.004)
-    .sort((a,b) => a.date.localeCompare(b.date));
-  if(!inv && !open.length){ UI.toast('Nothing outstanding — every invoice is settled.', 'bad'); return; }
+/* The collection window.
 
+   A trainee who books three courses gets three bills and pays for them in one
+   go, because that is one person at one counter handing over one amount. The
+   window used to take that money against a single bill — the only "split" it
+   knew was a split of *tender*, cash and GCash on one invoice, which is a
+   different thing wearing the same word. So a payment covering three trainings
+   was recorded against one of them, the other two stayed outstanding, and the
+   trainee had a receipt that did not say what they had actually paid for.
+
+   Money is now put against bills, plural. The tenders say how it arrived; the
+   allocations say what it settles; the two have to agree before anything is
+   written. One receipt number covers the lot, because one document was handed
+   over the counter. */
+function paymentForm(inv){
+  const openFor = tid => D().invoices.map(i => (ACC.recomputeInvoice(i), i))
+    .filter(i => !i.voided && ACC.balanceOf(i) > 0.004 && (!tid || i.traineeId === tid))
+    .sort((a,b) => a.date.localeCompare(b.date));
+
+  const anyOpen = openFor(null);
+  if(!inv && !anyOpen.length){ UI.toast('Nothing outstanding — every invoice is settled.', 'bad'); return; }
+
+  /* One trainee per receipt. A document covering two people is a document
+     neither of them can be handed. */
+  const owing = [...new Set(anyOpen.map(i => i.traineeId))]
+    .map(id => ({ id, t:T(id) })).filter(x => x.t)
+    .map(({ id, t }) => ({ v:id,
+      l:`${name(t)} — ${UI.peso(ACC.r2(openFor(id).reduce((s,i) => s + ACC.balanceOf(i), 0)))} outstanding`
+        + ` · ${openFor(id).length} bill(s)` }))
+    .sort((a,b) => a.l.localeCompare(b.l));
+
+  const who0 = inv ? inv.traineeId : (owing[0] ? owing[0].v : '');
   const bal = inv ? ACC.balanceOf(inv) : 0;
   const MODES = ACC.methodNames();
+
+  /* Every open bill for one trainee, with the course it paid for spelled out —
+     "INV-2026-0015" tells the cashier nothing about which training it was. */
+  const billRows = tid => {
+    const list = openFor(tid);
+    if(!list.length) return '<p class="muted" style="margin:0">Nothing outstanding for them.</p>';
+    return list.map(i => {
+      const e = ENR(i.enrollmentId), c = e && CRS(e.courseId);
+      const b = ACC.balanceOf(i);
+      const on = !!(inv && i.id === inv.id) || list.length === 1;
+      return `<div class="bill-row">
+        <label class="bill-pick">
+          <input type="checkbox" name="pick_${i.id}" ${on ? 'checked' : ''}>
+          <span><b>${UI.esc(i.no)}</b> · ${UI.esc(c ? c.title : 'no course on file')}
+            ${e && e.center ? `<span class="muted">— ${UI.esc(e.center)}</span>` : ''}<br>
+            <span class="muted" style="font-size:11.5px">billed ${UI.peso(i.total)}
+              · still to pay <b>${UI.peso(b)}</b></span></span>
+        </label>
+        <input type="number" name="amt_${i.id}" class="b-amt" step="0.01" min="0"
+               placeholder="0.00" value="${on ? b.toFixed(2) : ''}">
+      </div>`;
+    }).join('');
+  };
   const line = i => `
     <div class="tender-row" data-row="${i}">
       <select name="m${i}" class="t-mode">${MODES.map(m => `<option value="${m}">${m}</option>`).join('')}</select>
@@ -3660,10 +3709,20 @@ function paymentForm(inv){
     sub: inv ? `Against ${inv.no} · balance ${UI.peso(bal)}` : 'Record a payment',
     wide:true,
     body: `
-      ${inv ? `<input type="hidden" name="invoiceId" value="${inv.id}">
-               <div class="note"><b>${UI.esc(name(T(inv.traineeId)))}</b><br>${UI.esc(inv.no)} · total ${UI.peso(inv.total)} · balance <b>${UI.peso(bal)}</b></div>`
-            : UI.f.select('invoiceId','Apply to invoice','', open.map(i =>
-                ({ v:i.id, l:`${i.no} · ${name(T(i.traineeId))} · balance ${UI.peso(ACC.balanceOf(i))}` })), { req:true, blank:'— select invoice —' })}
+      ${inv
+        ? `<input type="hidden" name="who" value="${inv.traineeId}">
+           <div class="note"><b>${UI.esc(name(T(inv.traineeId)))}</b> · ${UI.esc(T(inv.traineeId)?.srn || '')}</div>`
+        : UI.f.select('who','Trainee', who0, owing, { req:true })}
+
+      <h4 style="margin:14px 0 2px;font-size:13px">What This Money Settles</h4>
+      <p class="muted" style="margin:0 0 6px;font-size:12px">
+        Tick every training this payment covers and put the amount against each.
+        One receipt can settle several.</p>
+      <div id="bills">${billRows(who0)}</div>
+      <div style="display:flex;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost btn-xs" id="allBills">Everything outstanding</button>
+        <button type="button" class="btn btn-ghost btn-xs" id="noBills">Clear</button>
+      </div>
 
       ${UI.f.text('note','Notes','', { attr:'style="max-width:360px"',
                                        ph:'what this payment is for, if it needs saying' })}
@@ -3677,15 +3736,23 @@ function paymentForm(inv){
         on the statement.</p>
       <div id="tenders">${line(0)}</div>
       <div style="display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
-        <button type="button" class="btn btn-ghost btn-xs" id="addTender">+ Split across another mode</button>
-        <button type="button" class="btn btn-ghost btn-xs" id="fullPay">Full balance</button>
-        <button type="button" class="btn btn-ghost btn-xs" id="halfPay">Half</button>
+        <button type="button" class="btn btn-ghost btn-xs" id="addTender">+ Paid partly another way</button>
+        <button type="button" class="btn btn-ghost btn-xs" id="fullPay">Match the ticked bills</button>
       </div>
       <div id="payWarn"></div>`,
     submitLabel:'Record payment',
     onSubmit: fd => {
-      const target = inv || INV(fd.invoiceId);
-      if(!target){ UI.toast('Select an invoice.', 'bad'); return false; }
+      const tid = inv ? inv.traineeId : fd.who;
+      if(!tid){ UI.toast('Select the trainee.', 'bad'); return false; }
+
+      const bills = openFor(tid)
+        .filter(i => fd['pick_' + i.id])
+        .map(i => ({ inv:i, amount:ACC.r2(fd['amt_' + i.id]) }))
+        .filter(x => x.amount > 0);
+      if(!bills.length){
+        UI.toast('Tick at least one training and say how much of this goes against it.', 'bad');
+        return false;
+      }
 
       const tenders = [];
       for(let i = 0; i < 6; i++){
@@ -3702,28 +3769,69 @@ function paymentForm(inv){
 
       const amt = ACC.r2(tenders.reduce((s,t) => s + t.amount, 0));
       if(amt <= 0){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
-      /* More than the bill asks for is not an error. The bill is the charge;
-         this is the money that came in. Refusing it would mean either turning a
-         trainee away at the counter or writing down a figure that is not what
-         is in the drawer, and the second one is how a cash count stops
-         matching the books. The excess is held as their credit. */
 
-      const p = ACC.buildPayment({ invoiceId:target.id, traineeId:target.traineeId,
-                                   date:DB.today(), tenders, note:fd.note });
-      D().payments.push(p); ACC.postPayment(p, target);
-      DB.activity('Recorded payment', `${p.no} vs ${target.no}`);
+      /* The money that came in and the money being put against bills have to be
+         the same money. They can disagree in two directions and both are the
+         cashier having lost track rather than anything the books should absorb
+         quietly, so neither is written. */
+      const put = ACC.r2(bills.reduce((s,b) => s + b.amount, 0));
+      if(Math.abs(amt - put) > 0.004){
+        UI.toast(`${UI.peso(amt)} was received but ${UI.peso(put)} is being put against bills.`
+          + ` The two have to match.`, 'bad');
+        return false;
+      }
+      /* More than a bill asks for is still not an error. The bill is the
+         charge; this is the money that came in, and the excess is held as the
+         trainee's credit rather than refused at the counter. */
+
+      /* One document. The trainee handed over one sum, so the number is taken
+         once and every row making up that receipt carries it — and each bill
+         still gets its own row, because that is what makes its balance right. */
+      const no = DB.nextNo('receipt','OR');
+      const queue = tenders.map(t => ({ ...t, left:t.amount }));
+      const made = bills.map(b => {
+        const p = ACC.buildPayment({ no, invoiceId:b.inv.id, traineeId:tid,
+                                     date:DB.today(), tenders:ACC.drawTenders(queue, b.amount),
+                                     note:fd.note });
+        D().payments.push(p);
+        ACC.postPayment(p, b.inv);
+        return p;
+      });
+      DB.activity('Recorded payment', `${no} vs ${bills.map(b => b.inv.no).join(', ')}`);
       DB.save();
-      UI.toast(`OR ${p.no} issued for ${UI.peso(amt)}`);
+      UI.toast(`OR ${no} issued for ${UI.peso(amt)}`
+        + (bills.length > 1 ? ` across ${bills.length} trainings` : ''));
       render();
-      receiptModal(p);
+      receiptModal(made[0]);
       return false; // receiptModal already replaced the dialog
     }
   });
 
   const form = document.getElementById('mForm');
+  const whoNow = () => inv ? inv.traineeId : (form.who ? form.who.value : '');
+
+  /* What the ticked bills come to. This is the figure the tenders have to
+     match, and it moves as boxes are ticked rather than being read off one
+     invoice the way it used to be. */
   const dueNow = () => {
-    const target = inv || INV(form.invoiceId ? form.invoiceId.value : '');
-    return target ? ACC.balanceOf(ACC.recomputeInvoice(target)) : 0;
+    let sum = 0;
+    openFor(whoNow()).forEach(i => {
+      const pick = form['pick_' + i.id], box = form['amt_' + i.id];
+      if(pick && pick.checked && box) sum = ACC.r2(sum + ACC.r2(box.value));
+    });
+    return sum;
+  };
+
+  /* Ticking a bill fills in its whole balance, which is what the counter means
+     nine times out of ten; unticking it takes the money back off. */
+  const syncBills = () => {
+    openFor(whoNow()).forEach(i => {
+      const pick = form['pick_' + i.id], box = form['amt_' + i.id];
+      if(!pick || !box) return;
+      box.disabled = !pick.checked;
+      if(!pick.checked) box.value = '';
+      else if(!ACC.r2(box.value)) box.value = ACC.balanceOf(ACC.recomputeInvoice(i)).toFixed(2);
+    });
   };
   const tendered = () => {
     let sum = 0;
@@ -3745,15 +3853,31 @@ function paymentForm(inv){
 
   const warn = () => {
     syncRefs();
-    const due = dueNow(), amt = tendered();
+    const put = dueNow(), amt = tendered();
+    const n = openFor(whoNow()).filter(i => form['pick_' + i.id] && form['pick_' + i.id].checked).length;
     const box = document.getElementById('payWarn');
-    box.innerHTML = !amt ? ''
-      : amt - due > 0.004 ? `<div class="note warn">Settles this bill in full and leaves
-          <b>${UI.peso(ACC.r2(amt - due))}</b> over the balance.</div>`
-      : amt < due ? `<div class="note warn">Part payment of <b>${UI.peso(amt)}</b>.
-          Balance after this receipt: <b>${UI.peso(ACC.r2(due - amt))}</b>.</div>`
-      : `<div class="note"><b>Full settlement of ${UI.peso(amt)}.</b> This invoice will be marked Paid.</div>`;
+    /* The two figures the cashier has to reconcile, said as a difference rather
+       than as two numbers to subtract in their head at the counter. */
+    box.innerHTML = (!amt && !put) ? ''
+      : Math.abs(amt - put) <= 0.004
+        ? `<div class="note"><b>${UI.peso(amt)} received</b>, all of it against
+            ${n} training${n === 1 ? '' : 's'}. One receipt covers them.</div>`
+      : amt > put
+        ? `<div class="note warn"><b>${UI.peso(ACC.r2(amt - put))} of the money received is not
+            against anything yet.</b> Tick another training, or put more on one of them.</div>`
+        : `<div class="note warn"><b>${UI.peso(ACC.r2(put - amt))} more is being put against bills
+            than was received.</b> Lower one of the amounts, or add how the rest was paid.</div>`;
   };
+
+  const tickAll = on => {
+    openFor(whoNow()).forEach(i => {
+      const pick = form['pick_' + i.id];
+      if(pick) pick.checked = on;
+    });
+    syncBills(); warn();
+  };
+  document.getElementById('allBills').onclick = () => { tickAll(true); setFirst(dueNow()); };
+  document.getElementById('noBills').onclick  = () => tickAll(false);
 
   let rows = 1;
   document.getElementById('addTender').onclick = () => {
@@ -3769,20 +3893,57 @@ function paymentForm(inv){
   const setFirst = v => { form.a0.value = v.toFixed(2);
     for(let i = 1; i < 6; i++){ if(form['a'+i]) form['a'+i].value = ''; } warn(); };
   document.getElementById('fullPay').onclick = () => setFirst(dueNow());
-  document.getElementById('halfPay').onclick = () => setFirst(ACC.r2(dueNow() / 2));
 
   form.addEventListener('input', warn);
-  form.addEventListener('change', () => {
-    if(!inv && form.invoiceId && form.invoiceId.value) setFirst(dueNow());
-    else warn();
+  form.addEventListener('change', ev => {
+    /* Changing the trainee rebuilds the list under them, so the old ticks and
+       amounts have to go with it — they belonged to somebody else's bills. */
+    if(!inv && ev.target === form.who){
+      document.getElementById('bills').innerHTML = billRows(form.who.value);
+      syncBills();
+      setFirst(dueNow());
+      return;
+    }
+    if(ev.target && /^pick_/.test(ev.target.name || '')){
+      syncBills();
+      setFirst(dueNow());
+      return;
+    }
+    warn();
   });
-  if(inv) setFirst(bal); else warn();
+  syncBills();
+  setFirst(inv ? bal : dueNow());
 }
 
 function receiptModal(p){
-  const t = T(p.traineeId), inv = INV(p.invoiceId), co = D().company;
-  const e = inv && ENR(inv.enrollmentId), c = e && CRS(e.courseId);
-  const words = amountInWords(p.amount);
+  const t = T(p.traineeId), co = D().company;
+
+  /* A collection covering three trainings is three rows in the books and one
+     piece of paper across the counter. The rows are what make each bill's
+     balance right; this is the paper, so it gathers everything issued under the
+     same number rather than showing whichever row happened to be opened. */
+  const parts = D().payments.filter(x => x.no === p.no);
+  const total = ACC.r2(parts.reduce((s, x) => s + x.amount, 0));
+  const words = amountInWords(total);
+  const settles = parts.map(x => {
+    const i = INV(x.invoiceId);
+    const e = i && ENR(i.enrollmentId), c = e && CRS(e.courseId);
+    return { pay:x, inv:i, course:c ? c.title : 'Training Fees', center:e ? e.center : '' };
+  });
+  /* Every tender across the whole receipt, gathered by how it arrived. The
+     rows split cash three ways because that is how it was applied to the bills;
+     the person handed over cash once, and a receipt listing "Cash" twice reads
+     like they paid twice. The split is in the table underneath, where it says
+     what it is. */
+  const allTenders = Object.values(parts
+    .flatMap(x => (x.tenders && x.tenders.length ? x.tenders
+                                                 : [{ method:x.method, ref:x.ref, amount:x.amount }]))
+    .reduce((acc, t) => {
+      const k = t.method + '|' + (t.ref || '');
+      if(!acc[k]) acc[k] = { method:t.method, ref:t.ref, amount:0 };
+      acc[k].amount = ACC.r2(acc[k].amount + t.amount);
+      return acc;
+    }, {}));
 
   UI.modal({
     title:'Acknowledgement Receipt', sub:UI.date(p.date), hideSubmit:true, wide:true,
@@ -3800,13 +3961,28 @@ function receiptModal(p){
         <dt>Received From</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}</dd>
         <dt>Address</dt><dd>${UI.esc(t?.address||'—')}</dd>
         <dt>The Sum Of</dt><dd><b>${UI.esc(words)}</b></dd>
-        <dt>In Payment Of</dt><dd>${UI.esc(c ? c.title : 'Training Fees')}${inv ? ' · Bill ' + UI.esc(inv.no) : ''}</dd>
-        <dt>Mode Of Payment</dt><dd>${(p.tenders && p.tenders.length ? p.tenders : [{ method:p.method, ref:p.ref, amount:p.amount }])
+        <dt>In Payment Of</dt><dd>${settles.map(s =>
+          `${UI.esc(s.course)}${s.center ? ' <span class="muted">— ' + UI.esc(s.center) + '</span>' : ''}`
+          + `${s.inv ? ' · Bill ' + UI.esc(s.inv.no) : ''}`).join('<br>')}</dd>
+        <dt>Mode Of Payment</dt><dd>${allTenders
           .map(t => `${UI.esc(t.method)}${t.ref ? ' · Ref ' + UI.esc(t.ref) : ''} — ${UI.num(t.amount)}`).join('<br>')}</dd>
       </dl>
+      ${settles.length > 1 ? `
+      <table style="width:100%;margin-bottom:14px">
+        <thead><tr><th>Applied To</th><th>Bill</th><th class="num">Amount</th>
+          <th class="num">Balance After</th></tr></thead>
+        <tbody>${settles.map(s => {
+          if(s.inv) ACC.recomputeInvoice(s.inv);
+          return `<tr><td>${UI.esc(s.course)}</td>
+            <td><span class="mono">${UI.esc(s.inv ? s.inv.no : '—')}</span></td>
+            <td class="num">${UI.num(s.pay.amount)}</td>
+            <td class="num">${s.inv ? UI.num(ACC.balanceOf(s.inv)) : '—'}</td></tr>`;
+        }).join('')}</tbody>
+      </table>` : ''}
       <div class="doc-total"><table>
-        <tr><td>Amount Received</td><td class="num">${UI.num(p.amount)}</td></tr>
-        ${inv ? (() => {
+        <tr><td>Amount Received</td><td class="num">${UI.num(total)}</td></tr>
+        ${settles.length === 1 && settles[0].inv ? (() => {
+          const inv = settles[0].inv;
           ACC.recomputeInvoice(inv);
           /* What came in over the bill is the office's business, not something
              to hand the trainee a claim on. The receipt states the money
@@ -3824,12 +4000,21 @@ function receiptModal(p){
     </div>`
   });
   const vb = document.getElementById('voidPay');
+  /* The whole document goes, not the row that happened to be open. Voiding one
+     part of a receipt covering three trainings would leave the trainee holding
+     paper for money the books say they still owe. */
   if(vb) vb.onclick = () => UI.confirm('Void this acknowledgement receipt?', fd => {
-      p.voided = true;
-      ACC.reverse(p.id, fd.reason || 'Receipt voided');
-      if(inv) ACC.recomputeInvoice(inv);
+      parts.forEach(x => {
+        x.voided = true;
+        ACC.reverse(x.id, fd.reason || 'Receipt voided');
+        const i = INV(x.invoiceId);
+        if(i) ACC.recomputeInvoice(i);
+      });
       DB.activity('Voided payment', p.no + (fd.reason ? ' — ' + fd.reason : ''));
-      UI.toast('Receipt voided; the balance has been restored.');
+      DB.save();
+      UI.toast(parts.length > 1
+        ? `Receipt voided across ${parts.length} trainings; the balances have been restored.`
+        : 'Receipt voided; the balance has been restored.');
       refresh();
     }, { danger:true, reason:true, yes:'Void receipt',
          detail:'A reversing entry is posted and the amount returns to the trainee\'s outstanding balance.' });

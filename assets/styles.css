@@ -254,6 +254,13 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
    one holds somebody's full name and the company that sent them. */
 .toolbar .grow{flex:1 1 320px;min-width:240px}
 
+/* One row per bill the money can be put against. */
+.bill-row{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)}
+.bill-row:last-child{border-bottom:none}
+.bill-pick{flex:1;display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:13px;line-height:1.45;margin:0}
+.bill-pick input{margin-top:3px;flex:none}
+.bill-row .b-amt{width:132px;flex:none}
+
 /* ---------- Modal ---------- */
 .modal-backdrop{position:fixed;inset:0;background:rgba(10,28,51,.55);display:grid;place-items:center;padding:20px;z-index:100;overflow-y:auto}
 .modal{background:var(--surface);border-radius:12px;box-shadow:var(--shadow-lg);width:100%;max-width:620px;margin:auto;animation:pop .13s ease-out}
