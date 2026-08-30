@@ -2942,9 +2942,11 @@ function traineeForm(t, onDone){
 function factCard(title, headIcon, rows){
   return `<section class="fact-card">
     <h4 class="fact-head"><span class="bub">${headIcon}</span>${UI.esc(title)}</h4>
-    ${rows.map(([ico, k, v]) => `<div class="fact-row">
-      ${ico}<span class="fact-k">${UI.esc(k)}</span><span class="fact-v">${v}</span>
-    </div>`).join('')}
+    <div class="fact-rows" style="--rows:${Math.ceil(rows.length / 2)}">
+      ${rows.map(([ico, k, v]) => `<div class="fact-row">
+        ${ico}<span class="fact-k">${UI.esc(k)}</span><span class="fact-v">${v}</span>
+      </div>`).join('')}
+    </div>
   </section>`;
 }
 
@@ -2973,8 +2975,7 @@ function traineeProfile(t){
           [ICO.build, 'Company',     UI.esc(t.agency||'—')],
           [ICO.pen,   'Signed up on',UI.date(t.registered)],
         ])}
-        <div class="fact-col">
-          ${factCard('CONTACT INFORMATION', ICO.phone, [
+        ${factCard('CONTACT INFORMATION', ICO.phone, [
             [ICO.phone, 'Mobile number', t.mobile
               ? `<a href="tel:${UI.esc(String(t.mobile).replace(/[^+0-9]/g,''))}">${UI.esc(t.mobile)}</a>`
               : '<span class="muted">—</span>'],
@@ -2983,17 +2984,16 @@ function traineeProfile(t){
               : '<span class="muted">—</span>'],
             [ICO.fb,    'Facebook',     shortLink(t.facebook, 'Facebook profile')],
             [ICO.home,  'Home address', UI.esc(t.address||'—')],
-            [ICO.chat,  'Messenger',    shortLink(t.messenger, 'Open in Messenger')],
-          ])}
-          ${factCard('EMERGENCY CONTACT', ICO.alert, [
+          [ICO.chat,  'Messenger',    shortLink(t.messenger, 'Open in Messenger')],
+        ])}
+        ${factCard('EMERGENCY CONTACT', ICO.alert, [
             [ICO.user,  'Who to call in an emergency',
               UI.esc(t.emergencyName||'—')
               + (t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : '')],
-            [ICO.phone, 'Phone number', t.emergencyMobile
-              ? `<a class="mono" href="tel:${UI.esc(String(t.emergencyMobile).replace(/[^+0-9]/g,''))}">${UI.esc(t.emergencyMobile)}</a>`
-              : '<span class="muted">—</span>'],
-          ])}
-        </div>
+          [ICO.phone, 'Phone number', t.emergencyMobile
+            ? `<a class="mono" href="tel:${UI.esc(String(t.emergencyMobile).replace(/[^+0-9]/g,''))}">${UI.esc(t.emergencyMobile)}</a>`
+            : '<span class="muted">—</span>'],
+        ])}
       </div>
       ${copyRow('COPY DETAILS')}
       <div class="hr"></div>
