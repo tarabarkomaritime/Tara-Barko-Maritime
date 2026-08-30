@@ -188,6 +188,43 @@ function docCompany(){
       ${co.tradeName ? `<br>${UI.esc(co.tradeName)}` : ''}</div></div>`;
 }
 
+/* Sixteen-pixel strokes, drawn here rather than fetched, because the whole
+   point of this system is that it opens with no network behind it. */
+const ICO = (() => {
+  const s = d => `<svg class="fact-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">${d}</svg>`;
+  return {
+    card:  s('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M7 10h4M7 14h7"/>'),
+    doc:   s('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
+    cake:  s('<rect x="3" y="10" width="18" height="10" rx="2"/><path d="M12 10V7M8 10V8M16 10V8M3 15h18"/>'),
+    pin:   s('<path d="M12 21s7-5.3 7-11a7 7 0 1 0-14 0c0 5.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>'),
+    rank:  s('<path d="M6 13l6-5 6 5M6 18l6-5 6 5"/>'),
+    build: s('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h6"/>'),
+    pen:   s('<path d="M4 20h16M5 16.5L16 5.5a2.1 2.1 0 0 1 3 3L8 19.5l-4 .5z"/>'),
+    phone: s('<path d="M5 3h3l2 5-2.2 1.3a13 13 0 0 0 6.9 6.9L16 14l5 2v3a2 2 0 0 1-2.2 2A17 17 0 0 1 3 5.2 2 2 0 0 1 5 3z"/>'),
+    mail:  s('<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>'),
+    fb:    s('<circle cx="12" cy="12" r="9"/><path d="M13.4 21v-7h2.2l.4-2.7h-2.6V9.6c0-.8.3-1.3 1.4-1.3h1.3V5.9c-.6-.1-1.4-.2-2.2-.2-2.2 0-3.5 1.2-3.5 3.5v2.1H8.2V14h2.2v7"/>'),
+    home:  s('<path d="M3 10.5L12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>'),
+    chat:  s('<path d="M12 3c5 0 9 3.6 9 8s-4 8-9 8a10 10 0 0 1-2.8-.4L4 21l1.2-3.4A7.6 7.6 0 0 1 3 11c0-4.4 4-8 9-8z"/>'),
+    user:  s('<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>'),
+    alert: s('<path d="M12 3l9 16H3z"/><path d="M12 9v5M12 17.2v.1"/>'),
+  };
+})();
+
+/* A Messenger inbox URL is 120 characters of query string and, printed in
+   full, it is the widest thing on the page — the address that broke the
+   layout was not even a profile, it was a link into somebody's inbox. The
+   link still goes where it went; it just stops shouting. */
+function shortLink(v, label){
+  const s = String(v || '').trim();
+  if(!s) return '<span class="muted">—</span>';
+  const href = /^https?:\/\//i.test(s) ? s : 'https://' + s.replace(/^\/+/, '');
+  let show = s.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+  if(show.length > 42) show = (label || show.split(/[/?]/)[0]) + ' \u2192';
+  return `<a href="${UI.esc(href)}" target="_blank" rel="noopener noreferrer"
+    title="${UI.esc(s)}">${UI.esc(show)}</a>`;
+}
+
 function fbLink(v){
   const s = String(v || '').trim();
   if(!s) return '<span class="muted">—</span>';
@@ -2697,6 +2734,18 @@ function traineeForm(t, onDone){
   });
 }
 
+/* One boxed group of facts: a heading that sits on the border, then a row per
+   fact. Rows carry their own icon so the card is scannable down the left edge
+   without reading a word of it. */
+function factCard(title, headIcon, rows){
+  return `<section class="fact-card">
+    <h4 class="fact-head"><span class="bub">${headIcon}</span>${UI.esc(title)}</h4>
+    ${rows.map(([ico, k, v]) => `<div class="fact-row">
+      ${ico}<span class="fact-k">${UI.esc(k)}</span><span class="fact-v">${v}</span>
+    </div>`).join('')}
+  </section>`;
+}
+
 /* The trainee's page, in the words the desk uses out loud. No document numbers
    we do not hold, no exam results we do not issue — the training center marks
    and certifies, we book and bill. */
@@ -2712,26 +2761,37 @@ function traineeProfile(t){
     footExtra:`<button type="button" class="btn btn-ghost" id="editTrainee">Edit details</button>
                <button type="button" class="btn btn-accent" id="enrollHere">Book a course</button>`,
     body: `
-      <div class="grid g2">
-        <dl class="def">
-          <dt>Trainee no.</dt><dd class="mono">${UI.esc(t.no||'—')}</dd>
-          <dt>SRN</dt><dd class="mono"><b>${UI.esc(t.srn||'—')}</b></dd>
-          <dt>Birthday</dt><dd>${UI.date(t.birth)}</dd>
-          <dt>Birthplace</dt><dd>${UI.esc(t.birthPlace||'—')}</dd>
-          <dt>Rank</dt><dd>${UI.esc(t.rank||'—')}</dd>
-          <dt>Company</dt><dd>${UI.esc(t.agency||'—')}</dd>
-          <dt>Signed up on</dt><dd>${UI.date(t.registered)}</dd>
-        </dl>
-        <dl class="def">
-          <dt>Mobile number</dt><dd>${UI.esc(t.mobile||'—')}</dd>
-          <dt>Email</dt><dd>${UI.esc(t.email||'—')}</dd>
-          <dt>Facebook</dt><dd>${fbLink(t.facebook)}</dd>
-          <dt>Home address</dt><dd>${UI.esc(t.address||'—')}</dd>
-          <dt>Messenger</dt><dd>${t.messenger ? fbLink(t.messenger) : '<span class="muted">—</span>'}</dd>
-          <dt>Who to call in an emergency</dt>
-            <dd>${UI.esc(t.emergencyName||'—')}${t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : ''}
-                ${t.emergencyMobile ? `<br><span class="mono">${UI.esc(t.emergencyMobile)}</span>` : ''}</dd>
-        </dl>
+      <div class="facts">
+        ${factCard('PERSONAL INFORMATION', ICO.user, [
+          [ICO.card,  'Trainee no.', `<span class="mono">${UI.esc(t.no||'—')}</span>`],
+          [ICO.doc,   'SRN',         `<span class="mono"><b>${UI.esc(t.srn||'—')}</b></span>`],
+          [ICO.cake,  'Birthday',    UI.date(t.birth)],
+          [ICO.pin,   'Birthplace',  UI.esc(t.birthPlace||'—')],
+          [ICO.rank,  'Rank',        UI.esc(t.rank||'—')],
+          [ICO.build, 'Company',     UI.esc(t.agency||'—')],
+          [ICO.pen,   'Signed up on',UI.date(t.registered)],
+        ])}
+        <div class="fact-col">
+          ${factCard('CONTACT INFORMATION', ICO.phone, [
+            [ICO.phone, 'Mobile number', t.mobile
+              ? `<a href="tel:${UI.esc(String(t.mobile).replace(/[^+0-9]/g,''))}">${UI.esc(t.mobile)}</a>`
+              : '<span class="muted">—</span>'],
+            [ICO.mail,  'Email', t.email
+              ? `<a href="mailto:${UI.esc(t.email)}">${UI.esc(t.email)}</a>`
+              : '<span class="muted">—</span>'],
+            [ICO.fb,    'Facebook',     shortLink(t.facebook, 'Facebook profile')],
+            [ICO.home,  'Home address', UI.esc(t.address||'—')],
+            [ICO.chat,  'Messenger',    shortLink(t.messenger, 'Open in Messenger')],
+          ])}
+          ${factCard('EMERGENCY CONTACT', ICO.alert, [
+            [ICO.user,  'Who to call in an emergency',
+              UI.esc(t.emergencyName||'—')
+              + (t.emergencyRelation ? ` <span class="muted">(${UI.esc(t.emergencyRelation)})</span>` : '')],
+            [ICO.phone, 'Phone number', t.emergencyMobile
+              ? `<a class="mono" href="tel:${UI.esc(String(t.emergencyMobile).replace(/[^+0-9]/g,''))}">${UI.esc(t.emergencyMobile)}</a>`
+              : '<span class="muted">—</span>'],
+          ])}
+        </div>
       </div>
       ${copyRow('COPY DETAILS')}
       <div class="hr"></div>

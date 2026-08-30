@@ -299,6 +299,32 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
    rather than a form to fill. */
 .def-tight{grid-template-columns:120px 1fr;gap:4px 14px;font-size:12.5px}
 
+/* ---------- fact cards ----------
+   A run of twelve label-and-value rows is a wall, and the eye has nothing to
+   aim at: somebody looking for a mobile number reads past the birthplace to
+   find it. Grouping them under headings gives each fact a place, so it is found
+   by looking in the right box rather than by reading the whole thing. */
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:30px 20px;margin:8px 0 4px;align-items:start}
+.fact-col{display:grid;gap:30px;align-content:start}
+.fact-card{position:relative;border:1.5px solid var(--border-strong);border-radius:14px;padding:22px 16px 10px}
+.fact-head{
+  position:absolute;top:-15px;left:14px;display:inline-flex;gap:8px;align-items:center;
+  background:var(--navy-900);color:#fff;border-radius:999px;padding:5px 15px 5px 5px;
+  font:700 11px/1 system-ui,-apple-system,Segoe UI,sans-serif;letter-spacing:.08em;
+}
+.fact-head .bub{width:21px;height:21px;border-radius:999px;background:#fff;color:var(--navy-900);
+  display:grid;place-items:center;flex:none}
+.fact-row{display:flex;gap:11px;align-items:flex-start;padding:9px 2px;
+  border-bottom:1px dashed var(--border)}
+.fact-row:last-child{border-bottom:none}
+.fact-ico{flex:none;width:17px;color:var(--navy-700);opacity:.75;margin-top:1px}
+.fact-k{flex:0 0 148px;color:var(--text-2);font-weight:600;font-size:12.5px;line-height:1.45}
+.fact-v{flex:1;min-width:0;font-size:13px;font-weight:500;line-height:1.45;overflow-wrap:anywhere}
+@media(max-width:820px){
+  .facts{grid-template-columns:1fr}
+  .fact-k{flex-basis:120px}
+}
+
 .split{display:flex;gap:8px;align-items:flex-end}
 .split > *{flex:1}
 .line-items th{background:#fff}
