@@ -1546,7 +1546,15 @@ VIEWS.payables = () => {
       { h:'Mode', k:v => UI.tag(v.method, v.method === 'Cash' ? 'ok' : 'sea') },
       { h:'Reference', k:v => UI.esc(v.ref || '—') },
       { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
-      { h:'', k:v => `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`, w:'80px' },
+      /* Voiding is the admin's. Registration raises remittances and reads them
+         back; unwinding one puts money back on the payables list and takes an
+         entry off the books, which is not a button to leave on the counter. */
+      { h:'', k:v => v.state === 'Voided'
+          ? UI.tag('Void','muted')
+          : `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`
+            + (canApprove()
+                ? ` <button class="btn btn-ghost btn-xs" data-act="void-voucher" data-id="${v.id}">Void</button>`
+                : ''), w:canApprove() ? '150px' : '80px' },
     ], paid, { empty:filtered
         ? 'No voucher was issued in this window.'
         : 'No remittance voucher has been issued yet.' }),
@@ -1690,6 +1698,62 @@ function twoUp(inner){
 }
 
 /* The voucher itself, printable — a training center is going to want a copy. */
+/* ---------- unwinding a remittance ----------
+   A voucher is written against particular bookings and marks them as covered so
+   nobody remits the same seat twice. Undoing one has to give those seats back,
+   or they vanish from the payables list while still being owed — the centre
+   would simply never be paid again for them and nothing on any screen would
+   say so.
+
+   Nothing is deleted. The entry is reversed beside the original, because a
+   voucher a centre may already be holding a copy of is not a thing to erase
+   from our side. */
+function voidVoucher(v, reason){
+  if(!v){ UI.toast('That voucher is gone.', 'bad'); return false; }
+  if(v.state === 'Voided'){ UI.toast('That voucher is already void.', 'bad'); return false; }
+  if(v.state === 'Pending'){
+    UI.toast('That voucher has not been approved yet — reject it instead.', 'bad'); return false;
+  }
+
+  (v.bookings || []).forEach(id => {
+    const e = ENR(id);
+    if(!e) return;
+    const l = (v.lines || []).find(x => x.id === id);
+    const back = l ? l.amount : (e.centerPayable != null ? e.centerPayable : e.fee);
+    e.centerPaid = ACC.r2(Math.max(0, (e.centerPaid || 0) - back));
+    if(e.remitNo === v.no){ delete e.remitNo; delete e.remitDate; }
+  });
+
+  ACC.reverse(v.id, reason || 'Voucher voided');
+  /* Carried on state rather than on a flag of its own. Every field here already
+     has a column on the server; a new one would need a migration applied by
+     hand before anybody could save anything at all — and "Voided" is what state
+     is for, alongside Pending, Approved and Rejected. It also drops the voucher
+     out of every total that counts approved money as spent, which is most of
+     what voiding it means. */
+  v.state = 'Voided';
+  v.decidedBy = SESSION.name;
+  v.decidedOn = DB.today();
+  v.decisionNote = reason || '';
+  return true;
+}
+
+function voidVoucherAsk(id){
+  const v = D().expenses.find(x => x.id === id);
+  if(!v) return;
+  if(!canApprove()){ UI.toast('Only an admin can void a voucher.', 'bad'); return; }
+  UI.confirm(`Void ${v.no}?`, fd => {
+    const reason = String(fd.reason || '').trim();
+    if(!reason){ UI.toast('Say why it is being voided — a void with no reason is a gap in the file.', 'bad'); return; }
+    if(!voidVoucher(v, reason)) return;
+    DB.save();
+    DB.activity('Voided a remittance voucher', v.no + ' — ' + reason);
+    UI.toast(`${v.no} voided. ${UI.peso(v.amount)} is back on the payables list.`);
+    refresh();
+  }, { danger:true, reason:true, yes:'Void the voucher',
+       detail:'The entry is reversed rather than erased, and the bookings it covered go back on the payables list as still owed.' });
+}
+
 function voucherModal(v){
   const bookings = (v.bookings || []).map(id => ENR(id)).filter(Boolean);
   const co = D().company;
@@ -1707,6 +1771,7 @@ function voucherModal(v){
         <div class="doc-title">
           <div class="t">DISBURSEMENT VOUCHER</div>
           <div class="n">${UI.esc(v.no)}</div>
+          ${v.state === 'Voided' ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}
           <div class="muted" style="font-size:12px">${UI.date(v.date)}</div>
         </div>
       </div>
@@ -1734,13 +1799,20 @@ function voucherModal(v){
     </div>`;
 
   UI.modal({
-    title:`Voucher ${v.no}`, sub:`${String(v.payee).toUpperCase()} · ${UI.peso(v.amount)}`, wide:true,
+    title:`Voucher ${v.no}`,
+    sub:`${String(v.payee).toUpperCase()} · ${UI.peso(v.amount)}`
+      + (v.state === 'Voided' ? ' · VOID' : ''),
+    wide:true,
     hideSubmit:true,
-    footExtra:`<button type="button" class="btn btn-primary" id="printVoucher">Print / PDF</button>`,
+    footExtra:`${v.state !== 'Voided' && canApprove()
+        ? `<button type="button" class="btn btn-danger" id="voidVoucher">Void voucher</button>` : ''}
+      <button type="button" class="btn btn-primary" id="printVoucher">Print / PDF</button>`,
     body: twoUp(sheet),
   });
   document.getElementById('printVoucher').onclick = () =>
     UI.printDoc(`${v.no} — Disbursement Voucher`);
+  const vv = document.getElementById('voidVoucher');
+  if(vv) vv.onclick = () => { UI.close(); voidVoucherAsk(v.id); };
 }
 
 /* ---------- payroll ----------
@@ -4815,6 +4887,7 @@ document.addEventListener('click', ev => {
     'paya-only':     () => { state.q.payaCenter = id; render(); },
     'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
+    'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
     'edit-methods':  () => methodsForm(),

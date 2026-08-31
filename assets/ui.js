@@ -33,7 +33,7 @@ const UI = (() => {
     Enrolled:'ok', Reserved:'warn', Completed:'info', Cancelled:'muted', Dropped:'muted',
     /* A seat asked for but not yet confirmed by the center, and one confirmed
        with no date set. Both are ordinary at the desk and neither was sayable. */
-    'On Process':'warn', 'Open Schedule':'sea',
+    'On Process':'warn', 'Open Schedule':'sea', Voided:'muted',
     Open:'sea', Ongoing:'ok', Closed:'muted', Passed:'ok', Failed:'bad',
     // Admissions lifecycle — see applications.js
     Submitted:'sea', 'Under Review':'warn', Approved:'info', Rejected:'bad', Withdrawn:'muted',
@@ -232,11 +232,24 @@ const UI = (() => {
      "Tara Barko Maritime — Integrated System.pdf", which is the difference
      between a folder you can search and a folder you cannot. The title is
      borrowed for the length of the dialog and put back after. */
+  /* Printing a document from a modal printed the screen behind it too: the
+     payables page is still in the DOM under the dialog, so a one-page voucher
+     came out of the printer as five, with the voucher somewhere in the middle
+     and the office's whole payables position on the sheet handed to a training
+     centre.
+
+     The page is taken out for the duration of the print rather than hidden by a
+     selector, because what is behind a modal changes from one screen to the
+     next and a list of them would fall behind. */
   function printDoc(name){
     const was = document.title;
     if(name) document.title = name;
+    document.body.classList.add('printing-doc');
     window.print();
-    setTimeout(() => { document.title = was; }, 800);
+    setTimeout(() => {
+      document.title = was;
+      document.body.classList.remove('printing-doc');
+    }, 800);
   }
 
   return { esc, peso, num, int, date, dateShort, dateRange, days, tag, statusTag, table, card, kpi,

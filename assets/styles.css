@@ -382,6 +382,11 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 
 @media print{
   .sidebar,.topbar,.modal-foot,.no-print,.toast-root,.copy-note{display:none !important}
+  /* What is on the screen under the dialog is the page you were looking at,
+     not the thing you asked to print. */
+  body.printing-doc #view,
+  body.printing-doc #saveState,
+  body.printing-doc #newBuild{display:none !important}
   body,.shell,.main,.view{background:#fff;margin:0;padding:0;display:block}
   .modal-backdrop{position:static;background:none;padding:0;display:block}
   .modal{box-shadow:none;max-width:100%;border-radius:0}
