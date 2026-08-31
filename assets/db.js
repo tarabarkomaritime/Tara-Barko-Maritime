@@ -111,7 +111,12 @@ const DB = (() => {
        roles as well; nobody was ever on them, and three names for one desk is
        three chances to give somebody the wrong one.
        It does not touch the course list: prices and rebates are the admin's. */
-    frontdesk:  ['dashboard','daily','trainees','enrollments','invoices','payments','refunds','reports'],
+    /* Centre payables and disbursements are on this list because the desk is
+       the one that knows a centre has been paid and that the courier has been
+       settled. Seeing them and deciding them are still different jobs: raising
+       a voucher is a request, and approving it — the moment money counts as
+       gone — remains the admin's, as does voiding one. */
+    frontdesk:  ['dashboard','daily','trainees','enrollments','invoices','payments','payables','expenses','refunds','reports'],
     accounting: ['dashboard','daily','sales','invoices','payments','reconcile','payables','refunds','expenses','approvals','ledger','reports','settings'],
   };
 

@@ -1524,8 +1524,6 @@ VIEWS.payables = () => {
 
   const centers = payablesByCenter(from).filter(c => !pick || c.key === pick);
   const totalDue  = ACC.r2(centers.reduce((s,c) => s + c.payable, 0));
-  const totalRecv = ACC.r2(centers.reduce((s,c) => s + c.receivable, 0));
-  const totalKept = ACC.r2(centers.reduce((s,c) => s + c.rebateDeducted, 0));
   const bookings  = centers.reduce((s,c) => s + c.rows.length, 0);
 
   const paid = D().expenses.filter(v => v.kind === 'remittance')
@@ -1600,13 +1598,16 @@ VIEWS.payables = () => {
       { h:'Training center', k:c => `<b>${UI.esc(c.key)}</b>` },
       { h:'Bookings', k:c => UI.int(c.rows.length), cls:'num' },
       { h:'Oldest', k:c => c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest) },
-      { h:'Rebate deducted', k:c => c.rebateDeducted ? UI.num(c.rebateDeducted) : '<span class="muted">—</span>', cls:'num' },
-      { h:'Rebate to collect', k:c => c.receivable ? UI.num(c.receivable) : '<span class="muted">—</span>', cls:'num' },
+      /* The rebate columns went to Sales with the figures above them. This
+         screen answers one question — what has to go out to whom — and the
+         amount to remit already has the rebate taken off it where a centre
+         lets us keep it. Showing the workings beside the answer had the desk
+         adding and subtracting to arrive at a number that was in front of
+         them. */
       { h:'To remit', k:c => `<b>${UI.num(c.payable)}</b>`, cls:'num' },
       { h:'', k:c => `<button class="btn btn-ghost btn-xs" data-act="paya-only"
             data-id="${UI.esc(c.key)}">Open</button>`, w:'90px' },
-    ], centers, { foot:['TOTAL', UI.int(bookings), '',
-              UI.num(totalKept), UI.num(totalRecv), UI.num(totalDue), ''] }),
+    ], centers, { foot:['TOTAL', UI.int(bookings), '', UI.num(totalDue), ''] }),
       { flush:true, sub:`By training date · ${span}` }) + '<div style="height:18px"></div>' : ''}
 
     ${centers.length
@@ -4097,16 +4098,26 @@ function paymentForm(inv){
       const e = ENR(i.enrollmentId), c = e && CRS(e.courseId);
       const b = ACC.balanceOf(i);
       const on = !!(inv && i.id === inv.id) || list.length === 1;
-      return `<div class="bill-row">
+      /* The amount is what the training costs, and it is not typed. A figure
+         the cashier can overtype is a figure that gets overtyped — by a digit,
+         in a hurry, against the wrong one of three trainings — and the office
+         finds out when the balance will not clear. Part payment is still a
+         real thing that happens, so it is a deliberate click rather than an
+         open box. */
+      return `<div class="bill-row${on ? ' on' : ''}" data-bill="${i.id}">
         <label class="bill-pick">
           <input type="checkbox" name="pick_${i.id}" ${on ? 'checked' : ''}>
-          <span><b>${UI.esc(i.no)}</b> · ${UI.esc(c ? c.title : 'no course on file')}
-            ${e && e.center ? `<span class="muted">— ${UI.esc(e.center)}</span>` : ''}<br>
-            <span class="muted" style="font-size:11.5px">billed ${UI.peso(i.total)}
-              · still to pay <b>${UI.peso(b)}</b></span></span>
+          <span><b>${UI.esc(c ? c.title : 'no course on file')}</b>${e && e.center
+              ? ` <span class="muted">— ${UI.esc(e.center)}</span>` : ''}<br>
+            <span class="muted" style="font-size:11.5px">${UI.esc(i.no)} · billed
+              ${UI.peso(i.total)} · still to pay <b>${UI.peso(b)}</b></span></span>
         </label>
-        <input type="number" name="amt_${i.id}" class="b-amt" step="0.01" min="0"
-               placeholder="0.00" value="${on ? b.toFixed(2) : ''}">
+        <div class="bill-amt">
+          <div class="lbl">Amount</div>
+          <input type="number" name="amt_${i.id}" class="b-amt" step="0.01" min="0"
+                 readonly placeholder="0.00" value="${on ? b.toFixed(2) : ''}">
+          <button type="button" class="bill-part" data-part="${i.id}">Part payment</button>
+        </div>
       </div>`;
     }).join('');
   };
@@ -4122,37 +4133,56 @@ function paymentForm(inv){
     sub: inv ? `Against ${inv.no} · balance ${UI.peso(bal)}` : 'Record a payment',
     wide:true,
     body: `
-      ${inv
-        ? `<input type="hidden" name="who" value="${inv.traineeId}">
-           <div class="note"><b>${UI.esc(name(T(inv.traineeId)))}</b> · ${UI.esc(T(inv.traineeId)?.srn || '')}</div>`
-        : UI.f.select('who','Trainee', who0, owing, { req:true })}
+    <div class="pay-shell">
+      <aside class="pay-side">
+        <div>
+          <h5>Customer</h5>
+          <div class="who" id="sideWho">${UI.esc(name(T(who0)))}</div>
+          <div class="srn" id="sideSrn">${UI.esc(T(who0)?.srn || T(who0)?.no || '')}</div>
+        </div>
+        <div>
+          <h5>Owing now</h5>
+          <div class="big" id="sideOwed">—</div>
+        </div>
+        <div>
+          <h5>Across their bills</h5>
+          <div class="sum" id="sideSum"></div>
+        </div>
+      </aside>
 
-      <h4 style="margin:14px 0 2px;font-size:13px">What This Money Settles</h4>
-      <p class="muted" style="margin:0 0 6px;font-size:12px">
-        Tick every training this payment covers and put the amount against each.
-        One receipt can settle several.</p>
-      <div id="bills">${billRows(who0)}</div>
-      <div style="display:flex;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
-        <button type="button" class="btn btn-ghost btn-xs" id="allBills">Everything outstanding</button>
-        <button type="button" class="btn btn-ghost btn-xs" id="noBills">Clear</button>
+      <div class="pay-main">
+        ${inv
+          ? `<input type="hidden" name="who" value="${inv.traineeId}">`
+          : UI.f.select('who','Trainee', who0, owing, { req:true })}
+
+        <h4 style="margin:${inv ? '0' : '10px'} 0 2px;font-size:13px">What This Money Settles</h4>
+        <p class="muted" style="margin:0 0 8px;font-size:12px">
+          Tick every training this payment covers. The amount is what that training
+          costs and is not typed — use <b>Part payment</b> if less than the full
+          balance is being handed over. One receipt can settle several.</p>
+        <div id="bills">${billRows(who0)}</div>
+        <div style="display:flex;gap:8px;margin:8px 0 12px;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost btn-xs" id="allBills">Everything outstanding</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="noBills">Clear</button>
+        </div>
+
+        ${UI.f.text('note','Notes','', { ph:'what this payment is for, if it needs saying' })}
+        <p class="muted" style="margin:-6px 0 4px;font-size:12px">Received today,
+           ${UI.date(DB.today())} — an acknowledgement receipt carries the date it is issued.</p>
+
+        <div class="hr"></div>
+        <h4 style="margin:0 0 4px;font-size:13px">How It Was Paid</h4>
+        <p class="muted" style="margin:0 0 10px;font-size:12px">
+          One line per mode. GCash and Bank need the reference number that appears
+          on the statement.</p>
+        <div id="tenders">${line(0)}</div>
+        <div style="display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost btn-xs" id="addTender">+ Paid partly another way</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="fullPay">Match the ticked bills</button>
+        </div>
+        <div id="payWarn"></div>
       </div>
-
-      ${UI.f.text('note','Notes','', { attr:'style="max-width:360px"',
-                                       ph:'what this payment is for, if it needs saying' })}
-      <p class="muted" style="margin:-6px 0 4px;font-size:12px">Received today,
-         ${UI.date(DB.today())} — an acknowledgement receipt carries the date it is issued.</p>
-
-      <div class="hr"></div>
-      <h4 style="margin:0 0 4px;font-size:13px">How It Was Paid</h4>
-      <p class="muted" style="margin:0 0 10px;font-size:12px">
-        One line per mode. GCash and Bank need the reference number that appears
-        on the statement.</p>
-      <div id="tenders">${line(0)}</div>
-      <div style="display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
-        <button type="button" class="btn btn-ghost btn-xs" id="addTender">+ Paid partly another way</button>
-        <button type="button" class="btn btn-ghost btn-xs" id="fullPay">Match the ticked bills</button>
-      </div>
-      <div id="payWarn"></div>`,
+    </div>`,
     submitLabel:'Record payment',
     onSubmit: fd => {
       const tid = inv ? inv.traineeId : fd.who;
@@ -4235,16 +4265,47 @@ function paymentForm(inv){
     return sum;
   };
 
-  /* Ticking a bill fills in its whole balance, which is what the counter means
-     nine times out of ten; unticking it takes the money back off. */
+  /* Ticking a bill puts its whole balance against it, which is what the counter
+     means nine times out of ten; unticking takes the money back off. The box
+     stays read-only unless somebody has explicitly said this is a part payment,
+     and unticking locks it again — an unlock is about the payment being made
+     now, not a property of the bill. */
   const syncBills = () => {
     openFor(whoNow()).forEach(i => {
       const pick = form['pick_' + i.id], box = form['amt_' + i.id];
       if(!pick || !box) return;
-      box.disabled = !pick.checked;
-      if(!pick.checked) box.value = '';
-      else if(!ACC.r2(box.value)) box.value = ACC.balanceOf(ACC.recomputeInvoice(i)).toFixed(2);
+      const row = box.closest('.bill-row');
+      const part = row && row.querySelector('.bill-part');
+      if(row) row.classList.toggle('on', pick.checked);
+      if(!pick.checked){
+        box.value = '';
+        box.readOnly = true;
+        if(part){ part.style.display = 'none'; part.textContent = 'Part payment'; }
+      }else{
+        if(part) part.style.display = '';
+        if(!box.readOnly) return;                 /* unlocked — leave what was typed */
+        box.value = ACC.balanceOf(ACC.recomputeInvoice(i)).toFixed(2);
+      }
     });
+    sidePanel();
+  };
+
+  /* The left panel is read back to the person at the counter, so it says what
+     they owe in total and what this receipt is about to settle of it. */
+  const sidePanel = () => {
+    const t = T(whoNow());
+    const bills = openFor(whoNow());
+    const owed = ACC.r2(bills.reduce((s, i) => s + ACC.balanceOf(i), 0));
+    const now = dueNow();
+    const set = (id, v) => { const el = document.getElementById(id); if(el) el.innerHTML = v; };
+    set('sideWho', UI.esc(name(t)));
+    set('sideSrn', UI.esc((t && (t.srn || t.no)) || ''));
+    set('sideOwed', UI.peso(owed));
+    set('sideSum', `
+      <div><span>Bills open</span><span>${UI.int(bills.length)}</span></div>
+      <div><span>Total outstanding</span><span>${UI.peso(owed)}</span></div>
+      <div><span>Settling now</span><span>${UI.peso(now)}</span></div>
+      <div class="tot"><span>Left after this</span><span>${UI.peso(ACC.r2(Math.max(0, owed - now)))}</span></div>`);
   };
   const tendered = () => {
     let sum = 0;
@@ -4266,6 +4327,7 @@ function paymentForm(inv){
 
   const warn = () => {
     syncRefs();
+    sidePanel();
     const put = dueNow(), amt = tendered();
     const n = openFor(whoNow()).filter(i => form['pick_' + i.id] && form['pick_' + i.id].checked).length;
     const box = document.getElementById('payWarn');
@@ -4281,6 +4343,25 @@ function paymentForm(inv){
         : `<div class="note warn"><b>${UI.peso(ACC.r2(put - amt))} more is being put against bills
             than was received.</b> Lower one of the amounts, or add how the rest was paid.</div>`;
   };
+
+  /* Unlocking one amount. Deliberate, one bill at a time, and it says which
+     way it is pointing so nobody has to guess whether the box is open. */
+  form.addEventListener('click', ev => {
+    const b = ev.target.closest('.bill-part');
+    if(!b) return;
+    ev.preventDefault();
+    const box = form['amt_' + b.dataset.part];
+    if(!box) return;
+    box.readOnly = !box.readOnly;
+    b.textContent = box.readOnly ? 'Part payment' : 'Pay it in full';
+    if(box.readOnly){
+      const i = openFor(whoNow()).find(x => x.id === b.dataset.part);
+      if(i) box.value = ACC.balanceOf(ACC.recomputeInvoice(i)).toFixed(2);
+    }else{
+      box.focus(); box.select();
+    }
+    warn();
+  });
 
   const tickAll = on => {
     openFor(whoNow()).forEach(i => {

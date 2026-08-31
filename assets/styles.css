@@ -163,6 +163,12 @@ input,select,textarea{
 }
 input:focus,select:focus,textarea:focus{border-color:var(--navy-600);box-shadow:0 0 0 3px rgba(29,69,113,.13)}
 input[readonly]{background:var(--surface-2);color:var(--text-2)}
+/* A tick box is not a text field. The width:100% above is right for everything
+   somebody types into and wrong for a checkbox, which stretches the whole row
+   and shoves its own label off the end — which is exactly what the bill list in
+   the collection window was doing. It was patched once for .addon-row; this is
+   the same fix where it belongs, so the next checkbox anywhere works. */
+input[type=checkbox],input[type=radio]{width:auto;flex:none}
 textarea{resize:vertical;min-height:66px}
 label.fld{display:block;margin-bottom:12px}
 label.fld > span{display:block;font-size:11.5px;font-weight:600;color:var(--text-2);margin-bottom:4px}
@@ -254,12 +260,42 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
    one holds somebody's full name and the company that sent them. */
 .toolbar .grow{flex:1 1 320px;min-width:240px}
 
-/* One row per bill the money can be put against. */
-.bill-row{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)}
-.bill-row:last-child{border-bottom:none}
-.bill-pick{flex:1;display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:13px;line-height:1.45;margin:0}
-.bill-pick input{margin-top:3px;flex:none}
-.bill-row .b-amt{width:132px;flex:none}
+/* ---------- the collection window ----------
+   Who is paying, what they owe and what is being settled, side by side. The
+   left panel is the part the cashier reads back to the person at the counter
+   and never types into; the right is the part they fill in. */
+.pay-shell{display:grid;grid-template-columns:250px 1fr;margin:-20px;align-items:stretch}
+.pay-side{background:var(--navy-900);color:#fff;padding:22px 18px;display:flex;
+  flex-direction:column;gap:18px}
+.pay-side h5{margin:0 0 6px;font:700 10.5px/1 system-ui,-apple-system,Segoe UI,sans-serif;
+  letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+.pay-side .who{font-size:14px;font-weight:700;line-height:1.35}
+.pay-side .srn{font-size:12px;color:rgba(255,255,255,.72);margin-top:2px}
+.pay-side .big{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.pay-side .sum{display:grid;gap:7px;font-size:12.5px;color:rgba(255,255,255,.88)}
+.pay-side .sum div{display:flex;justify-content:space-between;gap:14px}
+.pay-side .sum .tot{border-top:1px solid rgba(255,255,255,.25);padding-top:7px;
+  font-weight:700;color:#fff}
+.pay-main{padding:20px;min-width:0}
+
+/* One bill the money can be put against. Boxed rather than ruled, because a
+   tick on a line is easy to miss and a tick on a panel that changes colour is
+   not — and putting money against the wrong training is the mistake this
+   window exists to prevent. */
+.bill-row{display:flex;gap:12px;align-items:center;padding:11px 13px;
+  border:1px solid var(--border);border-radius:9px;margin-bottom:8px;background:var(--surface-2)}
+.bill-row.on{border-color:var(--navy-700);background:var(--tb-blue-soft)}
+.bill-pick{flex:1;display:flex;gap:10px;align-items:flex-start;cursor:pointer;
+  font-size:13px;line-height:1.45;margin:0;min-width:0}
+.bill-pick input{margin-top:2px;flex:none}
+.bill-amt{flex:none;text-align:right}
+.bill-amt .lbl{font:700 10px/1 system-ui,-apple-system,Segoe UI,sans-serif;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.bill-row .b-amt{width:128px;text-align:right}
+.bill-row .b-amt[readonly]{background:var(--surface-2);color:var(--text-2);cursor:default}
+.bill-part{display:block;margin-top:4px;font-size:11px;color:var(--navy-700);
+  background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}
+@media(max-width:760px){ .pay-shell{grid-template-columns:1fr} }
 
 /* ---------- Modal ---------- */
 .modal-backdrop{position:fixed;inset:0;background:rgba(10,28,51,.55);display:grid;place-items:center;padding:20px;z-index:100;overflow-y:auto}
