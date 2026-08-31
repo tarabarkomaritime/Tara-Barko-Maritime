@@ -4117,9 +4117,7 @@ function paymentForm(inv){
               ${UI.peso(i.total)} · still to pay <b>${UI.peso(b)}</b></span></span>
         </label>
         <div class="bill-amt">
-          <div class="lbl">Goes to this</div>
           <div class="bill-alloc none" data-alloc="${i.id}">—</div>
-          <div class="bill-left" data-left="${i.id}"></div>
         </div>
       </div>`;
     }).join('');
@@ -4164,10 +4162,6 @@ function paymentForm(inv){
           from the amount received below — the training fee is never typed.
           One receipt can settle several.</p>
         <div id="bills">${billRows(who0)}</div>
-        <div style="display:flex;gap:8px;margin:8px 0 12px;flex-wrap:wrap">
-          <button type="button" class="btn btn-ghost btn-xs" id="allBills">Everything outstanding</button>
-          <button type="button" class="btn btn-ghost btn-xs" id="noBills">Clear</button>
-        </div>
 
         <div class="hr"></div>
         <h4 style="margin:0 0 4px;font-size:13px">How It Was Paid</h4>
@@ -4176,16 +4170,12 @@ function paymentForm(inv){
           reference number that appears on the statement.</p>
         <div id="tenders">${line(0)}</div>
         <div style="display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
-          <button type="button" class="btn btn-ghost btn-xs" id="addTender">+ Paid partly another way</button>
-          <button type="button" class="btn btn-ghost btn-xs" id="fullPay">Settle the ticked trainings in full</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="addTender">Split Payment</button>
         </div>
         <div id="payWarn"></div>
 
         <div class="hr"></div>
-        ${UI.f.text('note','Notes','', { ph:'anything else worth saying about this payment' })}
-        <p class="muted" style="margin:-6px 0 4px;font-size:12px">Received today,
-           ${UI.date(DB.today())} — an acknowledgement receipt carries the date it is issued.
-           Any balance left over is written on the receipt without anybody having to type it.</p>
+        ${UI.f.text('note','Notes','', {})}
       </div>
     </div>`,
     submitLabel:'Record payment',
@@ -4303,54 +4293,19 @@ function paymentForm(inv){
       const pick = form['pick_' + i.id];
       const row = form.querySelector(`.bill-row[data-bill="${i.id}"]`);
       const amt = form.querySelector(`[data-alloc="${i.id}"]`);
-      const left = form.querySelector(`[data-left="${i.id}"]`);
-      if(!pick || !row || !amt || !left) return;
+      if(!pick || !row || !amt) return;
       row.classList.toggle('on', pick.checked);
 
       const a = at[i.id];
       if(!pick.checked || !a || a.amount <= 0.004){
         amt.textContent = '\u2014';
         amt.className = 'bill-alloc none';
-        left.textContent = '';
         return;
       }
       amt.textContent = UI.peso(a.amount);
       amt.className = 'bill-alloc';
-      left.textContent = a.over
-        ? `${UI.peso(a.over)} over — held as credit`
-        : a.short > 0.004 ? `${UI.peso(a.short)} still to pay` : 'settled in full';
-      left.className = 'bill-left' + (a.short > 0.004 ? '' : ' clear');
     });
     sidePanel();
-    autoNote();
-  };
-
-  /* The balance left is written down without anybody typing it. That is the
-     line somebody reads back a month later wondering what was owed, and it is
-     also the line most likely to be left off in a hurry. It stays editable —
-     the desk may have something of its own to add — but it stops overwriting
-     what they wrote the moment they touch it. */
-  const noteBox = () => form.note;
-  const autoNote = () => {
-    const box = noteBox();
-    if(!box || box.dataset.touched) return;
-    /* Every training ticked, not only the ones the money reached. Four thousand
-       against three trainings pays the first and leaves the other two standing
-       at their full price — and those two are exactly what the trainee needs to
-       be told, so leaving them off the note would be leaving off the part that
-       matters. */
-    const alloc = allocation();
-    const paid = alloc.filter(a => a.amount > 0.004);
-    const short = alloc.filter(a => a.short > 0.004);
-    const over = alloc.find(a => a.over);
-    box.value = !paid.length ? ''
-      : over ? `Paid in full. ${UI.peso(over.over)} over the amount due, held as credit.`
-      : short.length
-        ? 'Part payment. Still to pay: '
-          + short.map(a => `${courseOf(a.inv)} ${UI.peso(a.short)}`).join('; ') + '.'
-        : paid.length > 1
-          ? `Settled in full: ${paid.map(a => courseOf(a.inv)).join('; ')}.`
-          : '';
   };
 
   /* The left panel is read back to the person at the counter, so it says what
@@ -4415,19 +4370,6 @@ function paymentForm(inv){
             afterwards, and the receipt says on what.</div>`;
   };
 
-  /* Typed in by hand, so stop replacing it. */
-  if(form.note) form.note.addEventListener('input', () => { form.note.dataset.touched = '1'; });
-
-  const tickAll = on => {
-    openFor(whoNow()).forEach(i => {
-      const pick = form['pick_' + i.id];
-      if(pick) pick.checked = on;
-    });
-    syncBills(); warn();
-  };
-  document.getElementById('allBills').onclick = () => { tickAll(true); setFirst(dueNow()); };
-  document.getElementById('noBills').onclick  = () => tickAll(false);
-
   let rows = 1;
   document.getElementById('addTender').onclick = () => {
     if(rows >= 6) return;
@@ -4441,13 +4383,6 @@ function paymentForm(inv){
   };
   const setFirst = v => { form.a0.value = v.toFixed(2);
     for(let i = 1; i < 6; i++){ if(form['a'+i]) form['a'+i].value = ''; } warn(); };
-
-  /* Pressing this is the cashier saying the full amount was handed over, which
-     is theirs to say — so it counts as having typed it. */
-  document.getElementById('fullPay').onclick = () => {
-    form.a0.dataset.touched = '1';
-    setFirst(dueNow());
-  };
 
   /* The amount received is the one thing on this screen the cashier knows and
      the system does not. Ticking another training used to overwrite it with the
@@ -4464,7 +4399,7 @@ function paymentForm(inv){
     if(!inv && ev.target === form.who){
       document.getElementById('bills').innerHTML = billRows(form.who.value);
       delete form.a0.dataset.touched;
-      if(form.note){ delete form.note.dataset.touched; form.note.value = ''; }
+      if(form.note) form.note.value = '';
       syncBills();
       suggest();
       return;
@@ -4553,7 +4488,6 @@ function receiptModal(p){
             <tr class="grand"><td>REMAINING BALANCE</td><td class="num">${UI.peso(ACC.balanceOf(inv))}</td></tr>`;
         })() : ''}
       </table></div>
-      ${p.note ? `<div class="note" style="margin-top:14px">${UI.esc(p.note)}</div>` : ''}
       <div class="doc-sign"><div>Cashier</div><div>Received The Above Amount</div></div>
       <p class="muted" style="font-size:11px;margin-top:18px">Valid only when the corresponding
         payment has cleared. Computer-generated. The official receipt for the training
