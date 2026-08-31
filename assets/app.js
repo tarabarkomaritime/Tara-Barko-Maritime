@@ -26,6 +26,7 @@ const NAV = [
   { id:'courses',     label:'Courses',      ico:'▤' },
   { id:'enrollments', label:'Enrollments',  ico:'✓' },
   { group:'Finance' },
+  { id:'sales',       label:'Sales',        ico:'▲' },
   { id:'invoices',    label:'Billing',      ico:'₱' },
   { id:'payments',    label:'Collections',  ico:'◉' },
   { id:'reconcile',   label:'Bank Reconciliation', ico:'⊜' },
@@ -52,6 +53,7 @@ const TITLES = {
   trainees:['Trainee Registry','Seafarer master records — search, register and enroll'],
   courses:['Course Catalogue','Courses, centers, amounts and rebates'],
   enrollments:['Enrollments','Bookings encoded per trainee, with billing status and results'],
+  sales:['Sales','What the office earns on the seats it books — rebate by training center'],
   invoices:['Billing','Statements of account issued to trainees'],
   payments:['Collections','Payments taken and cash position'],
   reconcile:['Bank Reconciliation','Every reference set beside the statement it should match'],
@@ -1178,9 +1180,6 @@ VIEWS.payments = () => {
     .filter(p => !q || [p.no, name(T(p.traineeId)), p.ref, p.method].join(' ').toLowerCase().includes(q))
     .sort((a,b) => b.date.localeCompare(a.date) || b.no.localeCompare(a.no));
 
-  const col = ACC.collections(from, to);
-  const methods = Object.entries(col.byMethod).map(([m,v],i) =>
-    ({ label:m, value:v, color:['#1d4571','#0f7b8a','#c9a227','#12805c','#7a8aa3'][i%5] }));
   const chase = partPaid();
   const chaseDue = ACC.r2(chase.reduce((t,r) => t + r.due, 0));
   const allRebates = rebatesAll();
@@ -1205,8 +1204,7 @@ VIEWS.payments = () => {
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-payment">+ Record collection</button>
     </div>
-    <div class="grid g-2-1">
-      <div>${UI.card('', UI.table([
+    ${UI.card('', UI.table([
         { h:'Ref no.', k:p => `<b class="mono">${UI.esc(p.no)}</b>`, w:'130px' },
         { h:'Date', k:p => UI.date(p.date), w:'115px' },
         { h:'Received from', k:p => UI.esc(name(T(p.traineeId))) },
@@ -1278,26 +1276,105 @@ VIEWS.payments = () => {
               <select data-q="rebCenter" style="min-width:200px;font-size:12.5px">
                 <option value="">All training centers</option>
                 ${rebCenters.map(c => `<option value="${UI.esc(c)}" ${c === rebPick ? 'selected' : ''}>${UI.esc(c)}</option>`).join('')}
-              </select>` : '' })}</div>
-      <div>
-        ${UI.card('Collections This Period', `
-          <div class="kpi" style="border:none;box-shadow:none;padding:0;margin-bottom:14px">
-            <div class="lbl">Total received</div><div class="val">${UI.peso(col.total)}</div>
-            <div class="sub">${col.rows.length} payment(s)</div></div>
-          <div class="hr"></div>
-          ${UI.donut(methods, { money:true, center:'BY MODE' })}`)}
-        ${UI.card('Cash Position', (() => {
-          const tb = ACC.trialBalance(DB.today());
-          const g = c => (tb.rows.find(r => r.code === c) || { balance:0 }).balance;
-          return `<dl class="def">
-            <dt>Cash on hand</dt><dd class="mono">${UI.peso(g('1000'))}</dd>
-            <dt>Cash in bank</dt><dd class="mono">${UI.peso(g('1010'))}</dd>
-            <dt>Receivables</dt><dd class="mono">${UI.peso(g('1200'))}</dd>
-            <dt>Rebates to collect</dt><dd class="mono">${UI.peso(g('1250'))}</dd>
-          </dl>`;
-        })())}
-      </div>
-    </div>`;
+              </select>` : '' })}`;
+};
+
+/* ---------- sales ----------
+   What the office actually earns. It does not sell training: it endorses
+   seafarers to centres that run it, and the fee passes straight through — in
+   from the trainee, out to the centre — so the rebate on each seat is the whole
+   of the margin.
+
+   It is a screen of its own rather than two figures in the corner of Payables
+   because that is where they were, and reading the margin off the top of a
+   list of debts made the earnings look like a kind of debt. It is also the one
+   place the two ways a rebate settles are the same thing: kept back from a
+   remittance or collected afterwards, both are income earned the day the seat
+   was booked, and only the cash arrives at different times.
+
+   Everything here reads from the same rebate rows as the payables screen, so
+   pressing Receive there moves these figures without anything having to be
+   entered twice. */
+VIEWS.sales = () => {
+  const from = state.q.salFrom || '', to = state.q.salTo || '';
+  const all = rebatesAll().filter(r => {
+    const when = r.e.start || r.e.date || '';
+    if(from && when < from) return false;
+    if(to && when > to) return false;
+    return true;
+  });
+
+  const sum = rows => ACC.r2(rows.reduce((s, r) => s + r.amount, 0));
+  const earned    = sum(all);
+  const kept      = sum(all.filter(r => r.deduct));
+  const toCollect = sum(all.filter(r => !r.deduct && !r.received));
+  const banked    = sum(all.filter(r => !r.deduct && r.received));
+
+  /* One line per centre, because that is the unit the office negotiates in —
+     what a centre is worth over a season is the number that decides whether to
+     keep sending people there. */
+  const byCentre = {};
+  all.forEach(r => {
+    const m = byCentre[r.center] || (byCentre[r.center] = {
+      center:r.center, n:0, kept:0, toCollect:0, banked:0, total:0 });
+    m.n++;
+    m.total = ACC.r2(m.total + r.amount);
+    if(r.deduct) m.kept = ACC.r2(m.kept + r.amount);
+    else if(r.received) m.banked = ACC.r2(m.banked + r.amount);
+    else m.toCollect = ACC.r2(m.toCollect + r.amount);
+  });
+  const centres = Object.values(byCentre).sort((a, b) => b.total - a.total);
+
+  const span = from || to
+    ? `${from ? UI.date(from) : 'the beginning'} to ${to ? UI.date(to) : 'today'}`
+    : 'all dates';
+
+  return `
+    <div class="toolbar">
+      <label class="muted" style="font-size:12px">Training from</label>
+      <input type="date" data-q="salFrom" value="${from}">
+      <label class="muted" style="font-size:12px">to</label>
+      <input type="date" data-q="salTo" value="${to}">
+      <span class="muted">${all.length} seat(s) · ${span}</span>
+    </div>
+
+    <div class="grid g4" style="margin-bottom:18px">
+      ${UI.kpi('Earned', UI.peso(earned), `${all.length} seat(s) booked`, 'ok')}
+      ${UI.kpi('Rebates kept', UI.peso(kept), 'deducted from what we remit', '')}
+      ${UI.kpi('Rebates to collect', UI.peso(toCollect), 'centers owe us this back',
+               toCollect > 0 ? 'sea' : '')}
+      ${UI.kpi('Already received', UI.peso(banked), 'collected and banked', 'ok')}
+    </div>
+
+    ${centres.length ? UI.card('Earnings By Training Center', UI.table([
+      { h:'Training center', k:c => `<b>${UI.esc(c.center)}</b>` },
+      { h:'Seats', k:c => UI.int(c.n), cls:'num', w:'80px' },
+      { h:'Kept from remittance', k:c => c.kept ? UI.num(c.kept) : '<span class="muted">—</span>', cls:'num' },
+      { h:'Still to collect', k:c => c.toCollect ? UI.num(c.toCollect) : '<span class="muted">—</span>', cls:'num' },
+      { h:'Already received', k:c => c.banked ? UI.num(c.banked) : '<span class="muted">—</span>', cls:'num' },
+      { h:'Earned', k:c => `<b>${UI.num(c.total)}</b>`, cls:'num' },
+      { h:'', k:c => can('payables')
+          ? `<a class="btn btn-ghost btn-xs" href="#/payables">Open</a>` : '', w:'80px' },
+    ], centres, { foot:['TOTAL', UI.int(all.length), UI.num(kept), UI.num(toCollect),
+                        UI.num(banked), UI.num(earned), ''] }),
+      { flush:true,
+        sub:`Highest earning first · ${span}` })
+      : UI.card('Earnings By Training Center',
+          `<div class="empty"><span class="big">⚓</span>${from || to
+            ? 'No seats with a rebate were trained in this window.'
+            : 'No booking carries a rebate yet.'}</div>`, { flush:true })}
+
+    <div style="height:18px"></div>
+    ${UI.card('How A Rebate Reaches Us', `
+      <p class="muted" style="margin:0;font-size:12.5px;line-height:1.6">
+        Every seat earns its rebate the day it is booked, whichever way the money
+        comes. Where a centre lets us keep it back, it is netted off the
+        remittance and never arrives as its own payment — those are the
+        <b>kept</b> rows, and they are settled when the voucher goes out. The rest
+        the centre owes us back, and they are marked received on
+        <a href="#/payables">Center Payables</a> as each one is collected. Both
+        halves are the same earnings; only the cash turns up at different times.
+      </p>`, { flush:true })}`;
 };
 
 /* ---------- Expenses ---------- */
@@ -1495,11 +1572,13 @@ VIEWS.payables = () => {
     });
 
   return `
-    <div class="grid g4" style="margin-bottom:18px">
+    <!-- The rebate figures moved to Sales. They are what the office earns, not
+         what it owes, and reading them off the top of the payables screen made
+         the margin look like a kind of debt. The per-centre columns below still
+         carry them, because deciding what to remit needs both halves. -->
+    <div class="grid g2" style="margin-bottom:18px">
       ${UI.kpi('Owed to centers', UI.peso(totalDue), `${centers.length} center(s) to settle`, totalDue > 0 ? 'warn' : 'ok')}
       ${UI.kpi('Bookings unpaid', UI.int(bookings), 'seats already taken', '')}
-      ${UI.kpi('Rebates kept', UI.peso(totalKept), 'deducted from what we remit', 'ok')}
-      ${UI.kpi('Rebates to collect', UI.peso(totalRecv), 'centers owe us this back', totalRecv > 0 ? 'sea' : '')}
     </div>
 
     <div class="toolbar">
