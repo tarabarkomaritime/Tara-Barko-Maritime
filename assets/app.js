@@ -948,8 +948,26 @@ VIEWS.courses = () => {
 /* ---------- Enrollments ---------- */
 VIEWS.enrollments = () => {
   const q = (state.q.enr || '').toLowerCase(), f = state.q.enrStatus || '';
+  let from = state.q.enrFrom || '', to = state.q.enrTo || '';
+  if(from && to && from > to){ const x = from; from = to; to = x; }
+
+  /* On the training date, which is the column on this screen and the question
+     the desk is actually asking: who is at a centre that day. A booking that
+     runs across several days counts on every one of them, because the seat is
+     taken for the whole run — a course starting Monday and ending Friday is a
+     trainee who is training on Wednesday. */
+  const runsIn = e => {
+    if(!from && !to) return true;
+    const a = e.start || '', b = e.end || e.start || '';
+    if(!a) return false;
+    if(from && b < from) return false;
+    if(to && a > to) return false;
+    return true;
+  };
+
   const rows = D().enrollments.filter(e => {
     if(f && e.status !== f) return false;
+    if(!runsIn(e)) return false;
     if(!q) return true;
     const t = T(e.traineeId), c = CRS(e.courseId);
     return [e.no, name(t), t?.srn, c?.code, c?.title, e.center].join(' ').toLowerCase().includes(q);
@@ -957,6 +975,16 @@ VIEWS.enrollments = () => {
 
   const billed = ACC.r2(rows.reduce((s,e) => { const i = invOf(e.id); return s + (i ? i.total : 0); }, 0));
   const due    = ACC.r2(rows.reduce((s,e) => { const i = invOf(e.id); return s + (i ? ACC.balanceOf(ACC.recomputeInvoice(i)) : 0); }, 0));
+
+  /* Trainees, not bookings. One person on three courses is one person to
+     expect at the door, and counting the bookings would have the office
+     preparing for three. */
+  const heads = new Set(rows.filter(e => e.status === 'Enrolled').map(e => e.traineeId)).size;
+  const seats = rows.filter(e => e.status === 'Enrolled').length;
+  const span = from || to
+    ? (from === to && from ? UI.date(from)
+       : `${from ? UI.date(from) : 'the beginning'} to ${to ? UI.date(to) : 'the end'}`)
+    : 'all dates';
 
   return `
     ${changePanel(pendingChanges())}
@@ -966,9 +994,23 @@ VIEWS.enrollments = () => {
         ${['','On Process','Enrolled','Open Schedule','Reserved','Completed','Cancelled'].map(s =>
           `<option value="${s}" ${f===s?'selected':''}>${s||'All statuses'}</option>`).join('')}
       </select>
-      <span class="muted">${rows.length} record(s) · billed ${UI.peso(billed)} · due ${UI.peso(due)}</span>
+      <label class="muted" style="font-size:12px">Training from</label>
+      <input type="date" data-q="enrFrom" value="${from}">
+      <label class="muted" style="font-size:12px">to</label>
+      <input type="date" data-q="enrTo" value="${to}">
+      <button class="btn btn-ghost btn-xs" data-act="enr-today">Today</button>
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-enrollment">+ New enrollment</button>
+    </div>
+
+    <div class="grid g4" style="margin-bottom:16px">
+      ${UI.kpi('Trainees enrolled', UI.int(heads),
+               from === to && from ? 'training on ' + UI.date(from) : span, heads ? 'ok' : '')}
+      ${UI.kpi('Seats booked', UI.int(seats),
+               heads && seats > heads ? 'some are on more than one course' : 'one course each', '')}
+      ${UI.kpi('Billed', UI.peso(billed), `${rows.length} record(s) in view`, '')}
+      ${UI.kpi('Still to pay', UI.peso(due), due > 0 ? 'across these bookings' : 'all settled',
+               due > 0 ? 'bad' : 'ok')}
     </div>
     ${UI.card('', UI.table([
       { h:'Enrollment No.', k:e => `<span class="mono">${UI.esc(e.no)}</span>`, w:'140px' },
@@ -1287,13 +1329,23 @@ VIEWS.payments = () => {
           /* Nothing to press on a deducted rebate. The money never comes in as
              its own payment, so a Receive button would be asking the office to
              record an arrival that will not happen. */
-          { h:'', k:r => r.deduct
-              ? (r.received ? UI.tag('Deducted','ok') : '<span class="muted">—</span>')
-              : r.received
+          /* Cancel sits beside Receive for everybody who can see the list.
+             Registration presses it and it becomes a request; the admin presses
+             it and it happens. Either way it says so before it does anything. */
+          { h:'', k:r => {
+              const held = pendingChangeFor(r.e.id);
+              if(held) return `<span class="muted" style="font-size:11.5px">${UI.esc(held.no)} awaiting the admin</span>`;
+              const cancel = can('payments')
+                ? `<button class="btn btn-ghost btn-xs" data-act="cancel-rebate" data-id="${r.e.id}">Cancel</button>`
+                : '';
+              if(r.deduct) return (r.received ? UI.tag('Deducted','ok') : '<span class="muted">—</span>')
+                + (r.received ? '' : ' ' + cancel);
+              return (r.received
                 ? UI.tag('Received','ok')
                 : (can('payments')
                     ? `<button class="btn btn-accent btn-xs" data-act="receive-rebate" data-id="${r.e.id}">Receive</button>`
-                    : '<span class="muted">—</span>'), w:'110px' },
+                    : '<span class="muted">—</span>')) + ' ' + cancel;
+            }, w:'190px' },
         ], rebates, { empty:rebPick
             ? `Nothing recorded against ${rebPick}.`
             : 'No booking carries a rebate yet.' }),
@@ -1440,6 +1492,11 @@ VIEWS.expenses = () => {
         { h:'Mode', k:v => UI.tag(v.method, v.method==='Cash'?'ok':'sea') },
         { h:'Status', k:v => UI.statusTag(v.state || 'Approved') },
         { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
+        /* Every voucher, not only the ones that settle a training centre. A
+           disbursement is a piece of paper somebody signs for — the payee signs
+           it, the office files it — and it had no document at all. */
+        { h:'', k:v => `<button class="btn btn-ghost btn-xs"
+              data-act="view-expense" data-id="${v.id}">View</button>`, w:'80px' },
       ], rows, { empty:'No disbursements in this period.' }), { flush:true })}</div>
       <div>${UI.card('Expenses By Account',
         UI.barChart(Object.entries(byAcct).map(([c,v]) => ({ label:ACC.acct(c).name, value:v }))
@@ -1890,6 +1947,72 @@ function voidVoucherAsk(id){
     refresh();
   }, { danger:true, reason:true, yes:'Void the voucher',
        detail:'The entry is reversed rather than erased, and the bookings it covered go back on the payables list as still owed.' });
+}
+
+/* ---------- the voucher for an ordinary disbursement ----------
+   A remittance to a training centre already prints; anything else the office
+   pays for — the rent, the ads, the courier — did not, so the only record of it
+   was a row on a screen. A voucher is the thing the payee signs and the thing
+   that goes in the folder, and every disbursement needs one.
+
+   Two copies on one A4 like the rest of them: the original for the file, the
+   duplicate for whoever took the money. */
+function expenseVoucherModal(v){
+  if(!v){ UI.toast('That voucher is gone.', 'bad'); return; }
+  const co = D().company;
+  const voided = v.state === 'Voided';
+
+  const sheet = `
+    <div class="doc">
+      <div class="doc-head">
+        ${docCompany()}
+        <div class="doc-title">
+          <div class="t">DISBURSEMENT VOUCHER</div>
+          <div class="n">${UI.esc(v.no)}</div>
+          <div class="muted" style="font-size:12px">${UI.date(v.date)}</div>
+          ${voided ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}
+          ${v.state === 'Pending' ? '<div style="margin-top:5px">' + UI.tag('Awaiting approval','warn') + '</div>' : ''}
+        </div>
+      </div>
+      <dl class="def" style="margin-bottom:14px">
+        <dt>Pay To</dt><dd><b>${UI.esc(v.payee || '\u2014')}</b></dd>
+        <dt>Particulars</dt><dd>${UI.esc(v.particulars || '\u2014')}</dd>
+        <dt>Charged To</dt><dd>${(() => {
+          if(!v.account) return '\u2014';
+          const nm = ACC.acct(v.account).name;
+          /* An account with no name on file falls back to its own code, and a
+             voucher reading "5110 5110" looks like a fault in the document. */
+          return `<span class="mono">${UI.esc(v.account)}</span>`
+            + (nm && nm !== v.account ? ' ' + UI.esc(nm) : '');
+        })()}</dd>
+        <dt>Paid From</dt><dd>${UI.esc(v.method || '\u2014')}${v.ref
+          ? ' \u00b7 Ref ' + UI.esc(v.ref) : ''}</dd>
+        <dt>Amount In Words</dt><dd><b>${UI.esc(amountInWords(v.amount))}</b></dd>
+      </dl>
+      <div class="doc-total">
+        <table>
+          <tr class="grand"><td>TOTAL DISBURSED</td><td class="num">${UI.peso(v.amount)}</td></tr>
+        </table>
+      </div>
+      <div class="doc-sign">
+        <div>Prepared By${v.raisedBy ? '<br><span class="muted" style="font-size:10px">'
+          + UI.esc(v.raisedBy) + '</span>' : ''}</div>
+        <div>Received By ${UI.esc(String(v.payee || '').toUpperCase())}</div>
+      </div>
+      ${v.state === 'Approved' && v.approvedBy
+        ? `<p class="muted" style="font-size:11px;margin-top:14px">Approved by
+             ${UI.esc(v.approvedBy)} on ${UI.date(v.approvedOn)}.</p>` : ''}
+    </div>`;
+
+  UI.modal({
+    title:`Voucher ${v.no}`,
+    sub:`${UI.esc(v.payee || '')} \u00b7 ${UI.peso(v.amount)}${voided ? ' \u00b7 VOID' : ''}`,
+    wide:true, hideSubmit:true,
+    footExtra:`<button type="button" class="btn btn-primary" id="printExpense">Print / PDF</button>`,
+    body: twoUp(sheet),
+  });
+  document.getElementById('printExpense').onclick = () =>
+    UI.printDoc(`${v.no} \u2014 Disbursement Voucher`);
 }
 
 function voucherModal(v){
@@ -3533,6 +3656,122 @@ function voidBooking(e){
          : 'Nothing changes yet. The booking and its bill stay exactly as they are until the admin signs it off.' });
 }
 
+/* ---------- cancelling a rebate ----------
+   Two things wear the word, and which one it is depends on where the money has
+   got to.
+
+   A rebate already received is cancelled by reversing the receipt: the cash
+   goes back out of the account it came into and the centre owes it again. A
+   rebate not yet received is written off — the centre is not going to pay it,
+   the income booked when the seat was sold was wrong, and the receivable comes
+   off the books rather than sitting on the chase list forever.
+
+   Both take money off the books, so both go through the admin. Registration
+   raises it; the admin signs it; and the admin, having nobody to ask, does it
+   on the spot. */
+function canCancelRebate(e){
+  if(!e) return 'That booking is no longer on file.';
+  if(!(e.rebate > 0)) return 'There is no rebate on that booking.';
+  if(e.deduct && e.remitNo)
+    return 'That rebate was kept from a remittance that has already gone out \u2014 void the voucher instead.';
+  return '';
+}
+
+function cancelRebate(e, reason){
+  const why = canCancelRebate(e);
+  if(why){ UI.toast(why, 'bad'); return false; }
+  const amount = ACC.r2(e.rebate || 0);
+  const memo = `Rebate cancelled \u2014 ${e.no}${reason ? ' (' + reason + ')' : ''}`;
+
+  /* The reversing entry is written out here rather than handed to ACC.reverse.
+     reverse() takes everything posted against a reference, and a booking's
+     reference carries the debt to the centre as well as the rebate \u2014 so
+     asking it to undo the rebate would undo what we owe the centre with it. */
+  if(e.rebateReceivedOn){
+    /* The money came in. It goes back out of the account it came into, and the
+       centre owes it again. */
+    ACC.post({ date:DB.today(), memo, refType:'Rebate', refNo:e.no, refId:e.id,
+      lines:[{ account:'1250', debit:amount, credit:0 },
+             { account:ACC.cashAccount(e.rebateMethod), debit:0, credit:amount }] });
+    delete e.rebateReceivedOn; delete e.rebateMethod;
+    delete e.rebateRef; delete e.rebateReceivedBy;
+  }
+  if((e.rebateReceivable || 0) > 0){
+    /* It never came in and now it will not. The income booked when the seat was
+       sold was wrong, so it comes off, and so does the receivable. */
+    ACC.post({ date:DB.today(), memo, refType:'Rebate', refNo:e.no, refId:e.id,
+      lines:[{ account:'4200', debit:ACC.r2(e.rebateReceivable), credit:0 },
+             { account:'1250', debit:0, credit:ACC.r2(e.rebateReceivable) }] });
+  }
+
+  /* A rebate kept back from a remittance never appeared as income or as a
+     receivable — it appeared as a smaller debt to the centre. So cancelling one
+     is not a reversal of anything; it is the debt going back up to the whole
+     fee, which is what we now have to remit. Leaving the payable where it was
+     would have the office send the centre short and never find out why. */
+  if(e.deduct && !e.remitNo && amount > 0){
+    ACC.post({ date:DB.today(), memo, refType:'Booking', refNo:e.no, refId:e.id,
+      lines:[{ account:'5050', debit:amount, credit:0 },
+             { account:'2000', debit:0, credit:amount }] });
+    e.centerPayable = ACC.r2((e.centerPayable != null ? e.centerPayable : e.fee) + amount);
+  }
+
+  /* Nothing new is written on the booking. There is no column on the server for
+     a cancelled flag, and inventing one is how a save starts failing for
+     everybody \u2014 the rebate simply stops being a rebate, which is what
+     cancelling it means. The journal and the activity log carry what it was. */
+  e.rebateReceivable = 0;
+  e.rebate = 0;
+  return true;
+}
+
+function cancelRebateAsk(enrId){
+  const e = ENR(enrId);
+  if(!e) return;
+  const why = canCancelRebate(e);
+  if(why){ UI.toast(why, 'bad'); return; }
+  if(pendingChangeFor(e.id)){
+    UI.toast('A change to this booking is already waiting for the admin.', 'bad'); return;
+  }
+  const direct = canApprove();
+  const banked = !!e.rebateReceivedOn;
+
+  UI.confirm(direct ? `Cancel the ${UI.peso(e.rebate)} rebate on ${e.no}?`
+                    : `Ask the admin to cancel the ${UI.peso(e.rebate)} rebate on ${e.no}?`, fd => {
+    const reason = String(fd.reason || '').trim();
+    if(!reason){ UI.toast('Say why it is being cancelled — it takes money off the books.', 'bad'); return; }
+
+    if(direct){
+      if(!cancelRebate(e, reason)) return;
+      DB.save();
+      DB.activity('Cancelled a rebate', `${e.no} · ${UI.peso(e.rebate)} — ${reason}`);
+      UI.toast(banked
+        ? `Rebate cancelled — ${UI.peso(e.rebate)} has gone back out of the account it came into.`
+        : `Rebate cancelled — ${UI.peso(e.rebate)} is off the list of what centres owe us.`);
+    }else{
+      const was = {}; CHANGE_FIELDS.forEach(f => { was[f.k] = e[f.k]; });
+      D().changes.push({
+        id:DB.uid('chg'), no:DB.nextNo('change','CHG'), kind:'rebate-cancel',
+        enrollmentId:e.id, traineeId:e.traineeId,
+        date:DB.today(), raisedBy:SESSION.name,
+        was, to:{ ...was }, reason, state:'Pending',
+      });
+      DB.save();
+      DB.activity('Asked to cancel a rebate', e.no);
+      UI.toast(`Sent for approval — the rebate stays as it is until an admin signs it.`);
+    }
+    refresh();
+  }, { danger:true, reason:true,
+       yes:direct ? 'Cancel the rebate' : 'Send for approval',
+       detail:direct
+         ? (banked
+             ? 'The receipt is reversed: the money goes back out of the account it arrived in, and the centre owes it again.'
+             : e.deduct
+               ? 'This rebate was being kept back from what we remit, so cancelling it means the centre is owed the full fee. What we have to remit goes up by this amount.'
+               : 'The income booked when the seat was sold is reversed and the amount comes off what centres owe us.')
+         : 'Nothing changes yet. The rebate stays exactly as it is until the admin signs it off.' });
+}
+
 function bookingChangeForm(e){
   if(!e) return;
   if(e.status === 'Void'){ UI.toast('That booking is void — there is nothing left to change.', 'bad'); return; }
@@ -3654,7 +3893,11 @@ function changePanel(rows, opts){
     { h:'Request', k:c => `<b class="mono">${UI.esc(c.no)}</b><br>
         <span class="muted" style="font-size:11.5px">${UI.esc((ENR(c.enrollmentId)||{}).no || '—')}</span>`, w:'135px' },
     { h:'Trainee', k:c => UI.esc(name(T(c.traineeId))) },
-    { h:'What changes', k:c => c.kind === 'void'
+    { h:'What changes', k:c => c.kind === 'rebate-cancel'
+        ? `<b class="neg">Cancel the rebate</b><br>
+           <span class="muted" style="font-size:11.5px">${(() => { const e = ENR(c.enrollmentId);
+             return e ? `${UI.peso(e.rebate || 0)} from ${UI.esc(e.center || 'the centre')}` : ''; })()}</span>`
+        : c.kind === 'void'
         ? `<b class="neg">Void the whole booking</b><br>
            <span class="muted" style="font-size:11.5px">the bill raised against it is reversed too</span>`
         : (changeLines(c).join('<br>') || '<span class="muted">nothing</span>') },
@@ -3722,7 +3965,11 @@ function approveChange(id, ok, note){
   }
 
   const gap = feeGap(ch);
-  if(ch.kind === 'void'){
+  if(ch.kind === 'rebate-cancel'){
+    /* Checked again on approval, not only when raised: the rebate may have been
+       received, or remitted, in the meantime. */
+    if(!cancelRebate(e, ch.reason)) return;
+  }else if(ch.kind === 'void'){
     /* The guards are checked again here, not only when it was raised: a receipt
        may have been taken against the booking in the meantime, and voiding it
        then would leave money collected against nothing. */
@@ -3736,7 +3983,9 @@ function approveChange(id, ok, note){
   DB.save();
   DB.activity('Approved a booking change',
     e.no + ' · ' + changeLines(ch).join('; ').replace(/<\/?b>/g, ''));
-  UI.toast(ch.kind === 'void'
+  UI.toast(ch.kind === 'rebate-cancel'
+    ? `Rebate on ${e.no} cancelled.`
+    : ch.kind === 'void'
     ? `${e.no} voided. The bill against it was reversed.`
     : gap
       ? `${e.no} updated. The bill still reads ${UI.peso(gap.was)} — revise it if it should say ${UI.peso(gap.next)}.`
@@ -5104,11 +5353,13 @@ document.addEventListener('click', ev => {
     'new-course':    () => courseForm(),
     'edit-course':   () => { ev.stopPropagation(); courseForm(CRS(id)); },
     'new-enrollment':() => enrollmentForm(),
+    'enr-today':     () => { state.q.enrFrom = state.q.enrTo = DB.today(); render(); },
     'view-enrollment':() => enrollmentModal(ENR(id)),
     'view-invoice':  () => invoiceModal(INV(id)),
     'new-payment':   () => paymentForm(null),
     'view-receipt':  () => receiptModal(PAY(id)),
     'receive-rebate':() => { ev.stopPropagation(); rebateReceiveForm(id); },
+    'cancel-rebate': () => { ev.stopPropagation(); cancelRebateAsk(id); },
     'match-tender':  () => { ev.stopPropagation();
                        const [pid, i] = String(id).split(':');
                        const p = PAY(pid);
@@ -5140,6 +5391,7 @@ document.addEventListener('click', ev => {
     'paya-only':     () => { state.q.payaCenter = id; render(); },
     'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
+    'view-expense':  () => expenseVoucherModal(D().expenses.find(v => v.id === id)),
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
