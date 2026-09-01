@@ -301,6 +301,22 @@ const DB = (() => {
        The later rows are renumbered here, on the way in, so work that is
        already stuck goes up on the next save rather than being typed again.
        The suffix is a database matter only; nothing prints it. */
+    /* Vouchers written with a state the server will not take.
+
+       Voiding one used to set state to "Voided", which is not among the three
+       the column allows, so the save was refused and everything after it went
+       down too. They are moved to Rejected here, with a note saying which of
+       the two it was, so work already stuck goes up on the next save. */
+    if(Array.isArray(d.expenses)){
+      d.expenses.forEach(v => {
+        if(v.state !== 'Voided') return;
+        v.state = 'Rejected';
+        const why = String(v.decisionNote || '').trim();
+        v.decisionNote = why.indexOf('Voided after approval') === 0
+          ? why : ('Voided after approval' + (why ? ' \u2014 ' + why : ''));
+      });
+    }
+
     if(Array.isArray(d.payments)){
       const seen = {};
       d.payments.forEach(p => {

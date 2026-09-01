@@ -137,8 +137,12 @@ const SYNC = (() => {
     /* One row per day. adminOnly here matches the policy on the table rather
        than replacing it: the cashier's browser does not try to write a count,
        and the server would refuse it if it did. */
+    /* No longer adminOnly. The person who counts the drawer is the person at
+       it, so the front desk writes one — and the server has to agree, which is
+       what 20260901000000_cash_count_desk.sql is for. Until that is applied the
+       row is simply held back rather than breaking the save. */
     cashCounts:{
-      table:'cash_counts', adminOnly:true,
+      table:'cash_counts',
       keyOf:r => String(r.date),
       rename:{ date:'on_date' },
       cols:['on_date','opening','closing','note','counted_by'],
@@ -234,7 +238,7 @@ const SYNC = (() => {
           ? (await CLOUD.rest(`${m.table}?select=*&order=${m.pullOrder}&limit=${m.pullLimit}`)) || []
           : await CLOUD.selectAll(m.table);
       }catch(e){
-        if(!notThere(e)) throw e;
+        if(!notThere(e) && !notAllowed(e)) throw e;
         rows = [];
         missing.push(m.table);
       }
@@ -333,6 +337,17 @@ const SYNC = (() => {
     e && (e.status === 404
       || /PGRST205|does not exist|Could not find the table|schema cache/i.test(e.message || ''));
 
+  /* And a table this person is not allowed to write.
+
+     Roles differ, and a screen offered to somebody the server will not accept a
+     row from is a save that fails for them and takes every other table down
+     with it — the red bar, and a day's work with nowhere to go. One refused
+     table is one table held back, not a broken office. It is kept locally and
+     goes up the moment the policy allows it. */
+  const notAllowed = e =>
+    e && (e.status === 401 || e.status === 403
+      || /permission denied|row-level security|violates row-level/i.test(e.message || ''));
+
   async function push(store, base, opts){
     const admin = !opts || opts.isAdmin !== false;
     const done = { upserts:0, deletes:0, tables:[], skipped:[] };
@@ -356,10 +371,11 @@ const SYNC = (() => {
           done.upserts += changed.length;
           done.tables.push(`${m.table} +${changed.length}`);
         }catch(e){
-          if(!notThere(e)) throw e;
-          /* Held in the browser, and sent the moment the table exists — the
-             fingerprint of what the server has seen is only advanced by a write
-             that actually landed, so nothing is lost by waiting. */
+          if(!notThere(e) && !notAllowed(e)) throw e;
+          /* Held in the browser, and sent the moment the table exists or the
+             policy allows it — the fingerprint of what the server has seen is
+             only advanced by a write that actually landed, so nothing is lost
+             by waiting. */
           done.missing = done.missing || [];
           done.missing.push(m.table);
           continue;

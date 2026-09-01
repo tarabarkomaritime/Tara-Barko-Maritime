@@ -948,21 +948,16 @@ VIEWS.courses = () => {
 /* ---------- Enrollments ---------- */
 VIEWS.enrollments = () => {
   const q = (state.q.enr || '').toLowerCase(), f = state.q.enrStatus || '';
-  let from = state.q.enrFrom || '', to = state.q.enrTo || '';
-  if(from && to && from > to){ const x = from; from = to; to = x; }
-
-  /* On the training date, which is the column on this screen and the question
-     the desk is actually asking: who is at a centre that day. A booking that
-     runs across several days counts on every one of them, because the seat is
-     taken for the whole run — a course starting Monday and ending Friday is a
+  /* One date, not a range. The question the desk asks is about a day — who is
+     at a centre on Thursday — and a range answers a different one. A booking
+     that runs across several days counts on every one of them, because the seat
+     is taken for the whole run: a course starting Monday and ending Friday is a
      trainee who is training on Wednesday. */
+  const day = state.q.enrDay || '';
   const runsIn = e => {
-    if(!from && !to) return true;
+    if(!day) return true;
     const a = e.start || '', b = e.end || e.start || '';
-    if(!a) return false;
-    if(from && b < from) return false;
-    if(to && a > to) return false;
-    return true;
+    return !!a && a <= day && b >= day;
   };
 
   const rows = D().enrollments.filter(e => {
@@ -979,12 +974,16 @@ VIEWS.enrollments = () => {
   /* Trainees, not bookings. One person on three courses is one person to
      expect at the door, and counting the bookings would have the office
      preparing for three. */
-  const heads = new Set(rows.filter(e => e.status === 'Enrolled').map(e => e.traineeId)).size;
-  const seats = rows.filter(e => e.status === 'Enrolled').length;
-  const span = from || to
-    ? (from === to && from ? UI.date(from)
-       : `${from ? UI.date(from) : 'the beginning'} to ${to ? UI.date(to) : 'the end'}`)
-    : 'all dates';
+  const onDay = rows.filter(e => e.status === 'Enrolled');
+  const whoIds = [...new Set(onDay.map(e => e.traineeId))];
+  const heads = whoIds.length;
+
+  /* Named, because "nineteen" is a number and the desk needs a list: who to
+     expect, on what, and where they are going. */
+  const who = whoIds.map(id => ({
+    t:T(id),
+    seats:onDay.filter(e => e.traineeId === id),
+  })).filter(x => x.t).sort((a, b) => name(a.t).localeCompare(name(b.t)));
 
   return `
     ${changePanel(pendingChanges())}
@@ -994,24 +993,32 @@ VIEWS.enrollments = () => {
         ${['','On Process','Enrolled','Open Schedule','Reserved','Completed','Cancelled'].map(s =>
           `<option value="${s}" ${f===s?'selected':''}>${s||'All statuses'}</option>`).join('')}
       </select>
-      <label class="muted" style="font-size:12px">Training from</label>
-      <input type="date" data-q="enrFrom" value="${from}">
-      <label class="muted" style="font-size:12px">to</label>
-      <input type="date" data-q="enrTo" value="${to}">
+      <label class="muted" style="font-size:12px">Training on</label>
+      <input type="date" data-q="enrDay" value="${day}">
       <button class="btn btn-ghost btn-xs" data-act="enr-today">Today</button>
+      <button class="btn btn-ghost btn-xs" data-act="enr-any">Any day</button>
+      <span class="muted">${rows.length} record(s) · billed ${UI.peso(billed)} · due ${UI.peso(due)}</span>
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-enrollment">+ New enrollment</button>
     </div>
 
-    <div class="grid g4" style="margin-bottom:16px">
-      ${UI.kpi('Trainees enrolled', UI.int(heads),
-               from === to && from ? 'training on ' + UI.date(from) : span, heads ? 'ok' : '')}
-      ${UI.kpi('Seats booked', UI.int(seats),
-               heads && seats > heads ? 'some are on more than one course' : 'one course each', '')}
-      ${UI.kpi('Billed', UI.peso(billed), `${rows.length} record(s) in view`, '')}
-      ${UI.kpi('Still to pay', UI.peso(due), due > 0 ? 'across these bookings' : 'all settled',
-               due > 0 ? 'bad' : 'ok')}
-    </div>
+    ${day ? UI.card(`Training On ${UI.date(day)}`,
+      heads
+        ? UI.table([
+            { h:'Trainee', k:w => `<b>${UI.esc(name(w.t))}</b>`, },
+            { h:'SRN', k:w => `<span class="mono">${UI.esc(w.t.srn || '—')}</span>`, w:'150px' },
+            { h:'Mobile', k:w => UI.esc(w.t.mobile || '—'), w:'150px' },
+            { h:'On', k:w => w.seats.map(e =>
+                `${UI.esc((CRS(e.courseId)||{}).title || '—')}`
+                + `<span class="muted"> — ${UI.esc(e.center || '')}</span>`).join('<br>') },
+          ], who, { empty:'' })
+        : `<div class="empty"><span class="big">⚓</span>Nobody is training on ${UI.date(day)}.</div>`,
+      { flush:true,
+        /* Plain text: the card escapes its subtitle, and a bold tag printed
+           as &lt;b&gt; is worse than no bold at all. */
+        sub:`${UI.int(heads)} trainee${heads === 1 ? '' : 's'} · `
+            + `${UI.int(onDay.length)} seat${onDay.length === 1 ? '' : 's'} booked` })
+      + '<div style="height:18px"></div>' : ''}
     ${UI.card('', UI.table([
       { h:'Enrollment No.', k:e => `<span class="mono">${UI.esc(e.no)}</span>`, w:'140px' },
       { h:'Trainee', k:e => `<b>${UI.esc(name(T(e.traineeId)))}</b>` },
@@ -1490,7 +1497,7 @@ VIEWS.expenses = () => {
         { h:'Particulars', k:'particulars' },
         { h:'Account', k:v => `<span class="mono">${UI.esc(v.account)}</span> ${UI.esc(ACC.acct(v.account).name)}` },
         { h:'Mode', k:v => UI.tag(v.method, v.method==='Cash'?'ok':'sea') },
-        { h:'Status', k:v => UI.statusTag(v.state || 'Approved') },
+        { h:'Status', k:v => UI.statusTag(voucherState(v)) },
         { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
         /* Every voucher, not only the ones that settle a training centre. A
            disbursement is a piece of paper somebody signs for — the payee signs
@@ -1744,7 +1751,7 @@ VIEWS.payables = () => {
       /* Voiding is the admin's. Registration raises remittances and reads them
          back; unwinding one puts money back on the payables list and takes an
          entry off the books, which is not a button to leave on the counter. */
-      { h:'', k:v => v.state === 'Voided'
+      { h:'', k:v => wasVoided(v)
           ? UI.tag('Void','muted')
           : `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`
             + (canApprove()
@@ -1903,9 +1910,27 @@ function twoUp(inner){
    Nothing is deleted. The entry is reversed beside the original, because a
    voucher a centre may already be holding a copy of is not a thing to erase
    from our side. */
+/* The server allows three states on a voucher and only three: Pending,
+   Approved, Rejected. I wrote a fourth, "Voided", and every save after that was
+   refused — new row for relation "expenses" violates check constraint
+   "expenses_state_check" — which stopped the office saving anything at all.
+
+   A voided voucher and a rejected one both end at the same place: the document
+   does not stand and nothing is owed on it. What separates them is whether
+   money ever moved, and the journal already knows that — a voucher approved and
+   then voided has a posting and a reversal against it; one rejected before
+   approval has neither. So the state is Rejected, as the server requires, and
+   which of the two it was is read off the books rather than stored twice. */
+const VOID_NOTE = 'Voided after approval';
+const wasVoided = v => !!v && v.state === 'Rejected'
+  && (String(v.decisionNote || '').indexOf(VOID_NOTE) === 0
+      || D().journal.some(j => j.refId === v.id));
+const voucherState = v => !v ? '\u2014' : wasVoided(v) ? 'Void' : (v.state || 'Approved');
+
 function voidVoucher(v, reason){
   if(!v){ UI.toast('That voucher is gone.', 'bad'); return false; }
-  if(v.state === 'Voided'){ UI.toast('That voucher is already void.', 'bad'); return false; }
+  if(wasVoided(v)){ UI.toast('That voucher is already void.', 'bad'); return false; }
+  if(v.state === 'Rejected'){ UI.toast('That voucher was rejected — nothing was posted on it.', 'bad'); return false; }
   if(v.state === 'Pending'){
     UI.toast('That voucher has not been approved yet — reject it instead.', 'bad'); return false;
   }
@@ -1926,10 +1951,10 @@ function voidVoucher(v, reason){
      is for, alongside Pending, Approved and Rejected. It also drops the voucher
      out of every total that counts approved money as spent, which is most of
      what voiding it means. */
-  v.state = 'Voided';
+  v.state = 'Rejected';
   v.decidedBy = SESSION.name;
   v.decidedOn = DB.today();
-  v.decisionNote = reason || '';
+  v.decisionNote = `${VOID_NOTE}\u2014 ${reason || ''}`.replace('\u2014 ', '\u2014 ').trim();
   return true;
 }
 
@@ -1960,7 +1985,7 @@ function voidVoucherAsk(id){
 function expenseVoucherModal(v){
   if(!v){ UI.toast('That voucher is gone.', 'bad'); return; }
   const co = D().company;
-  const voided = v.state === 'Voided';
+  const voided = wasVoided(v);
 
   const sheet = `
     <div class="doc">
@@ -2032,7 +2057,7 @@ function voucherModal(v){
         <div class="doc-title">
           <div class="t">DISBURSEMENT VOUCHER</div>
           <div class="n">${UI.esc(v.no)}</div>
-          ${v.state === 'Voided' ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}
+          ${wasVoided(v) ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}
           <div class="muted" style="font-size:12px">${UI.date(v.date)}</div>
         </div>
       </div>
@@ -2062,10 +2087,10 @@ function voucherModal(v){
   UI.modal({
     title:`Voucher ${v.no}`,
     sub:`${String(v.payee).toUpperCase()} · ${UI.peso(v.amount)}`
-      + (v.state === 'Voided' ? ' · VOID' : ''),
+      + (wasVoided(v) ? ' · VOID' : ''),
     wide:true,
     hideSubmit:true,
-    footExtra:`${v.state !== 'Voided' && canApprove()
+    footExtra:`${!wasVoided(v) && v.state === 'Approved' && canApprove()
         ? `<button type="button" class="btn btn-danger" id="voidVoucher">Void voucher</button>` : ''}
       <button type="button" class="btn btn-primary" id="printVoucher">Print / PDF</button>`,
     body: twoUp(sheet),
@@ -2614,17 +2639,27 @@ function cashCountRows(on, openingBalance, cashIn, cashOut){
 }
 
 function cashCountForm(on){
-  if(!canApprove()) return UI.toast('Only an admin records the cash count.', 'bad');
-  const c = cashCountFor(on) || { date:on, opening:'', closing:'', note:'' };
+  const c = cashCountFor(on);
+  /* The person who counts the drawer is the person at it, so the front desk
+     records it. What they cannot do is record it twice: a count that can be
+     revised after the fact is not a count, it is a second opinion, and the
+     whole reason to write down what was actually there is that it can be set
+     against what the books say should have been. The admin can still correct
+     one, because somebody has to be able to fix a typo. */
+  if(c && !canApprove())
+    return UI.toast('The count for ' + UI.date(on) + ' has been recorded. Ask the admin to change it.', 'bad');
+  if(!c && !can('daily'))
+    return UI.toast('You cannot record the cash count.', 'bad');
+  const draft = c || { date:on, opening:'', closing:'', note:'' };
   UI.modal({
     title:'Cash count — ' + UI.date(on),
     sub:'What was actually in the drawer',
     body:`
-      ${UI.row(UI.f.num('opening','Opening (counted)', c.opening, { min:0, step:'0.01',
+      ${UI.row(UI.f.num('opening','Opening (counted)', draft.opening, { min:0, step:'0.01',
                  hint:'in the drawer before the first receipt' }),
-               UI.f.num('closing','Closing (counted)', c.closing, { min:0, step:'0.01',
+               UI.f.num('closing','Closing (counted)', draft.closing, { min:0, step:'0.01',
                  hint:'after the last one' }))}
-      ${UI.f.area('note','Note', c.note || '')}
+      ${UI.f.area('note','Note', draft.note || '')}
       <div class="note">Leave a box empty if it has not been counted yet. The system works out
         what the drawer <i>should</i> hold; this is what it actually held, and the difference
         is what the day is short or over.</div>`,
@@ -2779,7 +2814,7 @@ VIEWS.daily = () => {
              the courtesy — the table on the server is what actually refuses. */
           actions:canApprove()
             ? `<button class="btn btn-ghost btn-xs" data-act="cash-count" data-id="${on}">
-                 ${c.count ? 'Edit the count' : 'Record the count'}</button>`
+                 ${c.count ? (canApprove() ? 'Edit the count' : 'Counted') : 'Record the count'}</button>`
             : '<span class="muted" style="font-size:11.5px">recorded by the admin</span>' })
         + '<div style="height:18px"></div>';
     })()}
@@ -3893,7 +3928,11 @@ function changePanel(rows, opts){
     { h:'Request', k:c => `<b class="mono">${UI.esc(c.no)}</b><br>
         <span class="muted" style="font-size:11.5px">${UI.esc((ENR(c.enrollmentId)||{}).no || '—')}</span>`, w:'135px' },
     { h:'Trainee', k:c => UI.esc(name(T(c.traineeId))) },
-    { h:'What changes', k:c => c.kind === 'rebate-cancel'
+    { h:'What changes', k:c => c.kind === 'invoice-void'
+        ? `<b class="neg">Void the Payment Invoice</b><br>
+           <span class="muted" style="font-size:11.5px">${UI.esc((INV(c.to && c.to.invoiceId)||{}).no || '')}
+             · ${UI.peso((INV(c.to && c.to.invoiceId)||{}).total || 0)}</span>`
+        : c.kind === 'rebate-cancel'
         ? `<b class="neg">Cancel the rebate</b><br>
            <span class="muted" style="font-size:11.5px">${(() => { const e = ENR(c.enrollmentId);
              return e ? `${UI.peso(e.rebate || 0)} from ${UI.esc(e.center || 'the centre')}` : ''; })()}</span>`
@@ -3965,7 +4004,15 @@ function approveChange(id, ok, note){
   }
 
   const gap = feeGap(ch);
-  if(ch.kind === 'rebate-cancel'){
+  if(ch.kind === 'invoice-void'){
+    const inv = INV(ch.to && ch.to.invoiceId);
+    if(!inv){ UI.toast('That bill is no longer on file.', 'bad'); return; }
+    if((inv.paid || 0) > 0){
+      UI.toast('That bill has been paid since the request was raised — void the receipts first.', 'bad');
+      return;
+    }
+    if(!voidInvoice(inv, ch.reason)){ UI.toast('That bill is already void.', 'bad'); return; }
+  }else if(ch.kind === 'rebate-cancel'){
     /* Checked again on approval, not only when raised: the rebate may have been
        received, or remitted, in the meantime. */
     if(!cancelRebate(e, ch.reason)) return;
@@ -3983,7 +4030,9 @@ function approveChange(id, ok, note){
   DB.save();
   DB.activity('Approved a booking change',
     e.no + ' · ' + changeLines(ch).join('; ').replace(/<\/?b>/g, ''));
-  UI.toast(ch.kind === 'rebate-cancel'
+  UI.toast(ch.kind === 'invoice-void'
+    ? `${(INV(ch.to && ch.to.invoiceId) || {}).no || 'The bill'} voided and reversed.`
+    : ch.kind === 'rebate-cancel'
     ? `Rebate on ${e.no} cancelled.`
     : ch.kind === 'void'
     ? `${e.no} voided. The bill against it was reversed.`
@@ -4287,6 +4336,15 @@ ${addons().map((a,i) => `
   syncAddons();
 }
 
+/* One place a bill is taken off, so the admin's own click and the approval of
+   somebody else's request do exactly the same thing. */
+function voidInvoice(inv, reason){
+  if(!inv || inv.voided) return false;
+  inv.voided = true; inv.status = 'Void';
+  ACC.reverse(inv.id, reason || 'Voided');
+  return true;
+}
+
 function invoiceModal(inv){
   ACC.recomputeInvoice(inv);
   const t = T(inv.traineeId);
@@ -4364,15 +4422,49 @@ function invoiceModal(inv){
   });
   const on = (id, fn) => { const el = document.getElementById(id); if(el) el.onclick = fn; };
   on('payNow', () => paymentForm(inv));
-  on('voidInv', () => UI.confirm('Void this invoice?', fd => {
+  /* Registration raises it, the admin does it. A Payment Invoice is the
+     document the trainee was given and the receivable the books are carrying,
+     so taking one off is not a thing to do at the counter unattended. */
+  const directVoid = canApprove();
+  on('voidInv', () => UI.confirm(
+    directVoid ? 'Void this invoice?' : 'Ask the admin to void this invoice?', fd => {
+      const reason = String(fd.reason || '').trim();
       if((inv.paid||0) > 0){ UI.toast('Void the receipts first — this invoice has payments applied.', 'bad'); return; }
-      inv.voided = true; inv.status = 'Void';
-      ACC.reverse(inv.id, fd.reason || 'Voided');
-      DB.activity('Voided invoice', inv.no + (fd.reason ? ' — ' + fd.reason : ''));
+      if(!reason){ UI.toast('Say why it is being voided — it takes a receivable off the books.', 'bad'); return; }
+
+      if(!directVoid){
+        const bk = D().enrollments.find(x => x.invoiceId === inv.id);
+        if(!bk){ UI.toast('That bill has no booking to raise the request against.', 'bad'); return; }
+        if(pendingChangeFor(bk.id)){
+          UI.toast('A change to that booking is already waiting for the admin.', 'bad'); return;
+        }
+        const was = {}; CHANGE_FIELDS.forEach(f => { was[f.k] = bk[f.k]; });
+        D().changes.push({
+          id:DB.uid('chg'), no:DB.nextNo('change','CHG'), kind:'invoice-void',
+          enrollmentId:bk.id, traineeId:inv.traineeId,
+          date:DB.today(), raisedBy:SESSION.name,
+          /* The bill rides inside to_state, which is jsonb and already has a
+             column. A top-level invoiceId would need one of its own, and a
+             field with no column is a save that fails for the whole office. */
+          was, to:{ ...was, invoiceId:inv.id }, reason, state:'Pending',
+        });
+        DB.save();
+        DB.activity('Asked to void an invoice', inv.no);
+        UI.toast(`Sent for approval — ${inv.no} stays as it is until an admin signs it.`);
+        UI.close(); refresh();
+        return;
+      }
+
+      voidInvoice(inv, reason);
+      DB.save();
+      DB.activity('Voided invoice', inv.no + ' — ' + reason);
       UI.toast('Invoice voided and reversed.');
       refresh();
-    }, { danger:true, reason:true, yes:'Void invoice',
-         detail:'The original entry stays in the journal and a mirror-image reversing entry is posted beside it.' }));
+    }, { danger:true, reason:true,
+         yes:directVoid ? 'Void invoice' : 'Send for approval',
+         detail:directVoid
+           ? 'The original entry stays in the journal and a mirror-image reversing entry is posted beside it.'
+           : 'Nothing changes yet. The invoice stands until the admin signs it off.' }));
 }
 
 /* ----- payments ----- */
@@ -5353,7 +5445,8 @@ document.addEventListener('click', ev => {
     'new-course':    () => courseForm(),
     'edit-course':   () => { ev.stopPropagation(); courseForm(CRS(id)); },
     'new-enrollment':() => enrollmentForm(),
-    'enr-today':     () => { state.q.enrFrom = state.q.enrTo = DB.today(); render(); },
+    'enr-today':     () => { state.q.enrDay = DB.today(); render(); },
+    'enr-any':       () => { state.q.enrDay = ''; render(); },
     'view-enrollment':() => enrollmentModal(ENR(id)),
     'view-invoice':  () => invoiceModal(INV(id)),
     'new-payment':   () => paymentForm(null),
