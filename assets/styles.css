@@ -288,13 +288,16 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 .bill-pick{flex:1;display:flex;gap:10px;align-items:flex-start;cursor:pointer;
   font-size:13px;line-height:1.45;margin:0;min-width:0}
 .bill-pick input{margin-top:2px;flex:none}
-.bill-amt{flex:none;text-align:right;min-width:132px}
+.bill-amt{flex:none;text-align:right;min-width:150px}
 .bill-amt .lbl{font:700 10px/1 system-ui,-apple-system,Segoe UI,sans-serif;
   letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
-/* Shown, not entered. There is no box here to mistype into: the figure is what
-   the money coming in reaches on this training, and it is arithmetic. */
-.bill-alloc{font-size:16px;font-weight:800;letter-spacing:-.01em;color:var(--text)}
-.bill-alloc.none{color:var(--muted);font-weight:600;font-size:14px}
+/* Typed, one training at a time. The office tried it worked out for them and
+   asked for the box back: what goes against which course is a decision made at
+   the counter with the trainee standing there, and a rule that spreads one sum
+   in booking order is a guess about that decision. It is a good guess and it
+   was still a guess. */
+.bill-row .b-amt{width:134px;text-align:right;font-weight:700}
+.bill-row .b-amt:disabled{background:var(--surface-2);color:var(--muted);font-weight:500}
 @media(max-width:760px){ .pay-shell{grid-template-columns:1fr} }
 
 /* ---------- Modal ---------- */

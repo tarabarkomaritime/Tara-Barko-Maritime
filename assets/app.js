@@ -4185,16 +4185,11 @@ function paymentForm(inv){
       const lines = billCourses(i);
       const title = lines.length ? lines.join(' + ') : 'no course on file';
       const on = !!(inv && i.id === inv.id) || list.length === 1;
-      /* No box. The amount against a training is not a thing anybody types —
-         it is what the money handed over reaches on that training, and that is
-         arithmetic. A figure a cashier can type is a figure that gets mistyped:
-         a digit, in a hurry, against the wrong one of three bookings, found out
-         weeks later when a balance will not clear.
-
-         So the cashier says what was received and which trainings it is for,
-         and the split is worked out and shown. Two thousand against two
-         trainings fills the first and part-pays the second, and the second says
-         what is left on it. */
+      /* Ticking a training fills its balance in, because that is what is meant
+         most of the time. It is a starting figure and not a fixed one: the
+         amount is typed over whenever the trainee is paying something else
+         against that course, which is the case the office has and the reason
+         the box is here rather than a rule. */
       return `<div class="bill-row${on ? ' on' : ''}" data-bill="${i.id}">
         <label class="bill-pick">
           <input type="checkbox" name="pick_${i.id}" ${on ? 'checked' : ''}>
@@ -4204,7 +4199,9 @@ function paymentForm(inv){
               ${UI.peso(i.total)} · still to pay <b>${UI.peso(b)}</b></span></span>
         </label>
         <div class="bill-amt">
-          <div class="bill-alloc none" data-alloc="${i.id}">—</div>
+          <div class="lbl">Amount</div>
+          <input type="number" name="amt_${i.id}" class="b-amt" step="0.01" min="0"
+                 placeholder="0.00" ${on ? `value="${b.toFixed(2)}"` : 'disabled'}>
         </div>
       </div>`;
     }).join('');
@@ -4291,16 +4288,24 @@ function paymentForm(inv){
       const amt = ACC.r2(tenders.reduce((s,t) => s + t.amount, 0));
       if(amt <= 0){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
 
-      /* The same split the screen has been showing. It is read once, here,
-         rather than recomputed from anything typed — what is posted is what the
-         cashier was looking at when they pressed the button, and the two can no
-         longer come apart. There is nothing left to reconcile: the split is
-         made out of the money, so it adds up by construction. */
+      /* Exactly what the screen was showing, read once here — what is posted is
+         what the cashier was looking at when they pressed the button. */
       const bills = allocation().filter(b => b.amount > 0.004);
-      if(!bills.length){ UI.toast('Enter how much was received.', 'bad'); return false; }
+      if(!bills.length){
+        UI.toast('Put an amount against at least one training.', 'bad'); return false;
+      }
 
-      /* Whatever balance is left is written on the receipt, so it is on the
-         paper the trainee walks out with rather than only in our records. */
+      /* The amounts are typed now, so they can disagree with the money, and one
+         of them being wrong is exactly the mistake worth catching before it is
+         written. Cash that does not equal what it was put against is a drawer
+         that will not count at the end of the day, in either direction. */
+      const put = ACC.r2(bills.reduce((s, b) => s + b.amount, 0));
+      if(Math.abs(amt - put) > 0.004){
+        UI.toast(`${UI.peso(amt)} was received but ${UI.peso(put)} is going against trainings.`
+          + ' The two have to be the same money.', 'bad');
+        return false;
+      }
+
       const note = String(fd.note || '').trim();
 
       /* One document. The trainee handed over one sum, so the number is taken
@@ -4333,65 +4338,51 @@ function paymentForm(inv){
   const ticked = () => openFor(whoNow())
     .filter(i => form['pick_' + i.id] && form['pick_' + i.id].checked);
 
-  /* What the ticked trainings are asking for in total. */
+  /* What is being put against trainings, as typed. */
+  const putNow = () => ACC.r2(allocation().reduce((s, a) => s + a.amount, 0));
+  /* What the ticked trainings are asking for. */
   const dueNow = () => ACC.r2(ticked().reduce((s, i) => s + ACC.balanceOf(ACC.recomputeInvoice(i)), 0));
 
-  /* The split. Money handed over is laid against the ticked trainings in the
-     order they were booked, each taking what it is owed until the money runs
-     out — so two thousand against a fifteen hundred and a nine hundred settles
-     the first and leaves four hundred short on the second, and says so.
+  /* What is going against each training, as typed. Nothing is spread and
+     nothing is inferred: three courses paid in one go is three amounts the
+     cashier decides with the trainee in front of them, and a rule that lays one
+     sum down in booking order would be the system deciding it instead.
 
-     Oldest first is deliberate. The training that has been waiting longest is
-     the one closest to starting, and a seat unpaid on the morning it runs is
-     the one the centre turns away.
-
-     Anything over what the ticked trainings owe stays on the last of them,
-     where it becomes the trainee's credit — the same as it always did when
-     somebody handed over more than the bill. */
-  const allocation = () => {
-    const rows = ticked();
-    let left = tendered();
-    const out = rows.map(i => {
-      const owed = ACC.balanceOf(ACC.recomputeInvoice(i));
-      const take = ACC.r2(Math.max(0, Math.min(owed, left)));
-      left = ACC.r2(left - take);
-      return { inv:i, owed, amount:take, short:ACC.r2(owed - take) };
-    });
-    if(left > 0.004 && out.length){
-      const last = out[out.length - 1];
-      last.amount = ACC.r2(last.amount + left);
-      last.over = left;
-    }
-    return out;
-  };
+     Over the balance on a training is allowed and stays where it was put — the
+     bill is the charge, this is the money, and the excess is that trainee's
+     credit. */
+  const allocation = () => ticked().map(i => {
+    const box = form && form['amt_' + i.id];
+    const owed = ACC.balanceOf(ACC.recomputeInvoice(i));
+    const amount = ACC.r2((box && box.value) || 0);
+    return { inv:i, owed, amount,
+             short:ACC.r2(Math.max(0, owed - amount)),
+             over:amount - owed > 0.004 ? ACC.r2(amount - owed) : 0 };
+  });
 
   const courseOf = i => {
     const lines = billCourses(i);
     return lines.length ? lines.join(' + ') : i.no;
   };
 
-  /* The rows only ever show what the arithmetic came to. Nothing here is
-     filled in, so there is nothing here to fill in wrongly. */
+  /* Ticking a training opens its box and fills in what is owed on it, which is
+     the usual answer. Untick and the box closes and empties, because an amount
+     against a training nobody is paying for is the one that goes unnoticed.
+     What has been typed is never replaced. */
   const syncBills = () => {
-    const alloc = allocation();
-    const at = {};
-    alloc.forEach(a => { at[a.inv.id] = a; });
-
     openFor(whoNow()).forEach(i => {
       const pick = form['pick_' + i.id];
+      const box = form['amt_' + i.id];
       const row = form.querySelector(`.bill-row[data-bill="${i.id}"]`);
-      const amt = form.querySelector(`[data-alloc="${i.id}"]`);
-      if(!pick || !row || !amt) return;
+      if(!pick || !box || !row) return;
       row.classList.toggle('on', pick.checked);
-
-      const a = at[i.id];
-      if(!pick.checked || !a || a.amount <= 0.004){
-        amt.textContent = '\u2014';
-        amt.className = 'bill-alloc none';
-        return;
+      if(!pick.checked){
+        box.disabled = true;
+        box.value = '';
+      }else if(box.disabled){
+        box.disabled = false;
+        box.value = ACC.balanceOf(ACC.recomputeInvoice(i)).toFixed(2);
       }
-      amt.textContent = UI.peso(a.amount);
-      amt.className = 'bill-alloc';
     });
     sidePanel();
   };
@@ -4407,7 +4398,7 @@ function paymentForm(inv){
        the panel announce a part payment as clearing the lot — the one figure on
        the screen the cashier reads back across the counter, and it was the
        figure that was wrong. */
-    const now = ACC.r2(allocation().reduce((s, a) => s + a.amount, 0));
+    const now = putNow();
     const set = (id, v) => { const el = document.getElementById(id); if(el) el.innerHTML = v; };
     set('sideWho', UI.esc(name(t)));
     set('sideSrn', UI.esc((t && (t.srn || t.no)) || ''));
@@ -4439,23 +4430,26 @@ function paymentForm(inv){
   const warn = () => {
     syncRefs();
     syncBills();
-    const owed = dueNow(), amt = tendered();
+    const put = putNow(), amt = tendered();
     const n = ticked().length;
     const box = document.getElementById('payWarn');
-    /* Nothing here can disagree with itself any more — the split is made from
-       the money, so it always adds up. What is left to say is what the payment
-       does, which is the thing the cashier reads back across the counter. */
-    box.innerHTML = !n ? `<div class="note warn">Tick the training this payment is for.</div>`
-      : !amt ? `<div class="note">Enter what was handed over. It will be put against
-                 ${n === 1 ? 'this training' : `these ${n} trainings`}, oldest first.</div>`
-      : amt + 0.004 >= owed
-        ? `<div class="note"><b>${UI.peso(amt)} received</b> — settles
-            ${n === 1 ? 'this training' : `all ${n} trainings`} in full${
-            amt - owed > 0.004 ? `, with ${UI.peso(ACC.r2(amt - owed))} over held as credit` : ''}.
-            One receipt covers ${n === 1 ? 'it' : 'them'}.</div>`
-        : `<div class="note warn"><b>${UI.peso(amt)} received</b> against ${UI.peso(owed)} owed.
-            Split oldest first — <b>${UI.peso(ACC.r2(owed - amt))} will still be owed</b>
-            afterwards, and the receipt says on what.</div>`;
+    /* Two figures the cashier owns: what went against each training, and what
+       came across the counter. They have to be the same money, and where they
+       are not the difference is said rather than the two numbers being left to
+       subtract in somebody's head. */
+    box.innerHTML = !n
+      ? `<div class="note warn">Tick the training this payment is for.</div>`
+      : !amt && !put
+        ? `<div class="note">Put the amount against each training, and how it was paid.</div>`
+      : Math.abs(amt - put) <= 0.004
+        ? `<div class="note"><b>${UI.peso(amt)} received</b>, all of it against
+            ${n === 1 ? 'one training' : `${n} trainings`}. One receipt covers
+            ${n === 1 ? 'it' : 'them'}.</div>`
+      : amt > put
+        ? `<div class="note warn"><b>${UI.peso(ACC.r2(amt - put))} of what was received is not
+            against a training yet.</b> Raise one of the amounts, or tick another training.</div>`
+        : `<div class="note warn"><b>${UI.peso(ACC.r2(put - amt))} more is going against trainings
+            than was received.</b> Lower one of the amounts, or add how the rest was paid.</div>`;
   };
 
   let rows = 1;
@@ -4472,13 +4466,23 @@ function paymentForm(inv){
   const setFirst = v => { form.a0.value = v.toFixed(2);
     for(let i = 1; i < 6; i++){ if(form['a'+i]) form['a'+i].value = ''; } warn(); };
 
-  /* The amount received is the one thing on this screen the cashier knows and
-     the system does not. Ticking another training used to overwrite it with the
-     new total, which quietly turned a part payment into a full one between two
-     clicks. It is filled in only while nobody has typed there. */
-  const suggest = () => { if(!form.a0.dataset.touched) setFirst(dueNow()); else warn(); };
+  /* The tender follows the amounts until somebody types in it. Ticking a
+     second training raises the total handed over, which is right nine times in
+     ten and is never allowed to overwrite a figure the cashier put there. */
+  const suggest = () => { if(!form.a0.dataset.touched) setFirst(putNow()); else warn(); };
   form.addEventListener('input', ev => {
     if(ev.target === form.a0) form.a0.dataset.touched = '1';
+    /* Typing an amount against a training moves the total handed over with it,
+       so the ordinary case — three courses, three figures, that is what was
+       paid — needs nothing typed twice. It stops following the moment the
+       cashier puts a figure in the tender themselves, because then the two
+       really are different numbers and the difference is theirs to explain. */
+    else if(ev.target && ev.target.classList
+            && ev.target.classList.contains('b-amt')
+            && !form.a0.dataset.touched){
+      setFirst(putNow());
+      return;
+    }
     warn();
   });
   form.addEventListener('change', ev => {
@@ -4496,7 +4500,7 @@ function paymentForm(inv){
     warn();
   });
   syncBills();
-  setFirst(inv ? bal : dueNow());
+  setFirst(inv ? bal : putNow());
 }
 
 function receiptModal(p){
