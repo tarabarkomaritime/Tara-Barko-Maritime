@@ -1444,6 +1444,79 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---------- merging two files for one seafarer ----------
+     The office has a man registered twice on one SRN, and the fix is to move
+     everything from the second file onto the first and delete the second.
+
+     What has to be true afterwards is that nothing about the money changed.
+     The ledger keys on invoices, receipts and bookings and never on a trainee,
+     so moving documents between files should be invisible to it — this is the
+     check that says so out loud, in the same accounting code the office runs. */
+  console.log('\n- two files for one seafarer -');
+  {
+    run('DB.reset(true)');
+    run(`(() => {
+      const d = DB.get();
+      const mk = (id, no) => ({ id, no, srn:'9310270100', last:'SAMPILO',
+        first:'MARK DANIEL', middle:'YANGA', suffix:'', registered:DB.today() });
+      d.trainees.push(mk('keep','TRN-2026-0002'), mk('drop','TRN-2026-0031'));
+
+      /* Both files carry real work: bookings, bills, and a part payment on
+         each, so the merge has something to get wrong. */
+      const cs = d.courses.filter(c => (c.amount || 0) > 0).slice(0, 2);
+      ['keep','drop'].forEach((who, n) => {
+        const t = d.trainees.find(x => x.id === who);
+        const out = APPS.enroll(t, { courseId:cs[n].id, start:'2026-09-0' + (n + 1),
+          end:'2026-09-0' + (n + 1), fee:cs[n].amount, mode:'Enrolled', by:'K' });
+        const p = ACC.buildPayment({ invoiceId:out.invoice.id, traineeId:who,
+          date:DB.today(), tenders:[{ method:'Cash', ref:'', amount:500 }] });
+        d.payments.push(p);
+        ACC.postPayment(p, out.invoice);
+      });
+    })()`);
+
+    const tb = () => {
+      const j = run('DB.get().journal');
+      return { dr:run('ACC.r2(DB.get().journal.reduce((s,x) => s + x.debit, 0))'),
+               cr:run('ACC.r2(DB.get().journal.reduce((s,x) => s + x.credit, 0))'),
+               n:j.length };
+    };
+    const balances = () => run(`DB.get().invoices
+      .map(i => i.no + '=' + ACC.balanceOf(ACC.recomputeInvoice(i))).sort().join(', ')`);
+
+    const before = { tb:tb(), bal:balances(),
+                     docs:run('DB.get().enrollments.length + DB.get().invoices.length + DB.get().payments.length') };
+
+    /* The merge, exactly as the migration does it: repoint, then remove. */
+    run(`(() => {
+      const d = DB.get();
+      ['enrollments','invoices','payments','refunds'].forEach(k =>
+        (d[k] || []).forEach(r => { if(r.traineeId === 'drop') r.traineeId = 'keep'; }));
+      d.trainees = d.trainees.filter(x => x.id !== 'drop');
+    })()`);
+
+    const after = { tb:tb(), bal:balances(),
+                    docs:run('DB.get().enrollments.length + DB.get().invoices.length + DB.get().payments.length') };
+
+    check('one file is left', () =>
+      run('DB.get().trainees.length') === 1 || run('DB.get().trainees.length'));
+    check('every document survived', () =>
+      after.docs === before.docs || `${before.docs} -> ${after.docs}`);
+    check('nothing is left pointing at the file that went', () =>
+      run(`['enrollments','invoices','payments','refunds']
+            .every(k => (DB.get()[k] || []).every(r => r.traineeId !== 'drop'))`)
+      || 'an orphan reference survived');
+    check('the ledger did not move', () =>
+      (after.tb.dr === before.tb.dr && after.tb.cr === before.tb.cr && after.tb.n === before.tb.n)
+      || JSON.stringify({ before:before.tb, after:after.tb }));
+    check('every bill is owed exactly what it was owed', () =>
+      after.bal === before.bal || `${before.bal}  ->  ${after.bal}`);
+    check('and it all now hangs off the one seafarer', () =>
+      run(`DB.get().enrollments.every(e => e.traineeId === 'keep')
+           && DB.get().invoices.every(i => i.traineeId === 'keep')`)
+      || 'something is still on the old file');
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
