@@ -421,6 +421,13 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 
 @media print{
   .sidebar,.topbar,.modal-foot,.no-print,.toast-root,.copy-note{display:none !important}
+
+  /* The dialog animates in from opacity zero, and the printer takes its picture
+     at the first frame — so every document printed from a modal came out of the
+     printer blank. The paper had the header, the footer and nothing between
+     them, which reads as the system having no document to give rather than as a
+     fade that had not finished. */
+  .modal,.modal-backdrop{animation:none !important;opacity:1 !important;transform:none !important}
   /* What is on the screen under the dialog is the page you were looking at,
      not the thing you asked to print. */
   body.printing-doc #view,
@@ -436,9 +443,16 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 
   /* Two copies, one A4. 297mm less the 10mm margins, halved. The cut line
      between them is printed because somebody has to know where to cut. */
-  .doc2 .doc-copy{display:block !important;height:138.5mm;overflow:hidden;
-    box-sizing:border-box;padding:0 0 6mm;position:relative;
+  /* 297mm of paper less 20mm of margins leaves 277mm, and two copies at
+     138.5mm came to 277mm exactly — so a rounded pixel anywhere put a blank
+     sheet after every voucher. There is slack now: the halves are shorter than
+     the space they have to fit in, which is the only version of this that
+     survives a different printer. */
+  .doc2{page-break-after:avoid;break-after:avoid}
+  .doc2 .doc-copy{display:block !important;height:124mm;overflow:hidden;
+    box-sizing:border-box;padding:0 0 5mm;position:relative;
     page-break-inside:avoid;break-inside:avoid}
+  .doc2 .doc-copy:last-of-type{page-break-after:avoid;break-after:avoid}
   .doc2 .doc-copy + .doc-copy{border-top:1px dashed #9aa3b8;padding-top:6mm}
   .doc2 .doc{padding:0;font-size:10px}
   .doc2 .doc-head{padding-bottom:6px;margin-bottom:8px}

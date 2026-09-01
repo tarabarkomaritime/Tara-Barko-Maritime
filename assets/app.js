@@ -1783,7 +1783,8 @@ function centerVoucherForm(center){
      still real and the office should see why it cannot pay it yet. */
   const ready = r => r.remittable > 0.004;
   const row = (r,i) => `
-    <tr${ready(r) ? '' : ' style="opacity:.55"'}>
+    <tr data-start="${UI.esc(r.e.start || '')}" data-end="${UI.esc(r.e.end || r.e.start || '')}"
+        ${ready(r) ? '' : ' style="opacity:.55"'}>
       <td style="padding:4px 0"><label style="display:flex;gap:8px;align-items:center;${ready(r) ? 'cursor:pointer' : ''}">
         <input type="checkbox" name="pick${i}" value="${r.e.id}" ${ready(r) ? 'checked' : 'disabled'} style="width:auto;margin:0">
         <span>${UI.esc(name(T(r.e.traineeId)))}</span></label></td>
@@ -1808,6 +1809,21 @@ function centerVoucherForm(center){
       ${group.remittable > 0.004 ? '' : `<div class="note warn">Nothing has been collected
         against these bookings yet, so there is nothing to remit. Take the trainees'
         payments first — the voucher pays what has actually come in.</div>`}
+      <!-- A centre with thirty outstanding seats is thirty boxes to go through
+           by hand, and the office pays them a run at a time: this week's
+           trainings, last month's. Narrowing by training date leaves the
+           handful that are actually being settled, and the rest go back in
+           when the dates are cleared. -->
+      <div class="toolbar" style="margin-bottom:8px">
+        <label class="muted" style="font-size:12px">Training from</label>
+        <input type="date" id="vFrom">
+        <label class="muted" style="font-size:12px">to</label>
+        <input type="date" id="vTo">
+        <button type="button" class="btn btn-ghost btn-xs" id="vAll">All dates</button>
+        <button type="button" class="btn btn-ghost btn-xs" id="vTickAll">Tick all shown</button>
+        <button type="button" class="btn btn-ghost btn-xs" id="vTickNone">Untick all</button>
+        <span class="muted" id="vCount"></span>
+      </div>
       <table style="width:100%;font-size:12.5px;margin-bottom:12px">
         <thead><tr>
           <th style="text-align:left">Trainee</th><th style="text-align:left">Course</th>
@@ -1828,7 +1844,15 @@ function centerVoucherForm(center){
       <div id="voucherTotal"></div>`,
     submitLabel:'Post voucher',
     onSubmit: fd => {
-      const picked = group.rows.filter((r,i) => fd['pick'+i] && r.remittable > 0.004);
+      /* A booking hidden by the date filter is one nobody looked at, so it is
+         not on the voucher whatever its box happens to say. Ticks are only
+         honoured for rows that were on screen to be ticked. */
+      const picked = group.rows.filter((r,i) => {
+        const box = document.getElementsByName('pick' + i)[0];
+        const tr = box && box.closest('tr');
+        if(tr && tr.style.display === 'none') return false;
+        return fd['pick'+i] && r.remittable > 0.004;
+      });
       if(!picked.length){ UI.toast('Choose at least one booking with money collected against it.', 'bad'); return false; }
       const amount = ACC.r2(picked.reduce((s,r) => s + r.remittable, 0));
       if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
@@ -1870,7 +1894,53 @@ function centerVoucherForm(center){
   });
 
   const form = document.getElementById('mForm');
-  const ticked = (r,i) => form['pick'+i] && form['pick'+i].checked;
+  const rowEl = i => { const b = form['pick'+i]; return b && b.closest('tr'); };
+  const shown = i => { const tr = rowEl(i); return !!tr && tr.style.display !== 'none'; };
+  const ticked = (r,i) => shown(i) && form['pick'+i] && form['pick'+i].checked;
+
+  /* Hidden rows are out of the voucher whether or not their box is ticked, so
+     the filter is a real narrowing rather than a change of view. Their ticks
+     are left alone — clearing the dates brings them back exactly as they
+     were. */
+  const applyDates = () => {
+    const a = document.getElementById('vFrom').value;
+    const b = document.getElementById('vTo').value;
+    let on = 0;
+    group.rows.forEach((r, i) => {
+      const tr = rowEl(i);
+      if(!tr) return;
+      const st = tr.dataset.start || '', en = tr.dataset.end || st;
+      const keep = (!a && !b) || (!!st && (!a || en >= a) && (!b || st <= b));
+      tr.style.display = keep ? '' : 'none';
+      if(keep) on++;
+    });
+    const c = document.getElementById('vCount');
+    if(c) c.textContent = (a || b)
+      ? `${on} of ${group.rows.length} booking(s) shown`
+      : `${group.rows.length} booking(s)`;
+    total();
+  };
+
+  const tickShown = on => {
+    group.rows.forEach((r, i) => {
+      const box = form['pick'+i];
+      if(box && !box.disabled && shown(i)) box.checked = on;
+    });
+    total();
+  };
+
+  ['vFrom','vTo'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){ el.onchange = applyDates; el.oninput = applyDates; }
+  });
+  document.getElementById('vAll').onclick = () => {
+    document.getElementById('vFrom').value = '';
+    document.getElementById('vTo').value = '';
+    applyDates();
+  };
+  document.getElementById('vTickAll').onclick  = () => tickShown(true);
+  document.getElementById('vTickNone').onclick = () => tickShown(false);
+
   const total = () => {
     const sum = group.rows.reduce((s,r,i) => s + (ticked(r,i) ? r.remittable : 0), 0);
     const n = group.rows.filter(ticked).length;
@@ -1884,7 +1954,7 @@ function centerVoucherForm(center){
       </div>`;
   };
   form.addEventListener('change', total);
-  total();
+  applyDates();
 }
 
 /* Two copies of one document on a single A4 — original for the party we are
@@ -4583,10 +4653,15 @@ function paymentForm(inv){
 
         <h4 style="margin:${inv ? '0' : '10px'} 0 2px;font-size:13px">What This Money Settles</h4>
         <p class="muted" style="margin:0 0 8px;font-size:12px">
-          Tick every training this payment covers. What goes to each is worked out
-          from the amount received below — the training fee is never typed.
-          One receipt can settle several.</p>
+          Tick every training this payment covers and put the amount against each.
+          <b>Split Payment</b> spreads what was received across all of them, oldest
+          first, and you can type over any figure afterwards. One receipt covers
+          the lot.</p>
         <div id="bills">${billRows(who0)}</div>
+        <div style="display:flex;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
+          <button type="button" class="btn btn-ghost btn-xs" id="splitAcross">Split Payment</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="clearBills">Clear</button>
+        </div>
 
         <div class="hr"></div>
         <h4 style="margin:0 0 4px;font-size:13px">How It Was Paid</h4>
@@ -4595,7 +4670,7 @@ function paymentForm(inv){
           reference number that appears on the statement.</p>
         <div id="tenders">${line(0)}</div>
         <div style="display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
-          <button type="button" class="btn btn-ghost btn-xs" id="addTender">Split Payment</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="addTender">+ Another payment mode</button>
         </div>
         <div id="payWarn"></div>
 
@@ -4791,6 +4866,48 @@ function paymentForm(inv){
             against a training yet.</b> Raise one of the amounts, or tick another training.</div>`
         : `<div class="note warn"><b>${UI.peso(ACC.r2(put - amt))} more is going against trainings
             than was received.</b> Lower one of the amounts, or add how the rest was paid.</div>`;
+  };
+
+  /* One payment across two or three trainings, which is what the trainee is
+     actually doing when they hand over a sum for a day's bookings. It ticks
+     every outstanding training and lays the money over them in the order they
+     were booked — each taking what it is owed until the money runs out.
+
+     It is a button rather than a rule because the amounts stay the cashier's:
+     press it to get the ordinary split, then type over any of the figures. The
+     old behaviour of putting everything against one training is what happens
+     when only one is ticked, which is also right. */
+  document.getElementById('splitAcross').onclick = () => {
+    const bills = openFor(whoNow());
+    if(!bills.length) return;
+    let left = tendered();
+    /* Nothing typed in yet: take the whole of what is outstanding as the
+       starting point, so pressing it first is the "settle everything" case. */
+    if(left <= 0.004){
+      left = ACC.r2(bills.reduce((t, i) => t + ACC.balanceOf(ACC.recomputeInvoice(i)), 0));
+      form.a0.dataset.touched = '1';
+      form.a0.value = left.toFixed(2);
+    }
+    bills.forEach(i => {
+      const pick = form['pick_' + i.id], box = form['amt_' + i.id];
+      if(!pick || !box) return;
+      const owed = ACC.balanceOf(ACC.recomputeInvoice(i));
+      const take = ACC.r2(Math.max(0, Math.min(owed, left)));
+      left = ACC.r2(left - take);
+      pick.checked = take > 0.004;
+      box.disabled = !pick.checked;
+      box.value = pick.checked ? take.toFixed(2) : '';
+    });
+    warn();
+  };
+
+  document.getElementById('clearBills').onclick = () => {
+    openFor(whoNow()).forEach(i => {
+      const pick = form['pick_' + i.id];
+      if(pick) pick.checked = false;
+    });
+    syncBills();
+    warn();
   };
 
   let rows = 1;
