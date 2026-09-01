@@ -1329,6 +1329,71 @@ console.log('\n- old stores lose their passwords -');
     run('CLOUD.keepSession(null)');
   }
 
+  /* ---------- receipt numbers the server will accept ----------
+     payments.no is unique on the server. A collection covering three trainings
+     is three rows, and for a while all three carried the same number, so the
+     second was refused and the whole save failed with it — in the office, with
+     a day's work in the tab and nowhere to put it. This is the shape of that
+     bug, kept where it will be noticed. */
+  console.log('\n- a receipt covering several trainings -');
+  {
+    run('DB.reset(true)');
+    run(`(() => {
+      const d = DB.get();
+      const t = { id:'t1', no:'TRN-1', last:'IBRAO', first:'AVON', middle:'', suffix:'',
+                  srn:'S1', registered:DB.today() };
+      d.trainees.push(t);
+      const cs = d.courses.filter(c => c.center === 'MARIANA').slice(0, 3);
+      cs.forEach(c => APPS.enroll(t, { courseId:c.id, start:'2026-09-01', end:'2026-09-02',
+                                       fee:c.amount, mode:'Enrolled', by:'K' }));
+    })()`);
+
+    /* One bill a day, so the three bookings share it — pay it in three goes to
+       get three rows under one receipt number, which is the case that broke. */
+    run(`(() => {
+      const d = DB.get();
+      const inv = d.invoices[0];
+      const no = DB.nextNo('receipt','OR');
+      [1000, 1000, 1000].forEach((amt, n) => {
+        const p = ACC.buildPayment({ no:n ? no + '/' + (n + 1) : no, invoiceId:inv.id,
+                                     traineeId:'t1', date:DB.today(),
+                                     tenders:[{ method:'Cash', ref:'', amount:amt }] });
+        d.payments.push(p);
+        ACC.postPayment(p, inv);
+      });
+    })()`);
+
+    check('no two rows share a receipt number', () => {
+      const nos = run('DB.get().payments.map(p => p.no)');
+      return new Set(nos).size === nos.length || 'duplicates: ' + JSON.stringify(nos);
+    });
+    check('they are still one receipt to read', () => {
+      const nos = run('DB.get().payments.map(p => String(p.no).split("/")[0])');
+      return new Set(nos).size === 1 || 'receipts: ' + JSON.stringify([...new Set(nos)]);
+    });
+    check('every row still has a column for every field', () => {
+      try{
+        run('DB.get().payments').forEach(p =>
+          run('SYNC.toRow("payments",' + JSON.stringify(p) + ')'));
+        return true;
+      }catch(e){ return e.message; }
+    });
+
+    /* A store written while the bug was live, opened after the fix. */
+    check('rows already stuck are renumbered on the way in', () => {
+      run(`(() => { DB.get().payments.forEach(p => { p.no = 'OR-2026-0009'; }); DB.save(); })()`);
+      run('DB.load()');
+      const nos = run('DB.get().payments.map(p => p.no)');
+      return (new Set(nos).size === nos.length && nos.length === 3)
+        || 'after reopening: ' + JSON.stringify(nos);
+    });
+    check('and they still read as the one receipt they were', () => {
+      const nos = run('DB.get().payments.map(p => String(p.no).split("/")[0])');
+      return (new Set(nos).size === 1 && [...new Set(nos)][0] === 'OR-2026-0009')
+        || JSON.stringify([...new Set(nos)]);
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

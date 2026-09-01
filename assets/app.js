@@ -255,6 +255,19 @@ function invStatus(inv){
    invoice's id since the day it was billed; that is the pointer that still
    works when three bookings share one document. The old search stays as the
    fallback, for bookings written before the field was filled in. */
+/* One receipt across the counter is several rows in the books — one per bill it
+   settles, because that is what makes each balance right. They used to carry
+   the same number, and the server refuses that: payments.no is unique, so the
+   second row of every multi-training receipt was rejected and the whole save
+   failed with "duplicate key value violates unique constraint payments_no_key".
+   Nothing after it saved either.
+
+   The rows are numbered OR-2026-0001, OR-2026-0001/2, OR-2026-0001/3 — distinct
+   where the database needs them distinct, and one number wherever a person
+   reads it. The suffix is never shown. */
+const receiptNo = p => String((p && p.no) || '').split('/')[0];
+const sameReceipt = (a, b) => receiptNo(a) === receiptNo(b);
+
 const invOf = enrId => {
   const e = ENR(enrId);
   if(e && e.invoiceId){
@@ -1194,7 +1207,7 @@ VIEWS.payments = () => {
   const q = (state.q.pay || '').toLowerCase();
   const from = state.q.payFrom || firstOfMonth(), to = state.q.payTo || DB.today();
   const rows = D().payments.filter(p => p.date >= from && p.date <= to)
-    .filter(p => !q || [p.no, name(T(p.traineeId)), p.ref, p.method].join(' ').toLowerCase().includes(q))
+    .filter(p => !q || [receiptNo(p), name(T(p.traineeId)), p.ref, p.method].join(' ').toLowerCase().includes(q))
     .sort((a,b) => b.date.localeCompare(a.date) || b.no.localeCompare(a.no));
 
   const chase = partPaid();
@@ -1222,7 +1235,7 @@ VIEWS.payments = () => {
       <button class="btn btn-primary btn-sm" data-act="new-payment">+ Record collection</button>
     </div>
     ${UI.card('', UI.table([
-        { h:'Ref no.', k:p => `<b class="mono">${UI.esc(p.no)}</b>`, w:'130px' },
+        { h:'Ref no.', k:p => `<b class="mono">${UI.esc(receiptNo(p))}</b>`, w:'130px' },
         { h:'Date', k:p => UI.date(p.date), w:'115px' },
         { h:'Received from', k:p => UI.esc(name(T(p.traineeId))) },
         { h:'Applied to', k:p => { const i = INV(p.invoiceId); return i ? `<span class="mono">${UI.esc(i.no)}</span>` : '—'; }, w:'135px' },
@@ -2042,7 +2055,7 @@ function refClashes(lines){
     const ref = String(l.t.ref || '').trim().toLowerCase();
     if(!ref) return;
     const k = l.t.method + '|' + ref;
-    (seen[k] || (seen[k] = new Set())).add(l.p.no);
+    (seen[k] || (seen[k] = new Set())).add(receiptNo(l.p));
   });
   const bad = new Set();
   Object.keys(seen).forEach(k => { if(seen[k].size > 1) bad.add(k); });
@@ -2118,7 +2131,7 @@ VIEWS.reconcile = () => {
 
     ${UI.card('Against The Statement', UI.table([
       { h:'Date', k:l => UI.date(l.p.date), w:'110px' },
-      { h:'Receipt', k:l => `<b class="mono">${UI.esc(l.p.no)}</b>`, w:'135px' },
+      { h:'Receipt', k:l => `<b class="mono">${UI.esc(receiptNo(l.p))}</b>`, w:'135px' },
       { h:'From', k:l => UI.esc(name(T(l.p.traineeId))) },
       { h:'Bill', k:l => { const i = INV(l.p.invoiceId);
           return i ? `<span class="mono">${UI.esc(i.no)}</span>` : '<span class="muted">—</span>'; }, w:'135px' },
@@ -2163,7 +2176,7 @@ function matchTender(key, on){
   }
   DB.save();
   DB.activity(on ? 'Matched a receipt to the statement' : 'Unmatched a receipt',
-    `${p.no} · ${list[idx].method} ${list[idx].ref || 'no ref'}`);
+    `${receiptNo(p)} · ${list[idx].method} ${list[idx].ref || 'no ref'}`);
   refresh();
 }
 
@@ -2659,7 +2672,7 @@ VIEWS.daily = () => {
     <div style="height:18px"></div>
     <div class="grid g2">
       ${UI.card('Collections', UI.table([
-        { h:'Ref no.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+        { h:'Ref no.', k:p => `<span class="mono">${UI.esc(receiptNo(p))}</span>` },
         { h:'From', k:p => UI.esc(name(T(p.traineeId))) },
         { h:'Mode', k:p => UI.esc(p.method) },
         { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
@@ -2716,7 +2729,7 @@ VIEWS.daily = () => {
     ${pend.length ? `
       <div style="height:18px"></div>
       ${UI.card('Waiting For Approval — Not In The Totals Above', UI.table([
-        { h:'Document', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+        { h:'Document', k:p => `<span class="mono">${UI.esc(receiptNo(p))}</span>` },
         { h:'Raised', k:p => `${UI.date(p.date)} · ${UI.esc(p.raisedBy || '—')}` },
         { h:'Pay to', k:p => UI.esc(p.payee || (p.traineeId ? name(T(p.traineeId)) : '—')) },
         { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
@@ -2891,7 +2904,7 @@ VIEWS.reports = () => {
         ${UI.kpi('Non-cash', UI.peso(ACC.r2(col.total-(col.byMethod['Cash']||0))), 'Bank, GCash, cheque', 'sea')}
       </div>` +
       UI.table([
-        { h:'Ref no.', k:p => `<b class="mono">${UI.esc(p.no)}</b>`, w:'130px' },
+        { h:'Ref no.', k:p => `<b class="mono">${UI.esc(receiptNo(p))}</b>`, w:'130px' },
         { h:'Date', k:p => UI.date(p.date), w:'115px' },
         { h:'Received from', k:p => UI.esc(name(T(p.traineeId))) },
         { h:'Invoice', k:p => { const i = INV(p.invoiceId); return i ? `<span class="mono">${UI.esc(i.no)}</span>` : '—'; } },
@@ -3951,7 +3964,7 @@ function enrollmentModal(e){
       ${inv ? (receipts.length ? `
         <div class="hr"></div>
         ${UI.table([
-          { h:'Ref no.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+          { h:'Ref no.', k:p => `<span class="mono">${UI.esc(receiptNo(p))}</span>` },
           { h:'Date', k:p => UI.date(p.date) },
           { h:'Mode', k:'method' },
           { h:'Reference', k:p => UI.esc(p.ref||'—') },
@@ -4089,7 +4102,7 @@ function invoiceModal(inv){
       </table></div>
       ${pays.length ? `<div class="hr"></div><h4 style="margin:0 0 6px;font-size:13px">Payments Applied</h4>
         ${UI.table([
-          { h:'Ref No.', k:p => `<span class="mono">${UI.esc(p.no)}</span>` },
+          { h:'Ref No.', k:p => `<span class="mono">${UI.esc(receiptNo(p))}</span>` },
           { h:'Date', k:p => UI.date(p.date) },
           { h:'Mode', k:'method' },
           { h:'Reference', k:p => UI.esc(p.ref||'—') },
@@ -4295,8 +4308,9 @@ function paymentForm(inv){
          still gets its own row, because that is what makes its balance right. */
       const no = DB.nextNo('receipt','OR');
       const queue = tenders.map(t => ({ ...t, left:t.amount }));
-      const made = bills.map(b => {
-        const p = ACC.buildPayment({ no, invoiceId:b.inv.id, traineeId:tid,
+      const made = bills.map((b, n) => {
+        const p = ACC.buildPayment({ no:n ? `${no}/${n + 1}` : no,
+                                     invoiceId:b.inv.id, traineeId:tid,
                                      date:DB.today(), tenders:ACC.drawTenders(queue, b.amount),
                                      note });
         D().payments.push(p);
@@ -4492,7 +4506,7 @@ function receiptModal(p){
      piece of paper across the counter. The rows are what make each bill's
      balance right; this is the paper, so it gathers everything issued under the
      same number rather than showing whichever row happened to be opened. */
-  const parts = D().payments.filter(x => x.no === p.no);
+  const parts = D().payments.filter(x => sameReceipt(x, p));
   const total = ACC.r2(parts.reduce((s, x) => s + x.amount, 0));
   const words = amountInWords(total);
   const settles = parts.map(x => {
@@ -4519,7 +4533,7 @@ function receiptModal(p){
     title:'Acknowledgement Receipt', sub:UI.date(p.date), hideSubmit:true, wide:true,
     footExtra:`${!p.voided && can('payments') ? `<button type="button" class="btn btn-danger" id="voidPay">Void payment</button>` : ''}
                <button type="button" class="btn btn-primary"
-                 onclick="UI.printDoc('${UI.esc(p.no)} — Acknowledgement Receipt')">Print / PDF</button>`,
+                 onclick="UI.printDoc('${UI.esc(receiptNo(p))} — Acknowledgement Receipt')">Print / PDF</button>`,
     body: `<div class="doc">
       <div class="doc-head">
         ${docCompany()}
@@ -4579,7 +4593,7 @@ function receiptModal(p){
         const i = INV(x.invoiceId);
         if(i) ACC.recomputeInvoice(i);
       });
-      DB.activity('Voided payment', p.no + (fd.reason ? ' — ' + fd.reason : ''));
+      DB.activity('Voided payment', receiptNo(p) + (fd.reason ? ' — ' + fd.reason : ''));
       DB.save();
       UI.toast(parts.length > 1
         ? `Receipt voided across ${parts.length} trainings; the balances have been restored.`

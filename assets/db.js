@@ -288,6 +288,28 @@ const DB = (() => {
     d.applications = d.applications || [];
     d.cashCounts   = d.cashCounts || [];
     d.changes      = d.changes || [];
+
+    /* Receipts that could not be saved.
+
+       A collection covering several trainings is one row per training, and for
+       a while every one of those rows carried the same receipt number. The
+       server will not have that — payments.no is unique — so the second row of
+       each such receipt was refused, and the whole save went down with it. The
+       office was left with a red bar and a day's work in a browser tab with
+       nowhere to put it.
+
+       The later rows are renumbered here, on the way in, so work that is
+       already stuck goes up on the next save rather than being typed again.
+       The suffix is a database matter only; nothing prints it. */
+    if(Array.isArray(d.payments)){
+      const seen = {};
+      d.payments.forEach(p => {
+        const base = String(p.no || '').split('/')[0];
+        if(!base) return;
+        seen[base] = (seen[base] || 0) + 1;
+        p.no = seen[base] === 1 ? base : base + '/' + seen[base];
+      });
+    }
     /* Staff added since a store was written. A code the office has already
        changed is left alone — this fills gaps, it does not reset anybody: an
        upgrade that quietly restored a temporary password would be a way in that
