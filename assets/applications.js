@@ -232,8 +232,16 @@ const APPS = (() => {
     /* Billing, only when the booking is confirmed. A reservation is not receivable. */
     let inv = null;
     if(mode === 'Enrolled'){
+      /* A seat we take no training fee on still gets a booking — the centre is
+         endorsed against it and it belongs on the day's list — but it does not
+         get a nil line on the bill. "PEME MEDICAL — GRAMCARE ... 0.00" reads as
+         a training that was somehow free rather than as one the office is not
+         charging for, and the trainee queries it. The course is named in the
+         invoice's own header either way. */
       const items = [
-        { desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee },
+        ...(fee > 0
+          ? [{ desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee }]
+          : []),
         ...(opts.charges || []).map(a => ({ desc:a.desc, account:a.account || '4100', qty:1, price:a.price })),
       ];
       /* One bill a day per trainee. Somebody booking three courses across the

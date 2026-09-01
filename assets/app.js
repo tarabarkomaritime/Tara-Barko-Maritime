@@ -948,17 +948,13 @@ VIEWS.courses = () => {
 /* ---------- Enrollments ---------- */
 VIEWS.enrollments = () => {
   const q = (state.q.enr || '').toLowerCase(), f = state.q.enrStatus || '';
-  /* One date, not a range. The question the desk asks is about a day — who is
-     at a centre on Thursday — and a range answers a different one. A booking
-     that runs across several days counts on every one of them, because the seat
-     is taken for the whole run: a course starting Monday and ending Friday is a
-     trainee who is training on Wednesday. */
+  /* The day the booking was taken, not the day the training runs. The question
+     is about the desk's own work — who did Jocelyn and Kyla enroll today — and
+     the training date answers a different one: a course booked on Monday for a
+     run three weeks out belongs to Monday's tally, and a course running today
+     that was booked last month does not. */
   const day = state.q.enrDay || '';
-  const runsIn = e => {
-    if(!day) return true;
-    const a = e.start || '', b = e.end || e.start || '';
-    return !!a && a <= day && b >= day;
-  };
+  const runsIn = e => !day || (e.date || '') === day;
 
   const rows = D().enrollments.filter(e => {
     if(f && e.status !== f) return false;
@@ -993,26 +989,28 @@ VIEWS.enrollments = () => {
         ${['','On Process','Enrolled','Open Schedule','Reserved','Completed','Cancelled'].map(s =>
           `<option value="${s}" ${f===s?'selected':''}>${s||'All statuses'}</option>`).join('')}
       </select>
-      <label class="muted" style="font-size:12px">Training on</label>
+      <label class="muted" style="font-size:12px">Enrolled on</label>
       <input type="date" data-q="enrDay" value="${day}">
       <button class="btn btn-ghost btn-xs" data-act="enr-today">Today</button>
       <button class="btn btn-ghost btn-xs" data-act="enr-any">Any day</button>
-      <span class="muted">${rows.length} record(s) · billed ${UI.peso(billed)} · due ${UI.peso(due)}</span>
+      <span class="muted">${rows.length} record(s)</span>
       <span class="spacer"></span>
       <button class="btn btn-primary btn-sm" data-act="new-enrollment">+ New enrollment</button>
     </div>
 
-    ${day ? UI.card(`Training On ${UI.date(day)}`,
+    ${day ? UI.card(`Enrolled On ${UI.date(day)}`,
       heads
         ? UI.table([
             { h:'Trainee', k:w => `<b>${UI.esc(name(w.t))}</b>`, },
             { h:'SRN', k:w => `<span class="mono">${UI.esc(w.t.srn || '—')}</span>`, w:'150px' },
             { h:'Mobile', k:w => UI.esc(w.t.mobile || '—'), w:'150px' },
-            { h:'On', k:w => w.seats.map(e =>
+            { h:'Booked onto', k:w => w.seats.map(e =>
                 `${UI.esc((CRS(e.courseId)||{}).title || '—')}`
-                + `<span class="muted"> — ${UI.esc(e.center || '')}</span>`).join('<br>') },
+                + `<span class="muted"> — ${UI.esc(e.center || '')}</span>`
+                + (e.start ? `<span class="muted" style="font-size:11.5px"><br>${UI.dateRange(e.start, e.end)}</span>` : '')
+              ).join('<br>') },
           ], who, { empty:'' })
-        : `<div class="empty"><span class="big">⚓</span>Nobody is training on ${UI.date(day)}.</div>`,
+        : `<div class="empty"><span class="big">⚓</span>Nobody was enrolled on ${UI.date(day)}.</div>`,
       { flush:true,
         /* Plain text: the card escapes its subtitle, and a bold tag printed
            as &lt;b&gt; is worse than no bold at all. */
@@ -1281,7 +1279,6 @@ VIEWS.payments = () => {
       <label class="muted" style="font-size:12px">From</label><input type="date" data-q="payFrom" value="${from}">
       <label class="muted" style="font-size:12px">To</label><input type="date" data-q="payTo" value="${to}">
       <span class="spacer"></span>
-      <button class="btn btn-primary btn-sm" data-act="new-payment">+ Record collection</button>
     </div>
     ${UI.card('', UI.table([
         { h:'Ref no.', k:p => `<b class="mono">${UI.esc(receiptNo(p))}</b>`, w:'130px' },
@@ -1345,8 +1342,11 @@ VIEWS.payments = () => {
               const cancel = can('payments')
                 ? `<button class="btn btn-ghost btn-xs" data-act="cancel-rebate" data-id="${r.e.id}">Cancel</button>`
                 : '';
-              if(r.deduct) return (r.received ? UI.tag('Deducted','ok') : '<span class="muted">—</span>')
-                + (r.received ? '' : ' ' + cancel);
+              /* Nothing to cancel on a rebate kept back from a remittance.
+                 There is no receipt to reverse and no receivable to write off —
+                 it is a smaller debt to the centre, and the place to undo that
+                 is the voucher, not here. */
+              if(r.deduct) return r.received ? UI.tag('Deducted','ok') : '<span class="muted">—</span>';
               return (r.received
                 ? UI.tag('Received','ok')
                 : (can('payments')
@@ -2885,7 +2885,7 @@ VIEWS.daily = () => {
           actions:canApprove()
             ? `<button class="btn btn-ghost btn-xs" data-act="cash-count" data-id="${on}">
                  ${c.count ? (canApprove() ? 'Edit the count' : 'Counted') : 'Record the count'}</button>`
-            : '<span class="muted" style="font-size:11.5px">recorded by the admin</span>' })
+            : '<span class="muted" style="font-size:11.5px">counted at the desk · only the admin can change it</span>' })
         + '<div style="height:18px"></div>';
     })()}
 
@@ -3415,6 +3415,7 @@ function traineeProfile(t){
     title: name(t), sub:`${t.no} · ${t.rank || 'No rank on file'} · ${t.agency || 'No company'}`, wide:true,
     hideSubmit:true,
     footExtra:`<button type="button" class="btn btn-ghost" id="editTrainee">Edit details</button>
+               <button type="button" class="btn btn-ghost" id="chargeHere">Book a charge</button>
                <button type="button" class="btn btn-accent" id="enrollHere">Book a course</button>`,
     body: `
       <div class="facts">
@@ -3493,8 +3494,7 @@ function traineeProfile(t){
   wireCopy(() => endorsementText(t));
   document.getElementById('editTrainee').onclick = () => traineeForm(t);
   document.getElementById('enrollHere').onclick = () => enrollmentForm(null, t.id);
-  document.getElementById('editTrainee').onclick = () => traineeForm(t);
-  document.getElementById('enrollHere').onclick = () => enrollmentForm(null, t.id);
+  document.getElementById('chargeHere').onclick = () => enrollmentForm(null, t.id, { chargeOnly:true });
 }
 
 function courseForm(c){
@@ -4112,7 +4112,19 @@ function approveChange(id, ok, note){
   refresh();
 }
 
-function enrollmentForm(existing, presetTrainee){
+/* A booking the office takes no training fee on.
+
+   Some seats are arranged without the fee passing through us at all — the
+   trainee settles the course with the centre, or it is covered by their
+   company, and what we charge for is the medical, the stamp, the courier. The
+   booking still has to exist: the centre is endorsed against it, it appears on
+   the day's list, and the trainee's record has to show they were sent.
+
+   So it is the same form with the fee taken out rather than a second kind of
+   booking. The course and the dates are recorded exactly as they always are;
+   the fee is nil and never shown, and the bill is the charges. */
+function enrollmentForm(existing, presetTrainee, opts){
+  const chargeOnly = !!(opts && opts.chargeOnly);
   const roster = D().trainees.slice().sort((a,b) => a.last.localeCompare(b.last));
   if(!roster.length){ UI.toast('Register the trainee first — the registry is empty.', 'bad'); return; }
   const active = D().courses;
@@ -4146,8 +4158,13 @@ function enrollmentForm(existing, presetTrainee){
              UI.f.date('end','Training ends', '', { req:true,
                hint:'filled from the course length — change it if the run is longer' }))}
     <div class="note" id="endsNote" style="margin:-4px 0 14px"></div>
-    ${UI.f.num('fee','Fee (₱)', '0', { req:true, min:0, ro:true,
-         hint:'from the price list — the admin sets it on the course' })}
+    ${chargeOnly
+      ? `<input type="hidden" name="fee" value="0">
+         <div class="note">No training fee on this booking. The course and the dates are
+           recorded as usual and the centre is endorsed against them — what the trainee
+           is billed for is the charges below.</div>`
+      : UI.f.num('fee','Fee (₱)', '0', { req:true, min:0, ro:true,
+          hint:'from the price list — the admin sets it on the course' })}
 
     <div class="hr"></div>
     <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
@@ -4167,7 +4184,10 @@ ${addons().map((a,i) => `
     <div id="summary"></div>`;
 
   UI.modal({
-    title:'Encode enrollment', sub:'Booking and billing in one step', wide:true, body,
+    title:chargeOnly ? 'Book a charge' : 'Encode enrollment',
+    sub:chargeOnly ? 'The course and the dates, billed for the charges only'
+                   : 'Booking and billing in one step',
+    wide:true, body,
     submitLabel:'Enroll trainee',
     onSubmit: fd => {
       const trainee = T(fd.traineeId);
@@ -4176,6 +4196,13 @@ ${addons().map((a,i) => `
       const chosen = addons()
         .map((a,i) => ({ ...a, price:ACC.r2(fd['addonAmt'+i] != null ? fd['addonAmt'+i] : a.price) }))
         .filter((a,i) => fd['addon'+i]);
+      /* A charge booking with no charge on it bills nothing at all, which is a
+         booking nobody will ever be asked to pay for and a bill of zero sitting
+         in the ledger. Say so here rather than letting it through. */
+      if(chargeOnly && !chosen.length){
+        UI.toast('Tick at least one charge — that is what this booking bills for.', 'bad');
+        return false;
+      }
       try{
         const out = APPS.enroll(trainee, {
           /* The center comes from the course entry — one course at one center
@@ -4222,7 +4249,7 @@ ${addons().map((a,i) => `
     /* Changing the center clears the course under it, and the fee has to go
        with it. Leaving the last course's price sitting in the box is how a
        booking gets billed at another center's rate. */
-    if(!c){ form.fee.value = '0.00'; fillEnd(); recalc(); return; }
+    if(!c || chargeOnly){ form.fee.value = chargeOnly ? '0' : '0.00'; fillEnd(); recalc(); return; }
     /* The trainee pays the course amount. The rebate is settled between us
        and the center and never reaches this figure. */
     /* Always the list price. The desk does not negotiate here — a different
