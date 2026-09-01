@@ -39,6 +39,10 @@ const P = {
   view:'enroll', tab:'apply', step:1,
   draft:{}, errors:[], result:null,
   tracked:null, trackOthers:[], trackSrn:'', trackSurname:'', trackError:'',
+  /* The seafarer's own record, when they have asked us to look it up on step
+     one. Only ever a convenience: whether or not this is set, the server
+     matches the submission by SRN and books onto the file that exists. */
+  found:null, findError:'',
 };
 
 /* Still needed after the catalogue came down: once the Registrar places an
@@ -120,6 +124,30 @@ function stepDetails(){
        <b>Please check the highlighted fields.</b>
        ${[...new Set(P.errors)].map(e => APPS.LABELS[e]).filter(Boolean).slice(0,6).join(' &middot; ')}
      </div>` : ''}
+
+    <!-- Most people filling this in have trained here before, and typing their
+         name in again is how a second file gets made — not by this page, which
+         merges on the way in, but by the desk retyping what arrives. Asking
+         once here means what reaches the office already matches.
+
+         SRN and last name, both of them, because the lookup behind this is
+         reachable by anyone on the internet. One number would let a stranger
+         walk the registry by counting upwards. -->
+    <div class="note" style="margin-bottom:16px">
+      <b>Been here before?</b> Enter your SRN and last name and we will fill in
+      what we already have.
+      <form id="findMe" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+        <label class="fld" style="margin:0;flex:1 1 190px"><span>SRN</span>
+          <input name="srn" value="${esc(P.draft.srn || '')}" class="caps" required></label>
+        <label class="fld" style="margin:0;flex:1 1 190px"><span>Last name</span>
+          <input name="last" value="${esc(P.draft.last || '')}" class="caps" required></label>
+        <button type="submit" class="btn btn-ghost" style="flex:none">Find my record</button>
+      </form>
+      ${P.found ? `<p style="margin:10px 0 0;color:var(--ok,#12805a)"><b>Found:</b>
+        ${esc(APPS.forName(P.found))} · ${esc(P.found.no)} — your details are filled in below.
+        This enrollment will be added to your existing record.</p>` : ''}
+      ${P.findError ? `<p class="muted" style="margin:10px 0 0">${esc(P.findError)}</p>` : ''}
+    </div>
 
     <form id="detailForm" autocomplete="on">
 
@@ -567,6 +595,39 @@ function wire(){
     location.hash = '#/enroll';
     render();
   });
+
+  /* Fills what the lookup is willing to give back, which is the name, the
+     suffix, the rank and the company. Birth date, contact and next of kin are
+     deliberately not handed to a public page, so those stay to be typed — the
+     block says "what we already have" rather than promising the lot.
+
+     A miss is not an error worth stopping on. Somebody enrolling for the first
+     time will always miss, and so will anybody whose surname is spelled
+     differently in our file than on their papers; both should carry on filling
+     the form in and be matched when it reaches us. */
+  const fm = document.getElementById('findMe');
+  if(fm) fm.onsubmit = async e => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(fm).entries());
+    captureDetails();
+    const btn = fm.querySelector('button[type=submit]');
+    if(btn){ btn.disabled = true; btn.textContent = 'Looking\u2026'; }
+    const hit = await APPS.track(fd.srn, fd.last);
+    if(hit && hit.trainee){
+      const t = hit.trainee;
+      P.found = t;
+      P.findError = '';
+      ['srn','last','first','middle','suffix','rank','agency'].forEach(k => {
+        if(t[k]) P.draft[k] = t[k];
+      });
+    }else{
+      P.found = null;
+      P.findError = 'We could not find that SRN and last name together. '
+        + 'Carry on and fill the form in \u2014 we will match you to your record when it reaches us.';
+      P.draft.srn = fd.srn; P.draft.last = fd.last;
+    }
+    render();
+  };
 
   const tf = document.getElementById('trackForm');
   if(tf) tf.onsubmit = async e => {

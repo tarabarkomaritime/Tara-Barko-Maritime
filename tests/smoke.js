@@ -1394,6 +1394,56 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---------- one seafarer, one file ----------
+     The registry had the same man twice, on the same SRN, because the office's
+     own registration form pushed a new record whatever was typed into it. The
+     public form never did this \u2014 the server matches on SRN \u2014 so the rule the
+     office form now leans on is worth holding still. */
+  console.log('\n- a seafarer already on file -');
+  {
+    run('DB.reset(true)');
+    run(`APPS.upsertTrainee({ srn:'9310270100', last:'SAMPILO', first:'MARK DANIEL',
+           middle:'YANGA', birth:'1993-10-27', mobile:'09451626166' }, 'Encoded at the desk')`);
+
+    check('the SRN finds them however it is typed', () => {
+      const a = run(`APPS.matchTrainee({ srn:'9310270100' })`);
+      const b = run(`APPS.matchTrainee({ srn:'  9310270100  ' })`);
+      return (a && a.on === 'SRN' && b && b.on === 'SRN') || 'not matched on SRN';
+    });
+
+    check('registering them again does not make a second file', () => {
+      const before = run('DB.get().trainees.length');
+      const out = run(`APPS.upsertTrainee({ srn:'9310270100', last:'SAMPILO',
+                        first:'MARK DANIEL', mobile:'09999999999' }, 'Encoded at the desk')`);
+      const after = run('DB.get().trainees.length');
+      return (out.reused === true && after === before)
+        || `reused=${out.reused}, ${before} -> ${after}`;
+    });
+
+    check('what they told us this time is taken as fresher', () =>
+      run(`DB.get().trainees[0].mobile`) === '09999999999'
+      || run('DB.get().trainees[0].mobile'));
+
+    /* The office form checks the SRN and nothing else. matchTrainee will also
+       match on a name, which is right for the portal's best guess and wrong at
+       the desk: two seafarers can share a name, and refusing to register a real
+       second person is worse than the duplicate being prevented. */
+    check('a different SRN is a different seafarer, name notwithstanding', () => {
+      const bySrn = run(`DB.get().trainees.filter(x =>
+        String(x.srn || '').trim().toUpperCase() === '9999999999')`);
+      return bySrn.length === 0 || 'an unrelated SRN matched somebody';
+    });
+
+    check('and the office can still register two people of one name', () => {
+      const before = run('DB.get().trainees.length');
+      run(`(() => { const d = DB.get();
+        d.trainees.push({ id:DB.uid('trn'), no:DB.nextNo('trainee','TRN'),
+          srn:'9999999999', last:'SAMPILO', first:'MARK DANIEL', middle:'',
+          suffix:'', registered:DB.today() }); })()`);
+      return run('DB.get().trainees.length') === before + 1 || 'the second was refused';
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

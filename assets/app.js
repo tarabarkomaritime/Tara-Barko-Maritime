@@ -3372,6 +3372,34 @@ function traineeForm(t, onDone){
     submitLabel: isNew ? 'Register trainee' : 'Save changes',
     onSubmit: fd => {
       if(isNew){
+        /* A seafarer already on file, being registered a second time.
+           This is where the office's duplicates came from. The public form has
+           always merged a returning seafarer onto their existing record — the
+           server does it, by SRN — but this form pushed a new one whatever was
+           typed into it, so a walk-in who had been here before came away with a
+           second trainee number. Two files means his courses on one and his
+           balance on the other, and neither screen shows both.
+
+           The check is on the SRN alone. matchTrainee also matches on name and
+           birthdate, which is right for the portal's best guess and too eager
+           here: two seafarers can share a name, and refusing to register a real
+           second person is worse than the duplicate this is preventing. */
+        const srn = String(fd.srn || '').trim();
+        const hit = srn && D().trainees.find(x =>
+          String(x.srn || '').trim().toUpperCase() === srn.toUpperCase());
+        if(hit){
+          /* A tick late. UI.confirm closes its own dialog after the handler
+             returns, and it would take the profile down with it. */
+          UI.confirm(`That SRN is already on file.`, () => setTimeout(() => traineeProfile(hit), 0), {
+            title:'Already registered',
+            yes:'Open that record',
+            detail:`${srn} belongs to ${name(hit)} (${hit.no}`
+              + (hit.registered ? `, registered ${UI.date(hit.registered)}` : '')
+              + `). Book the course onto that record rather than making a second one.`,
+          });
+          return false;
+        }
+
         const rec = { id:DB.uid('trn'), no:DB.nextNo('trainee','TRN'), registered:DB.today(),
                       source:'Encoded at the desk', ...fd };
         D().trainees.push(rec);
