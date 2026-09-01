@@ -4194,6 +4194,12 @@ function enrollmentForm(existing, presetTrainee, opts){
       : UI.f.num('fee','Fee (₱)', '0', { req:true, min:0, ro:true,
           hint:'from the price list — the admin sets it on the course' })}
 
+    <!-- Charges are what Book a charge exists for. On Book a course they were a
+         row of tick boxes nobody ticked, sitting between the fee and the
+         discount on the form the office fills in twenty times a day. A
+         rescheduling fee is not part of booking a seat; it is charged when
+         something goes wrong afterwards, which is its own booking. -->
+    ${chargeOnly ? `
     <div class="hr"></div>
     <h4 style="margin:0 0 8px;font-size:13px">Charges</h4>
     <div class="chips" id="addonBox" style="margin-bottom:12px">
@@ -4204,7 +4210,8 @@ ${addons().map((a,i) => `
           <input type="number" name="addonAmt${i}" class="a-amt" step="0.01" min="0"
             value="${ACC.r2(a.price).toFixed(2)}" disabled>
         </div>`).join('')}
-    </div>
+    </div>` : ''}
+    <div class="hr"></div>
     ${UI.row(UI.f.num('discount','Discount (₱)','0',{ min:0 }),
              UI.f.text('discountNote','Reason for discount','',{ ph:'e.g. agency package rate' }))}
     ${UI.f.area('remarks','Remarks','')}
@@ -4454,6 +4461,8 @@ ${addons().map((a,i) => `
      price goes on it instead — silently, which is the worst way to be wrong
      about money. */
   const form = document.getElementById('mForm');
+  /* The boxes are only on the charge form now, so every reader of them has to
+     cope with there being none. */
   const syncAddons = () => addons().forEach((a,i) => {
     if(form['addonAmt'+i]) form['addonAmt'+i].disabled = !(form['addon'+i] && form['addon'+i].checked);
   });
