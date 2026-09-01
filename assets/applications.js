@@ -236,9 +236,28 @@ const APPS = (() => {
         { desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee },
         ...(opts.charges || []).map(a => ({ desc:a.desc, account:a.account || '4100', qty:1, price:a.price })),
       ];
-      inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:trainee.id, date:enr.date, items, discount });
-      D().invoices.push(inv);
-      ACC.postInvoice(inv);
+      /* One bill a day per trainee. Somebody booking three courses across the
+         counter is one conversation and one amount to pay, and three separate
+         invoices for it is three documents to hand over, three to chase and
+         three to reconcile against one payment.
+
+         Same trainee, same day, still open, not voided: the training joins the
+         bill already raised. A bill already settled is left alone — adding to a
+         paid invoice would reopen a document the trainee has a receipt for. */
+      const open = D().invoices.find(i =>
+        i.traineeId === trainee.id
+        && i.date === enr.date
+        && !i.voided
+        && ACC.r2(i.paid || 0) <= 0.004);
+
+      if(open){
+        ACC.addToInvoice(open, items, discount);
+        inv = open;
+      }else{
+        inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:trainee.id, date:enr.date, items, discount });
+        D().invoices.push(inv);
+        ACC.postInvoice(inv);
+      }
       enr.invoiceId = inv.id;
 
       /* The debt to the center exists from the moment the seat is booked, not

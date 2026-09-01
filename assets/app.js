@@ -54,7 +54,7 @@ const TITLES = {
   courses:['Course Catalogue','Courses, centers, amounts and rebates'],
   enrollments:['Enrollments','Bookings encoded per trainee, with billing status and results'],
   sales:['Sales','What the office earns on the seats it books — rebate by training center'],
-  invoices:['Billing','Statements of account issued to trainees'],
+  invoices:['Billing','Payment invoices issued to trainees'],
   payments:['Collections','Payments taken and cash position'],
   reconcile:['Bank Reconciliation','Every reference set beside the statement it should match'],
   payables:['Payables To Training Centers','What each center is owed, and the vouchers that settle it'],
@@ -250,7 +250,24 @@ function invStatus(inv){
   if(e && e.start && e.start < DB.today()) return 'Overdue';
   return inv.status;
 }
-const invOf = enrId => D().invoices.find(i => i.enrollmentId === enrId && !i.voided);
+/* A bill can now cover several bookings, so it can no longer be found by
+   searching invoices for the one booking they name. The booking has carried the
+   invoice's id since the day it was billed; that is the pointer that still
+   works when three bookings share one document. The old search stays as the
+   fallback, for bookings written before the field was filled in. */
+const invOf = enrId => {
+  const e = ENR(enrId);
+  if(e && e.invoiceId){
+    const i = INV(e.invoiceId);
+    if(i && !i.voided) return i;
+  }
+  return D().invoices.find(i => i.enrollmentId === enrId && !i.voided);
+};
+
+/* The trainings on a bill, in the words they were charged under. */
+const billCourses = i => (i && i.items || [])
+  .filter(x => (x.account || '4000') === '4000')
+  .map(x => x.desc);
 function traineeBalance(tid){
   return ACC.r2(D().invoices.filter(i => i.traineeId === tid && !i.voided)
     .reduce((s,i) => s + ACC.balanceOf(ACC.recomputeInvoice(i)), 0));
@@ -1449,14 +1466,42 @@ const PAY_STATES = ['Enrolled','Completed'];
    The cap is why a rebate is never taken off a payment twice, and the collected
    figure is why a seat the trainee has only part-paid is never remitted in
    full. */
+/* What has actually been collected against this one booking.
+
+   Several bookings share a bill now, and the money on that bill is not marked
+   as belonging to any of them — it is one payment against one document. So it
+   is drawn down in the order the trainings were booked, which is the order the
+   collection window fills them and the order they run in.
+
+   The alternative is what the code did before there was anything to share: hand
+   every booking the whole invoice's payments. On a shared bill that says three
+   seats are paid for when one of them is, and the office remits for seats the
+   trainee has not paid for. */
+function collectedFor(e){
+  const inv = invOf(e.id);
+  if(!inv) return 0;
+  const paid = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
+  const mates = D().enrollments.filter(x => x.invoiceId === inv.id);
+  if(mates.length <= 1) return paid;
+  mates.sort((a, b) => String(a.start || '').localeCompare(String(b.start || ''))
+                    || String(a.no || '').localeCompare(String(b.no || '')));
+  let left = paid;
+  for(const m of mates){
+    const owed = ACC.r2((m.fee || 0) - (m.discount || 0));
+    const take = ACC.r2(Math.max(0, Math.min(owed, left)));
+    left = ACC.r2(left - take);
+    if(m.id === e.id) return take;
+  }
+  return 0;
+}
+
 function openPayables(){
   return D().enrollments
     .filter(e => e.center && !e.remitNo && PAY_STATES.includes(e.status))
     .map(e => {
       const fee  = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
       const sent = ACC.r2(e.centerPaid || 0);
-      const inv  = invOf(e.id);
-      const collected = inv ? ACC.r2(ACC.recomputeInvoice(inv).paid || 0) : 0;
+      const collected = collectedFor(e);
       return {
         e,
         center:e.center,
@@ -2859,12 +2904,26 @@ VIEWS.reports = () => {
 
   if(tab === 'rev'){
     const map = {};
-    D().invoices.filter(i => !i.voided && i.date >= from && i.date <= to).forEach(i => {
-      const e = ENR(i.enrollmentId), c = e && CRS(e.courseId);
+    /* Counted off the bookings rather than off the invoice, because one
+       invoice can now carry three courses and attributing all of its revenue to
+       whichever one happened to be first would quietly hand the takings to the
+       wrong course — on the report that decides which courses are worth
+       running. Each booking brings its own fee and its own share of what has
+       been collected against the bill it sits on. */
+    const inWin = new Set(D().invoices
+      .filter(i => !i.voided && i.date >= from && i.date <= to).map(i => i.id));
+    D().enrollments.forEach(e => {
+      if(!e.invoiceId || !inWin.has(e.invoiceId)) return;
+      const i = INV(e.invoiceId);
+      const c = CRS(e.courseId);
       const key = c ? c.code : 'Other';
-      const m = map[key] || (map[key] = { code:key, title:c ? c.title : 'Unclassified', count:0, gross:0, net:0, collected:0 });
-      m.count++; m.gross = ACC.r2(m.gross + i.total);
-      m.collected = ACC.r2(m.collected + (i.paid||0));
+      const m = map[key] || (map[key] = { code:key, title:c ? c.title : 'Unclassified',
+                                          count:0, gross:0, net:0, collected:0 });
+      const fee = ACC.r2((e.fee || 0) - (e.discount || 0));
+      const share = i && i.total > 0 ? fee / i.total : 0;
+      m.count++;
+      m.gross = ACC.r2(m.gross + fee);
+      m.collected = ACC.r2(m.collected + (i ? (i.paid || 0) * share : 0));
     });
     const rows = Object.values(map).sort((a,b) => b.gross - a.gross);
     return nav + UI.card('', head('REVENUE BY COURSE', `${UI.date(from)} to ${UI.date(to)}`) +
@@ -3968,12 +4027,19 @@ ${addons().map((a,i) => `
 
 function invoiceModal(inv){
   ACC.recomputeInvoice(inv);
-  const t = T(inv.traineeId), e = ENR(inv.enrollmentId), c = e && CRS(e.courseId);
+  const t = T(inv.traineeId);
+  /* Every booking this bill covers, not just the one it was opened with. A
+     document that named one training while charging for three would be the
+     first thing a trainee queried, and rightly. */
+  const bookings = D().enrollments
+    .filter(x => x.invoiceId === inv.id)
+    .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')));
+  const only = bookings.length === 1 ? bookings[0] : null;
   const co = D().company, bal = ACC.balanceOf(inv);
   const pays = D().payments.filter(p => p.invoiceId === inv.id && !p.voided);
 
   UI.modal({
-    title:'Statement of Account', sub:inv.no, wide:true, hideSubmit:true,
+    title:'Payment Invoice', sub:inv.no, wide:true, hideSubmit:true,
     footExtra:`
       ${!inv.voided && bal > 0.004 && can('payments') ? `<button type="button" class="btn btn-accent" id="payNow">Record payment</button>` : ''}
       ${!inv.voided && can('invoices') ? `<button type="button" class="btn btn-danger" id="voidInv">Void</button>` : ''}
@@ -3982,7 +4048,7 @@ function invoiceModal(inv){
       <div class="doc-head">
         ${docCompany()}
         <div class="doc-title">
-          <div class="t">STATEMENT OF ACCOUNT</div>
+          <div class="t">PAYMENT INVOICE</div>
           <div class="n">${UI.esc(inv.no)}</div>
           <div class="muted" style="font-size:12px">${UI.date(inv.date)}</div>
           <div style="margin-top:5px">${UI.statusTag(invStatus(inv))}</div>
@@ -3996,9 +4062,14 @@ function invoiceModal(inv){
           <dt>Agency</dt><dd>${UI.esc(t?.agency||'—')}</dd>
         </dl>
         <dl class="def">
-          <dt>Enrollment</dt><dd class="mono">${UI.esc(e?.no||'—')}</dd>
-          <dt>Course</dt><dd>${UI.esc(c?.title||'—')}</dd>
-          <dt>Training Date</dt><dd>${e && e.start ? UI.dateRange(e.start, e.end) : '—'}</dd>
+          ${only
+            ? `<dt>Enrollment</dt><dd class="mono">${UI.esc(only.no)}</dd>
+               <dt>Course</dt><dd>${UI.esc((CRS(only.courseId)||{}).title || '—')}</dd>
+               <dt>Training Date</dt><dd>${only.start ? UI.dateRange(only.start, only.end) : '—'}</dd>`
+            : `<dt>Enrollments</dt><dd class="mono">${bookings.length
+                  ? bookings.map(b => UI.esc(b.no)).join('<br>') : '—'}</dd>
+               <dt>Training Dates</dt><dd>${bookings.length
+                  ? bookings.map(b => b.start ? UI.dateRange(b.start, b.end) : '—').join('<br>') : '—'}</dd>`}
           <dt>Terms</dt><dd>${UI.esc(inv.terms||'—')}</dd>
         </dl>
       </div>
@@ -4095,8 +4166,11 @@ function paymentForm(inv){
     const list = openFor(tid);
     if(!list.length) return '<p class="muted" style="margin:0">Nothing outstanding for them.</p>';
     return list.map(i => {
-      const e = ENR(i.enrollmentId), c = e && CRS(e.courseId);
       const b = ACC.balanceOf(i);
+      /* A bill can carry three trainings. Naming one of them on the row the
+         cashier ticks is how the money goes against the wrong thing. */
+      const lines = billCourses(i);
+      const title = lines.length ? lines.join(' + ') : 'no course on file';
       const on = !!(inv && i.id === inv.id) || list.length === 1;
       /* No box. The amount against a training is not a thing anybody types —
          it is what the money handed over reaches on that training, and that is
@@ -4111,9 +4185,9 @@ function paymentForm(inv){
       return `<div class="bill-row${on ? ' on' : ''}" data-bill="${i.id}">
         <label class="bill-pick">
           <input type="checkbox" name="pick_${i.id}" ${on ? 'checked' : ''}>
-          <span><b>${UI.esc(c ? c.title : 'no course on file')}</b>${e && e.center
-              ? ` <span class="muted">— ${UI.esc(e.center)}</span>` : ''}<br>
-            <span class="muted" style="font-size:11.5px">${UI.esc(i.no)} · billed
+          <span><b>${UI.esc(title)}</b><br>
+            <span class="muted" style="font-size:11.5px">${UI.esc(i.no)}${lines.length > 1
+              ? ` · ${lines.length} trainings` : ''} · billed
               ${UI.peso(i.total)} · still to pay <b>${UI.peso(b)}</b></span></span>
         </label>
         <div class="bill-amt">
@@ -4278,8 +4352,8 @@ function paymentForm(inv){
   };
 
   const courseOf = i => {
-    const e = ENR(i.enrollmentId), c = e && CRS(e.courseId);
-    return c ? c.title : i.no;
+    const lines = billCourses(i);
+    return lines.length ? lines.join(' + ') : i.no;
   };
 
   /* The rows only ever show what the arithmetic came to. Nothing here is

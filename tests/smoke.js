@@ -241,6 +241,24 @@ check('a second enrollment is created', () => run('OUT2.enrollment.id') !== run(
 check('both sit under one trainee', () => run('APPS.enrollmentsFor(TRN.id).length') === 2 || run('APPS.enrollmentsFor(TRN.id).length'));
 check('the end date defaults to the start date', () => run('OUT2.enrollment.end') === '2026-10-05' || run('OUT2.enrollment.end'));
 
+/* Three courses booked across the counter is one conversation and one amount to
+   pay. Three invoices for it is three documents to hand over, three to chase,
+   and three to reconcile against the single payment that settles them. */
+check('a second booking the same day joins the same bill', () =>
+  run('OUT2.invoice.id') === run('OUT.invoice.id')
+  || 'a second invoice was raised: ' + run('OUT2.invoice.no'));
+check('both trainings are lines on it', () => {
+  const n = run('OUT.invoice.items.filter(i => (i.account || "4000") === "4000").length');
+  return n === 2 || 'course lines: ' + n;
+});
+check('the bill totals what both of them cost', () =>
+  run('OUT.invoice.total') === run('ACC.r2(OUT.invoice.items.reduce((s,i) => s + i.amount, 0) - (OUT.invoice.discount||0))')
+  || run('OUT.invoice.total'));
+check('the ledger was told about the addition', () => {
+  const n = run('DB.get().journal.filter(j => j.refId === OUT.invoice.id).length');
+  return n === 2 || 'entries against the bill: ' + n;
+});
+
 console.log('\n- what we owe the training center -');
 check('do not deduct: we owe the centre the full fee', () => {
   const s = run('ACC.centerSettlement({ fee:4200, rebate:1200, deduct:false })');
@@ -255,7 +273,11 @@ check('the trainee is billed the same either way', () => {
   run('C_DEDUCT.deduct = true');
   run('globalThis.OUT3 = APPS.enroll(TRN, { courseId:C_DEDUCT.id, start:"2026-12-01", ' +
       'center:C_DEDUCT.center, fee:C_DEDUCT.amount, mode:"Enrolled", by:"tester" })');
-  return run('OUT3.invoice.total') === run('C_DEDUCT.amount') || run('OUT3.invoice.total');
+  /* The bill is shared now, so its total is the day's running total. What this
+     is actually about is the line: whichever way the rebate settles, the
+     trainee is charged the course price and nothing else. */
+  const line = run('OUT3.invoice.items.filter(i => (i.account || "4000") === "4000").slice(-1)[0]');
+  return line.amount === run('C_DEDUCT.amount') || JSON.stringify(line);
 });
 check('a deducted rebate lowers only the payable', () => {
   const e = run('OUT3.enrollment');
@@ -349,14 +371,18 @@ check('cash lands in Cash on Hand', () => {
   return (je.lines[0].account === '1000' && je.lines[0].debit === 1000) || JSON.stringify(je.lines);
 });
 check('the invoice goes Partial', () => run('OUT.invoice.status') === 'Partial' || run('OUT.invoice.status'));
-check('the balance is right', () => run('ACC.balanceOf(OUT.invoice)') === 3650 || run('ACC.balanceOf(OUT.invoice)'));
+check('the balance is right', () =>
+  run('ACC.balanceOf(OUT.invoice)') === run('ACC.r2(OUT.invoice.total - 1000)')
+  || run('ACC.balanceOf(OUT.invoice)'));
 
 console.log('\n- collections: split across modes -');
+/* Whatever is left on the shared bill, settled in two goes. */
+run(`globalThis.LEFT2 = ACC.balanceOf(OUT.invoice)`);
 run(`globalThis.P2 = ACC.buildPayment({ invoiceId:OUT.invoice.id, traineeId:TRN.id, date:DB.today(),
        tenders:[{ method:'GCash', ref:'GC-12345', amount:2000 },
-                { method:'Bank',  ref:'BT-99887', amount:1650 }] })`);
+                { method:'Bank',  ref:'BT-99887', amount:ACC.r2(LEFT2 - 2000) }] })`);
 run(`DB.get().payments.push(P2); ACC.postPayment(P2, OUT.invoice)`);
-check('the receipt totals its tenders', () => run('P2.amount') === 3650 || run('P2.amount'));
+check('the receipt totals its tenders', () => run('P2.amount') === run('LEFT2') || run('P2.amount'));
 check('it is labelled as a split', () => run('P2.method') === 'Split' || run('P2.method'));
 check('both references are kept', () =>
   (run(`P2.tenders[0].ref`) === 'GC-12345' && run(`P2.tenders[1].ref`) === 'BT-99887') || JSON.stringify(run('P2.tenders')));
@@ -368,12 +394,12 @@ check('GCash lands in its own wallet account', () => {
 check('the bank share lands in Cash in Bank', () => {
   const je = run(`DB.get().journal.find(j => j.refId === P2.id)`);
   const b = je.lines.find(l => l.account === '1010');
-  return (b && b.debit === 1650) || JSON.stringify(je.lines);
+  return (b && b.debit === run('ACC.r2(LEFT2 - 2000)')) || JSON.stringify(je.lines);
 });
 check('receivables are credited once, for the whole receipt', () => {
   const je = run(`DB.get().journal.find(j => j.refId === P2.id)`);
   const ar = je.lines.filter(l => l.account === '1200');
-  return (ar.length === 1 && ar[0].credit === 3650) || JSON.stringify(je.lines);
+  return (ar.length === 1 && ar[0].credit === run('LEFT2')) || JSON.stringify(je.lines);
 });
 check('the invoice is settled', () => run('OUT.invoice.status') === 'Paid' || run('OUT.invoice.status'));
 check('ledger balances after a split receipt', balanced);

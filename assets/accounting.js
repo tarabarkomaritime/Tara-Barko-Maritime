@@ -82,6 +82,33 @@ const ACC = (() => {
     };
   }
 
+  /* Adding to a bill that has already been posted. The entry made when it was
+     raised is not edited — it stays as it was — and a second entry is posted
+     for what has been added, so the ledger reads as two events because two
+     things happened: a booking, and then another booking.
+
+     Recomputing the totals is not optional here. The invoice carries its own
+     subtotal and total, and a line added without them would leave a document
+     whose figures disagree with its own rows. */
+  function addToInvoice(inv, items, extraDiscount){
+    const added = items.map(i => ({ ...i, qty:Number(i.qty) || 1, price:r2(i.price),
+                                    amount:r2((Number(i.qty) || 1) * i.price) }));
+    inv.items = inv.items.concat(added);
+    inv.discount = r2((inv.discount || 0) + (extraDiscount || 0));
+    const c = computeInvoice(inv.items, inv.discount);
+    inv.subtotal = c.subtotal; inv.total = c.total;
+    recomputeInvoice(inv);
+
+    const lines = [{ account:'1200', debit:r2(added.reduce((s, i) => s + i.amount, 0) - (extraDiscount || 0)), credit:0 }];
+    const byAcct = {};
+    added.forEach(i => { const a = i.account || '4000'; byAcct[a] = r2((byAcct[a] || 0) + i.amount); });
+    Object.entries(byAcct).forEach(([a, v]) => lines.push({ account:a, debit:0, credit:v }));
+    if(extraDiscount) lines.push({ account:'4400', debit:r2(extraDiscount), credit:0 });
+
+    return post({ date:DB.today(), memo:`Added to ${inv.no}`,
+                  refType:'Invoice', refNo:inv.no, refId:inv.id, lines });
+  }
+
   function postInvoice(inv){
     const lines = [{ account:'1200', debit:inv.total, credit:0 }];
 
@@ -505,7 +532,7 @@ const ACC = (() => {
   return {
     r2, computeInvoice, post, reverse, acct,
     methods, methodNames, needsRef, DEFAULT_METHODS,
-    buildInvoice, postInvoice, buildPayment, drawTenders, postPayment, postExpense,
+    buildInvoice, addToInvoice, postInvoice, buildPayment, drawTenders, postPayment, postExpense,
     postRefund, creditBalance, refundable, splitRefund,
     recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
     centerSettlement, postCenterPayable, postCenterRemittance, postRebateReceipt,
