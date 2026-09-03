@@ -277,6 +277,71 @@ const invOf = enrId => {
   return D().invoices.find(i => i.enrollmentId === enrId && !i.voided);
 };
 
+/* What one booking is worth on the bill it shares.
+
+   Since a day's bookings became one invoice, "what is still owed" stopped being
+   a property of the bill and became a property of each training on it. The
+   lines carry the booking they came from, so a booking's share is the sum of
+   its own lines less its own discount.
+
+   Bills raised before lines carried that (everything before today) have no such
+   marks. Those are handled whole, as they always were — the alternative is
+   guessing which of six trainings an old payment was for. */
+function bookingShare(e){
+  const inv = invOf(e.id);
+  if(!inv) return 0;
+  const mine = (inv.items || []).filter(x => x.enrId === e.id);
+  if(!mine.length) return 0;
+  return ACC.r2(mine.reduce((s, x) => s + ACC.r2(x.amount), 0)
+                - ACC.r2(mine.reduce((s, x) => s + ACC.r2(x.discount || 0), 0)));
+}
+
+/* Bookings on a bill, oldest first — the order money is laid against them and
+   the order they run in. */
+function bookingsOn(inv){
+  if(!inv) return [];
+  const marked = (inv.items || []).some(x => x.enrId);
+  if(!marked) return [];
+  return D().enrollments
+    .filter(e => e.invoiceId === inv.id && (inv.items || []).some(x => x.enrId === e.id))
+    .sort((a, b) => String(a.start || '').localeCompare(String(b.start || ''))
+                 || String(a.no || '').localeCompare(String(b.no || '')));
+}
+
+/* What this booking has had of the bill's payments.
+
+   Payments taken since the office could say which training they were for name
+   it, and those are simply added up. What is left over — money on the bill that
+   names no training, which is every payment written before today — is laid over
+   the bookings in order, oldest first, as it always was. Both halves are
+   counted, so a bill part-paid before and part-paid after still adds up. */
+function bookingPaid(e){
+  const inv = invOf(e.id);
+  if(!inv) return 0;
+  const mine = D().payments
+    .filter(p => !p.voided && p.enrollmentId === e.id)
+    .reduce((s, p) => s + ACC.r2(p.amount), 0);
+
+  const unnamed = D().payments
+    .filter(p => !p.voided && p.invoiceId === inv.id && !p.enrollmentId)
+    .reduce((s, p) => s + ACC.r2(p.amount), 0);
+
+  let left = ACC.r2(unnamed);
+  for(const b of bookingsOn(inv)){
+    if(left <= 0.004) break;
+    /* Only what that booking still owes after its own named payments. */
+    const owed = ACC.r2(Math.max(0, bookingShare(b) - D().payments
+      .filter(p => !p.voided && p.enrollmentId === b.id)
+      .reduce((s, p) => s + ACC.r2(p.amount), 0)));
+    const take = ACC.r2(Math.max(0, Math.min(owed, left)));
+    left = ACC.r2(left - take);
+    if(b.id === e.id) return ACC.r2(mine + take);
+  }
+  return ACC.r2(mine);
+}
+
+const bookingLeft = e => ACC.r2(Math.max(0, bookingShare(e) - bookingPaid(e)));
+
 /* The trainings on a bill, in the words they were charged under.
 
    A charge booking has no fee line, so there is nothing on the invoice naming
@@ -1248,8 +1313,15 @@ function reminderModal(enrId){
     title:'Payment reminder',
     sub:`${caps(APPS.forName(r.t))} · ${UI.peso(r.due)} outstanding`,
     wide:true, hideSubmit:true,
-    footExtra: mail
-      ? `<a class="btn btn-primary" href="${mail}">Open in email</a>`
+    /* Gmail's compose window rather than a mailto: link. mailto: hands the
+       message to whatever the machine calls its mail program, which on an
+       office PC is usually nothing at all — the button appeared to do nothing,
+       or opened Outlook asking to be set up. The office sends from Gmail, so
+       this opens Gmail with the message already in it. */
+    footExtra: (r.t && r.t.email)
+      ? `<a class="btn btn-primary" target="_blank" rel="noopener noreferrer"
+            href="https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(r.t.email)}`
+          + `&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}">Open in Gmail</a>`
       : '<span class="muted" style="font-size:12px">No email on file — copy the message instead.</span>',
     body:`
       <dl class="def def-tight">
@@ -2710,13 +2782,46 @@ function refundForm(traineeId){
    the difference between the two figures is the only reason to count at all. */
 const cashCountFor = on => (D().cashCounts || []).find(c => c.date === on) || null;
 
+/* The last count taken before this day, whenever that was. The office does not
+   count on a Sunday, so "yesterday" is not a rule that survives contact with a
+   week. */
+function lastCountedClosingBefore(on){
+  const rows = (D().cashCounts || [])
+    .filter(c => c.date < on && c.closing != null && c.closing !== '')
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return rows.length ? { date:rows[0].date, amount:ACC.r2(Number(rows[0].closing)) } : null;
+}
+
 function cashCountRows(on, openingBalance, cashIn, cashOut){
   const c = cashCountFor(on);
-  const expected = ACC.r2(openingBalance + cashIn - cashOut);
+
+  /* What the drawer should hold is measured from what was actually in it, not
+     from what the books carried forward.
+
+     The books' figure is the arithmetic of every receipt and voucher ever
+     posted; the drawer is a physical thing that has had money taken out of it
+     for a courier and a jeepney fare that nobody wrote a voucher for. Starting
+     the day from the books meant the difference between them was reported fresh
+     every morning as though it had just appeared — a drawer that was two
+     hundred short on Monday was two hundred short again on Tuesday, and again
+     on Wednesday, and the real Tuesday shortfall was invisible underneath it.
+
+     Counting from the last count makes the day's difference the day's own. The
+     books' figure is still shown, because the gap between the two is worth
+     seeing; it is just no longer what the day is measured against. */
+  const carried = lastCountedClosingBefore(on);
+  const openedWith = c && c.opening != null && c.opening !== ''
+    ? ACC.r2(Number(c.opening))
+    : (carried ? carried.amount : null);
+  const base = openedWith != null ? openedWith : ACC.r2(openingBalance);
+  const expected = ACC.r2(base + cashIn - cashOut);
   const counted = c && c.closing != null && c.closing !== '' ? ACC.r2(Number(c.closing)) : null;
   return {
     count:c,
-    opening: c && c.opening != null && c.opening !== '' ? ACC.r2(Number(c.opening)) : null,
+    opening: openedWith,
+    openingFrom: (c && c.opening != null && c.opening !== '') ? 'counted this morning'
+      : carried ? `carried from the count on ${UI.date(carried.date)}`
+      : 'no earlier count \u2014 measured against the books',
     openingBooks:ACC.r2(openingBalance),
     cashIn, cashOut, expected, counted,
     over: counted == null ? null : ACC.r2(counted - expected),
@@ -2735,13 +2840,22 @@ function cashCountForm(on){
     return UI.toast('The count for ' + UI.date(on) + ' has been recorded. Ask the admin to change it.', 'bad');
   if(!c && !can('daily'))
     return UI.toast('You cannot record the cash count.', 'bad');
-  const draft = c || { date:on, opening:'', closing:'', note:'' };
+  /* Opens with what was left in the drawer last time it was counted, so the
+     usual morning is a glance and a Save rather than a figure to look up. It
+     is still a box: the drawer is what it is, and if it does not match, what
+     is in it is the truth and the number to write down. */
+  const carried = lastCountedClosingBefore(on);
+  const draft = c || { date:on,
+                       opening:carried ? carried.amount : '',
+                       closing:'', note:'' };
   UI.modal({
     title:'Cash count — ' + UI.date(on),
     sub:'What was actually in the drawer',
     body:`
       ${UI.row(UI.f.num('opening','Opening (counted)', draft.opening, { min:0, step:'0.01',
-                 hint:'in the drawer before the first receipt' }),
+                 hint:carried
+                   ? `left in the drawer on ${UI.date(carried.date)} — ${UI.peso(carried.amount)}`
+                   : 'in the drawer before the first receipt' }),
                UI.f.num('closing','Closing (counted)', draft.closing, { min:0, step:'0.01',
                  hint:'after the last one' }))}
       ${UI.f.area('note','Note', draft.note || '')}
@@ -2868,9 +2982,14 @@ VIEWS.daily = () => {
       const c = cashCountRows(on, openingBooks, cashIn, cashOut);
       const money = v => v == null ? '<span class="muted">not counted</span>' : UI.num(v);
 
+      /* The opening the day is measured against comes first, because it is the
+         one the closing figure is built on. The books' number stays underneath
+         it as a reference: the gap between what the drawer has actually carried
+         and what every posted receipt says it should is worth seeing, but it is
+         history, not this morning's problem. */
       const rows = [
-        { k:'Opening — what the books carried forward', v:UI.num(c.openingBooks), muted:true },
-        { k:'Opening — counted in the drawer',          v:money(c.opening) },
+        { k:`Opening — ${c.openingFrom}`,               v:money(c.opening), strong:true },
+        { k:'Opening — what the books carry',           v:UI.num(c.openingBooks), muted:true },
         { k:'Cash received today',                      v:UI.num(c.cashIn), muted:true },
         { k:'Cash paid out today',                      v:'(' + UI.num(c.cashOut) + ')', muted:true },
         { k:'Closing — what the drawer should hold',    v:UI.num(c.expected), strong:true },
@@ -4543,7 +4662,14 @@ function invoiceModal(inv){
         </dl>
       </div>
       ${UI.table([
-        { h:'Particulars', k:'desc' },
+        /* The discount under the training it was given on. One "Less: Discount"
+           at the foot of a bill carrying six trainings tells nobody which of
+           them was discounted, which is the line a trainee queries and the
+           office then cannot answer from the document it handed over. */
+        { h:'Particulars', k:i => UI.esc(i.desc) + (i.discount > 0
+            ? `<div class="muted" style="font-size:11px">less discount${
+                 i.discountNote ? ' — ' + UI.esc(i.discountNote) : ''} (${UI.num(i.discount)})</div>`
+            : '') },
         { h:'Account', k:i => `<span class="mono muted">${UI.esc(i.account)}</span>` },
         { h:'Qty', k:'qty', cls:'num', w:'60px' },
         { h:'Unit Price', k:i => UI.num(i.price), cls:'num' },
@@ -4665,33 +4791,64 @@ function paymentForm(inv){
 
   /* Every open bill for one trainee, with the course it paid for spelled out —
      "INV-2026-0015" tells the cashier nothing about which training it was. */
+  /* One line per training, not one per bill.
+
+     A day's bookings share an invoice, which is right for the document the
+     trainee is handed and wrong for the window where money is put against
+     things: it left the cashier one box for six trainings joined by plus signs,
+     and no way to say the trainee had paid for the medical but not the
+     refresher.
+
+     So the list is the trainings. Each has its own share of the bill, its own
+     remaining balance, and its own box. What is written afterwards is still one
+     payment per invoice — the books record money against a bill — but which
+     trainings it settles is now the cashier's to say rather than the
+     arithmetic's to guess. */
+  const payLines = tid => {
+    const out = [];
+    openFor(tid).forEach(i => {
+      const bookings = bookingsOn(i);
+      if(!bookings.length){
+        /* A bill from before the lines carried their booking. Handled whole,
+           because guessing which of its trainings an old payment was for is
+           worse than not splitting it. */
+        out.push({ key:i.id, inv:i, e:null,
+                   title:billCourses(i).join(' + ') || 'no course on file',
+                   sub:`${i.no} · billed ${UI.peso(i.total)}`,
+                   left:ACC.balanceOf(i) });
+        return;
+      }
+      bookings.forEach(e => {
+        const left = bookingLeft(e);
+        if(left <= 0.004) return;      /* this training is settled */
+        const c = CRS(e.courseId);
+        out.push({ key:e.id, inv:i, e,
+                   title:(c ? c.title : 'no course on file')
+                         + (e.center ? ` — ${e.center}` : ''),
+                   sub:`${i.no} · ${e.no} · billed ${UI.peso(bookingShare(e))}`,
+                   left });
+      });
+    });
+    return out;
+  };
+
   const billRows = tid => {
-    const list = openFor(tid);
+    const list = payLines(tid);
     if(!list.length) return '<p class="muted" style="margin:0">Nothing outstanding for them.</p>';
-    return list.map(i => {
-      const b = ACC.balanceOf(i);
-      /* A bill can carry three trainings. Naming one of them on the row the
-         cashier ticks is how the money goes against the wrong thing. */
-      const lines = billCourses(i);
-      const title = lines.length ? lines.join(' + ') : 'no course on file';
-      const on = !!(inv && i.id === inv.id) || list.length === 1;
-      /* Ticking a training fills its balance in, because that is what is meant
-         most of the time. It is a starting figure and not a fixed one: the
-         amount is typed over whenever the trainee is paying something else
-         against that course, which is the case the office has and the reason
-         the box is here rather than a rule. */
-      return `<div class="bill-row${on ? ' on' : ''}" data-bill="${i.id}">
+    return list.map(r => {
+      const on = !!(inv && r.inv.id === inv.id && list.filter(x => x.inv.id === inv.id).length === 1)
+                 || list.length === 1;
+      return `<div class="bill-row${on ? ' on' : ''}" data-bill="${r.key}">
         <label class="bill-pick">
-          <input type="checkbox" name="pick_${i.id}" ${on ? 'checked' : ''}>
-          <span><b>${UI.esc(title)}</b><br>
-            <span class="muted" style="font-size:11.5px">${UI.esc(i.no)}${lines.length > 1
-              ? ` · ${lines.length} trainings` : ''} · billed
-              ${UI.peso(i.total)} · still to pay <b>${UI.peso(b)}</b></span></span>
+          <input type="checkbox" name="pick_${r.key}" ${on ? 'checked' : ''}>
+          <span><b>${UI.esc(r.title)}</b><br>
+            <span class="muted" style="font-size:11.5px">${UI.esc(r.sub)}
+              · still to pay <b>${UI.peso(r.left)}</b></span></span>
         </label>
         <div class="bill-amt">
           <div class="lbl">Amount</div>
-          <input type="number" name="amt_${i.id}" class="b-amt" step="0.01" min="0"
-                 placeholder="0.00" ${on ? `value="${b.toFixed(2)}"` : 'disabled'}>
+          <input type="number" name="amt_${r.key}" class="b-amt" step="0.01" min="0"
+                 placeholder="0.00" ${on ? `value="${r.left.toFixed(2)}"` : 'disabled'}>
         </div>
       </div>`;
     }).join('');
@@ -4747,7 +4904,13 @@ function paymentForm(inv){
         <div id="payWarn"></div>
 
         <div class="hr"></div>
-        ${UI.f.text('note','Notes','', {})}
+        ${UI.row(
+          UI.f.date('paidOn','Date received', DB.today(), { req:true, attr:`max="${DB.today()}"` }),
+          UI.f.text('note','Notes','', {}))}
+        <p class="muted" style="margin:-6px 0 4px;font-size:12px">
+          Money taken yesterday and encoded this morning belongs to yesterday. The
+          receipt carries this date and so does the daily report, so the day it is
+          entered never moves what a day took.</p>
       </div>
     </div>`,
     submitLabel:'Record payment',
@@ -4799,18 +4962,31 @@ function paymentForm(inv){
       /* One document. The trainee handed over one sum, so the number is taken
          once and every row making up that receipt carries it — and each bill
          still gets its own row, because that is what makes its balance right. */
+      /* The day the money came in, which is not always the day somebody had
+         time to type it. A receipt dated when it was entered puts yesterday's
+         takings into today's report and leaves yesterday short — and the drawer
+         was counted on yesterday's figure. */
+      const paidOn = String(fd.paidOn || '').trim() || DB.today();
+      if(paidOn > DB.today()){
+        UI.toast('That date is in the future — money cannot have been received yet.', 'bad');
+        return false;
+      }
+
       const no = DB.nextNo('receipt','OR');
       const queue = tenders.map(t => ({ ...t, left:t.amount }));
       const made = bills.map((b, n) => {
         const p = ACC.buildPayment({ no:n ? `${no}/${n + 1}` : no,
-                                     invoiceId:b.inv.id, traineeId:tid,
-                                     date:DB.today(), tenders:ACC.drawTenders(queue, b.amount),
+                                     invoiceId:b.inv.id,
+                                     enrollmentId:b.line && b.line.e ? b.line.e.id : '',
+                                     traineeId:tid,
+                                     date:paidOn, tenders:ACC.drawTenders(queue, b.amount),
                                      note });
         D().payments.push(p);
         ACC.postPayment(p, b.inv);
         return p;
       });
-      DB.activity('Recorded payment', `${no} vs ${bills.map(b => b.inv.no).join(', ')}`);
+      DB.activity('Recorded payment',
+        `${no} vs ${[...new Set(bills.map(b => b.inv.no))].join(', ')}`);
       DB.save();
       UI.toast(`OR ${no} issued for ${UI.peso(amt)}`
         + (bills.length > 1 ? ` across ${bills.length} trainings` : ''));
@@ -4823,13 +4999,16 @@ function paymentForm(inv){
   const form = document.getElementById('mForm');
   const whoNow = () => inv ? inv.traineeId : (form.who ? form.who.value : '');
 
-  const ticked = () => openFor(whoNow())
-    .filter(i => form['pick_' + i.id] && form['pick_' + i.id].checked);
+  /* The lines on screen, rebuilt from the store each time so a payment just
+     recorded is reflected without the window being reopened. */
+  const lines = () => payLines(whoNow());
+  const ticked = () => lines()
+    .filter(r => form['pick_' + r.key] && form['pick_' + r.key].checked);
 
   /* What is being put against trainings, as typed. */
   const putNow = () => ACC.r2(allocation().reduce((s, a) => s + a.amount, 0));
   /* What the ticked trainings are asking for. */
-  const dueNow = () => ACC.r2(ticked().reduce((s, i) => s + ACC.balanceOf(ACC.recomputeInvoice(i)), 0));
+  const dueNow = () => ACC.r2(ticked().reduce((s, r) => s + r.left, 0));
 
   /* What is going against each training, as typed. Nothing is spread and
      nothing is inferred: three courses paid in one go is three amounts the
@@ -4839,29 +5018,23 @@ function paymentForm(inv){
      Over the balance on a training is allowed and stays where it was put — the
      bill is the charge, this is the money, and the excess is that trainee's
      credit. */
-  const allocation = () => ticked().map(i => {
-    const box = form && form['amt_' + i.id];
-    const owed = ACC.balanceOf(ACC.recomputeInvoice(i));
+  const allocation = () => ticked().map(r => {
+    const box = form && form['amt_' + r.key];
     const amount = ACC.r2((box && box.value) || 0);
-    return { inv:i, owed, amount,
-             short:ACC.r2(Math.max(0, owed - amount)),
-             over:amount - owed > 0.004 ? ACC.r2(amount - owed) : 0 };
+    return { line:r, inv:r.inv, owed:r.left, amount,
+             short:ACC.r2(Math.max(0, r.left - amount)),
+             over:amount - r.left > 0.004 ? ACC.r2(amount - r.left) : 0 };
   });
-
-  const courseOf = i => {
-    const lines = billCourses(i);
-    return lines.length ? lines.join(' + ') : i.no;
-  };
 
   /* Ticking a training opens its box and fills in what is owed on it, which is
      the usual answer. Untick and the box closes and empties, because an amount
      against a training nobody is paying for is the one that goes unnoticed.
      What has been typed is never replaced. */
   const syncBills = () => {
-    openFor(whoNow()).forEach(i => {
-      const pick = form['pick_' + i.id];
-      const box = form['amt_' + i.id];
-      const row = form.querySelector(`.bill-row[data-bill="${i.id}"]`);
+    lines().forEach(r => {
+      const pick = form['pick_' + r.key];
+      const box = form['amt_' + r.key];
+      const row = form.querySelector(`.bill-row[data-bill="${r.key}"]`);
       if(!pick || !box || !row) return;
       row.classList.toggle('on', pick.checked);
       if(!pick.checked){
@@ -4869,7 +5042,7 @@ function paymentForm(inv){
         box.value = '';
       }else if(box.disabled){
         box.disabled = false;
-        box.value = ACC.balanceOf(ACC.recomputeInvoice(i)).toFixed(2);
+        box.value = r.left.toFixed(2);
       }
     });
     sidePanel();
@@ -4879,8 +5052,8 @@ function paymentForm(inv){
      they owe in total and what this receipt is about to settle of it. */
   const sidePanel = () => {
     const t = T(whoNow());
-    const bills = openFor(whoNow());
-    const owed = ACC.r2(bills.reduce((s, i) => s + ACC.balanceOf(i), 0));
+    const bills = lines();
+    const owed = ACC.r2(bills.reduce((s, r) => s + r.left, 0));
     /* What this payment actually settles, which is the money handed over and
        not the total of whatever happens to be ticked. Reading dueNow() here had
        the panel announce a part payment as clearing the lot — the one figure on
@@ -4892,7 +5065,7 @@ function paymentForm(inv){
     set('sideSrn', UI.esc((t && (t.srn || t.no)) || ''));
     set('sideOwed', UI.peso(owed));
     set('sideSum', `
-      <div><span>Bills open</span><span>${UI.int(bills.length)}</span></div>
+      <div><span>Trainings owing</span><span>${UI.int(bills.length)}</span></div>
       <div><span>Total outstanding</span><span>${UI.peso(owed)}</span></div>
       <div><span>Settling now</span><span>${UI.peso(now)}</span></div>
       <div class="tot"><span>Left after this</span><span>${UI.peso(ACC.r2(Math.max(0, owed - now)))}</span></div>`);

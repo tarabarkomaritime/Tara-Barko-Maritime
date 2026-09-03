@@ -242,11 +242,21 @@ const APPS = (() => {
          a training that was somehow free rather than as one the office is not
          charging for, and the trainee queries it. The course is named in the
          invoice's own header either way. */
+      /* Each line remembers the booking it came from and the discount that was
+         given on it. One bill can carry six trainings, and a single "Less:
+         Discount" at the foot of it tells nobody which of the six was
+         discounted or by how much — which is the line a trainee queries and the
+         office then cannot answer from the document it handed over.
+
+         The invoice total still nets the discount off once, exactly as before.
+         This is what the figure is made of, recorded beside it. */
       const items = [
         ...(fee > 0
-          ? [{ desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee }]
+          ? [{ desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee,
+               enrId:enr.id, discount, discountNote:t(opts.discountNote) }]
           : []),
-        ...(opts.charges || []).map(a => ({ desc:a.desc, account:a.account || '4100', qty:1, price:a.price })),
+        ...(opts.charges || []).map(a => ({ desc:a.desc, account:a.account || '4100', qty:1, price:a.price,
+               enrId:enr.id })),
       ];
       /* One bill a day per trainee. Somebody booking three courses across the
          counter is one conversation and one amount to pay, and three separate

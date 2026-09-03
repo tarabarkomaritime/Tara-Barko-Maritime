@@ -84,8 +84,8 @@ const SYNC = (() => {
     },
     payments:{
       table:'payments', key:'id',
-      cols:['id','no','invoice_id','trainee_id','date','amount','tenders','method','ref','note','voided','taken_by'],
-      blankToNull:['invoice_id'],
+      cols:['id','no','invoice_id','enrollment_id','trainee_id','date','amount','tenders','method','ref','note','voided','taken_by'],
+      blankToNull:['invoice_id','enrollment_id'],
       blankToDefault:['date'],
     },
     expenses:{

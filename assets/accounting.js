@@ -272,14 +272,19 @@ const ACC = (() => {
   /* `no` is passed when one document covers several bills — the trainee handed
      over one sum and is given one receipt, so the number is taken once and
      every row that makes up that receipt carries it. */
-  function buildPayment({ no, invoiceId, traineeId, date, amount, method, ref, note, tenders }){
+  function buildPayment({ no, invoiceId, enrollmentId, traineeId, date, amount, method, ref, note, tenders }){
     const list = tenders
       ? normalTenders(tenders, amount)
       : [{ method:normalMethod(method), ref:String(ref||'').trim(), amount:r2(amount) }];
     const total = r2(list.reduce((s,t) => s + t.amount, 0));
     return {
       id:DB.uid('pay'), no:no || DB.nextNo('receipt','OR'),
-      invoiceId, traineeId, date:date||DB.today(),
+      invoiceId,
+      /* Which training on that bill. Null on a payment written before the
+         office could say, and on one against a bill whose lines predate the
+         mark — those are read the old way. */
+      enrollmentId: enrollmentId || '',
+      traineeId, date:date||DB.today(),
       amount:total,
       tenders:list,
       method: list.length > 1 ? 'Split' : list[0].method,
