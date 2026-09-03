@@ -342,6 +342,23 @@ function bookingPaid(e){
 
 const bookingLeft = e => ACC.r2(Math.max(0, bookingShare(e) - bookingPaid(e)));
 
+/* What one booking still owes, for the screens that list bookings.
+
+   Since a day's courses became one invoice, showing the invoice's balance
+   against each of them said the same figure six times — "₱4,900 left" beside
+   every training, as though each owed the lot. The office reads those columns
+   to know which seat to chase.
+
+   Bills raised before the lines carried their booking cannot be split, so they
+   still report the invoice's balance; there is nothing else to report. */
+function bookingBalance(e){
+  const inv = invOf(e.id);
+  if(!inv) return null;                       /* not billed */
+  return bookingsOn(inv).length
+    ? bookingLeft(e)
+    : ACC.balanceOf(ACC.recomputeInvoice(inv));
+}
+
 /* The trainings on a bill, in the words they were charged under.
 
    A charge booking has no fee line, so there is nothing on the invoice naming
@@ -887,9 +904,9 @@ VIEWS.dashboard = () => {
             : '—'; } },
         { h:'Course', k:e => { const c = CRS(e.courseId); return c ? UI.esc(c.title) : '—'; } },
         { h:'Center', k:e => UI.esc(e.center || '—') },
-        { h:'Balance', k:e => { const i = invOf(e.id); if(!i) return '<span class="muted">not billed</span>';
-            const due = ACC.balanceOf(ACC.recomputeInvoice(i));
-            return due > 0 ? UI.num(due) : 'settled'; }, cls:'num' },
+        { h:'Balance', k:e => { const due = bookingBalance(e);
+            if(due == null) return '<span class="muted">not billed</span>';
+            return due > 0.004 ? UI.num(due) : 'settled'; }, cls:'num' },
       ], startingTomorrow, { empty:'Nobody starts tomorrow.', rowClass:'clickable',
           rowAttr:e => `data-act="view-enrollment" data-id="${e.id}"` }),
         { flush:true, sub:UI.date(tomorrow) })}
@@ -1110,8 +1127,8 @@ VIEWS.enrollments = () => {
       { h:'Billing', k:e => { const i = invOf(e.id);
           return i ? `${UI.statusTag(invStatus(i))}<br><span class="muted mono" style="font-size:11px">${UI.esc(i.no)}</span>`
                    : `<span class="tag t-muted">Not billed</span>`; } },
-      { h:'Balance', k:e => { const i = invOf(e.id); if(!i) return '<span class="muted">—</span>';
-          const b = ACC.balanceOf(ACC.recomputeInvoice(i));
+      { h:'Balance', k:e => { const b = bookingBalance(e);
+          if(b == null) return '<span class="muted">—</span>';
           return b > 0.004 ? `<b style="color:var(--bad)">${UI.peso(b)}</b>` : `<span style="color:var(--ok)">Settled</span>`; }, cls:'num' },
     ], rows, { empty:'No enrollments recorded.', rowClass:'clickable',
                rowAttrs:e => `data-act="view-enrollment" data-id="${e.id}"` }), { flush:true })}
@@ -2997,7 +3014,8 @@ VIEWS.daily = () => {
          repeated here. */
       const rows = [
         { k:`Opening — ${c.openingFrom}`,               v:money(c.opening), strong:true },
-        { k:'Cash paid out today',                      v:'(' + UI.num(c.cashOut) + ')', muted:true },
+        { k:'Cash received today',                      v:UI.num(c.cashIn), muted:true },
+        { k:'Cash — Expense',                           v:'(' + UI.num(c.cashOut) + ')', muted:true },
         { k:'Closing — what the drawer should hold',    v:UI.num(c.expected), strong:true },
         { k:'Closing — counted in the drawer',          v:money(c.counted) },
       ];
@@ -3632,9 +3650,8 @@ function traineeProfile(t){
         { h:'Training center', k:e => UI.esc(e.center || '—') },
         { h:'When', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
         { h:'Booking', k:e => UI.statusTag(e.status) },
-        { h:'Paid?', k:e => { const i = invOf(e.id);
-            if(!i) return '<span class="muted">not billed</span>';
-            const due = ACC.balanceOf(ACC.recomputeInvoice(i));
+        { h:'Paid?', k:e => { const due = bookingBalance(e);
+            if(due == null) return '<span class="muted">not billed</span>';
             return due > 0.004 ? `<span class="neg">${UI.peso(due)} left</span>` : 'Paid'; } },
         /* One request at a time per booking. Two people asking for different
            dates on the same seat is a queue where whichever is signed second
