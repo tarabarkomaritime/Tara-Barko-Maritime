@@ -33,7 +33,7 @@ const UI = (() => {
     Enrolled:'ok', Reserved:'warn', Completed:'info', Cancelled:'muted', Dropped:'muted',
     /* A seat asked for but not yet confirmed by the center, and one confirmed
        with no date set. Both are ordinary at the desk and neither was sayable. */
-    'On Process':'warn', 'Open Schedule':'sea', Voided:'muted',
+    'On Process':'warn', 'Open Schedule':'sea', Pending:'muted', Voided:'muted',
     Open:'sea', Ongoing:'ok', Closed:'muted', Passed:'ok', Failed:'bad',
     // Admissions lifecycle — see applications.js
     Submitted:'sea', 'Under Review':'warn', Approved:'info', Rejected:'bad', Withdrawn:'muted',

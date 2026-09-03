@@ -2987,10 +2987,16 @@ VIEWS.daily = () => {
          it as a reference: the gap between what the drawer has actually carried
          and what every posted receipt says it should is worth seeing, but it is
          history, not this morning's problem. */
+      /* Four lines, as the office asked for. The books' carried figure and the
+         day's receipts came off: the first is history that was being reported
+         as though it were today's problem, and the second is on the Received
+         tile at the top of this same screen.
+
+         The receipts are still in the arithmetic — the closing figure is
+         opening plus what came in less what went out — they are simply not
+         repeated here. */
       const rows = [
         { k:`Opening — ${c.openingFrom}`,               v:money(c.opening), strong:true },
-        { k:'Opening — what the books carry',           v:UI.num(c.openingBooks), muted:true },
-        { k:'Cash received today',                      v:UI.num(c.cashIn), muted:true },
         { k:'Cash paid out today',                      v:'(' + UI.num(c.cashOut) + ')', muted:true },
         { k:'Closing — what the drawer should hold',    v:UI.num(c.expected), strong:true },
         { k:'Closing — counted in the drawer',          v:money(c.counted) },
@@ -4316,8 +4322,13 @@ function enrollmentForm(existing, presetTrainee, opts){
         { req:true, blank:'— select training center —' }),
       UI.f.select('courseId','Course', '', [],
         { req:true, blank:'— choose the training center first —' }))}
-    ${UI.row(UI.f.date('start','Training starts', DB.today(), { req:true }),
-             UI.f.date('end','Training ends', '', { req:true,
+    <!-- Where the booking stands, and whether it can have dates yet. A seat
+         asked for before the centre has said when it runs has no date to give,
+         and inventing one puts a trainee on the day's list who is not coming. -->
+    ${UI.f.select('status','Booking', 'Enrolled',
+        ['Enrolled', 'On Process', 'Open Schedule', 'Pending'], { req:true })}
+    ${UI.row(UI.f.date('start','Training starts', DB.today(), {}),
+             UI.f.date('end','Training ends', '', {
                hint:'filled from the course length — change it if the run is longer' }))}
     <div class="note" id="endsNote" style="margin:-4px 0 14px"></div>
     ${chargeOnly
@@ -4377,7 +4388,7 @@ ${addons().map((a,i) => `
           /* The center comes from the course entry — one course at one center
              is one row on the price list. */
           courseId:fd.courseId, start:fd.start, end:endsOn,
-          fee:fd.fee, mode:'Enrolled', charges:chosen,
+          fee:fd.fee, mode:fd.status || 'Enrolled', charges:chosen,
           discount:fd.discount, discountNote:fd.discountNote, remarks:fd.remarks,
           by:SESSION.name,
         });
@@ -4398,6 +4409,22 @@ ${addons().map((a,i) => `
      it runs at and the amount, less the rebate when the rebate is one that gets
      deducted. Both stay editable: the list is the usual price, not the only one. */
   form.end.onchange = () => { form.end.dataset.touched = '1'; fillEnd(); };
+
+  /* Pending and Open Schedule are the two that have no date yet. The boxes are
+     emptied and closed rather than left open and ignored, because a date typed
+     into a booking that has none is the one that reaches the day's list. */
+  const DATELESS = ['Pending', 'Open Schedule'];
+  const syncDates = () => {
+    const off = DATELESS.includes(form.status.value);
+    [form.start, form.end].forEach(b => {
+      b.disabled = off;
+      b.required = !off;
+      if(off) b.value = '';
+    });
+    if(!off && !form.start.value) form.start.value = DB.today();
+    recalc();
+  };
+  form.status.onchange = syncDates;
 
   /* The course box is filled from whichever center is showing, and emptied
      when none is. It starts disabled rather than empty-and-clickable: an
@@ -4440,6 +4467,15 @@ ${addons().map((a,i) => `
   const fillEnd = (force) => {
     const c = CRS(form.courseId.value);
     const box = document.getElementById('endsNote');
+    /* Nothing to work out when the booking has no dates yet. recalc() calls
+       this on every keystroke, so without the guard it wrote "Pick the course
+       and the start date" back over the line saying there are none. */
+    if(DATELESS.includes(form.status.value)){
+      endsOn = '';
+      if(box) box.innerHTML = 'No dates yet — the centre has not said when this runs. '
+        + 'Set them from the booking once it is scheduled.';
+      return;
+    }
     if(!c || !form.start.value){ endsOn = form.end.value || ''; box.textContent = 'Pick the course and the start date.'; return; }
     const days = Math.ceil(c.days || 1);
     const x = new Date(form.start.value); x.setDate(x.getDate() + days - 1);
@@ -4478,7 +4514,7 @@ ${addons().map((a,i) => `
   };
   form.addEventListener('input', recalc);
   form.addEventListener('change', recalc);
-  recalc();
+  syncDates();
 }
 
 /* One booking, read as a short report: who and what at the top, the money in a

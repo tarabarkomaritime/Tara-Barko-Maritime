@@ -198,13 +198,20 @@ const APPS = (() => {
     if(!trainee) throw new Error('Choose the trainee to enroll.');
     const c = course(opts.courseId);
     if(!c) throw new Error('Choose the course to enroll them in.');
-    if(!opts.start) throw new Error('Set the training date.');
+    /* A seat asked for before the centre has said when it runs. The office
+       takes these across the counter and cannot invent a date to satisfy a
+       form — a made-up date is worse than none, because it appears on the day's
+       list and somebody expects a trainee who is not coming. */
+    const DATELESS = ['Pending', 'Open Schedule'];
+    if(!opts.start && !DATELESS.includes(opts.mode))
+      throw new Error('Set the training date, or mark it Pending or Open Schedule.');
 
     const fee = ACC.r2(opts.fee);
     if(!(fee >= 0)) throw new Error('Enter the agreed fee.');
     if(opts.end && opts.end < opts.start) throw new Error('The end date cannot fall before the start date.');
 
-    const mode = opts.mode === 'Reserved' ? 'Reserved' : 'Enrolled';
+    const BOOKING_STATES = ['Enrolled', 'On Process', 'Open Schedule', 'Pending', 'Reserved'];
+    const mode = BOOKING_STATES.includes(opts.mode) ? opts.mode : 'Enrolled';
     const discount = ACC.r2(opts.discount || 0);
 
     const enr = {
@@ -214,7 +221,7 @@ const APPS = (() => {
       /* The center belongs to the course entry — the price list is one row per
          course at one center — so it only has to be passed in to override it. */
       center:t(opts.center) || t(c.center), room:t(opts.room), instructor:t(opts.instructor),
-      start:opts.start, end:opts.end || opts.start,
+      start:opts.start || '', end:opts.end || opts.start || '',
       date:DB.today(), status:mode, result:'',
       fee, discount, discountNote:t(opts.discountNote),
       certificateNo:'', remarks:t(opts.remarks),
@@ -234,8 +241,11 @@ const APPS = (() => {
     enr.deduct = deduct;
 
     /* Billing, only when the booking is confirmed. A reservation is not receivable. */
+    /* Billed when the booking is confirmed. A seat still waiting on the centre
+       for a date is not receivable — the trainee has not been told what they
+       are paying for yet — so it is recorded and billed later. */
     let inv = null;
-    if(mode === 'Enrolled'){
+    if(mode === 'Enrolled' || mode === 'On Process'){
       /* A seat we take no training fee on still gets a booking — the centre is
          endorsed against it and it belongs on the day's list — but it does not
          get a nil line on the bill. "PEME MEDICAL — GRAMCARE ... 0.00" reads as
