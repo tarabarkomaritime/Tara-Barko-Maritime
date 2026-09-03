@@ -224,7 +224,11 @@ const APPS = (() => {
     /* What the center is owed for this seat, and how the rebate is settled.
        Taken from the course entry the booking names — that entry is the price
        list row for this course at this center. */
-    const rebate = opts.rebate != null ? ACC.r2(opts.rebate) : ACC.r2(c.rebate || 0);
+    /* No seat sold, no rebate. A booking taken for a rescheduling fee alone
+       would otherwise carry the whole course rebate for that centre, which is
+       money the price list says we earn on a training nobody is attending. */
+    const rebate = opts.rebate != null ? ACC.r2(opts.rebate)
+                 : (fee > 0 ? ACC.r2(c.rebate || 0) : 0);
     const deduct = opts.deduct != null ? !!opts.deduct : !!c.deduct;
     enr.rebate = rebate;
     enr.deduct = deduct;
@@ -268,13 +272,29 @@ const APPS = (() => {
       }
       enr.invoiceId = inv.id;
 
+      /* What this booking owes the centre.
+
+         Normally it is the fee. On a booking taken with no fee it is the
+         charges: a rescheduling fee, a make-up class, a cancellation — the
+         centre is the one levying those, we collect them at the counter and
+         they have to reach the centre, which means appearing on that centre's
+         payables and going out on that centre's voucher. Without this a charge
+         booking took the trainee's money and owed nobody, and the centre was
+         never paid.
+
+         On a booking that does have a fee the charges stay ours, which is
+         today's behaviour and the right one: a documentary stamp is the
+         office's to keep. */
+      const charged = ACC.r2((opts.charges || []).reduce((s, a) => s + ACC.r2(a.price), 0));
+      const owedToCentre = fee > 0 ? fee : charged;
+
       /* The debt to the center exists from the moment the seat is booked, not
          when the trainee finishes paying — so it posts here, alongside the bill. */
-      if(fee > 0){
+      if(owedToCentre > 0){
         const s = ACC.postCenterPayable({
           date:enr.date,
           memo:`${c.title}${enr.center ? ' — ' + enr.center : ''} · ${enr.no}`,
-          refNo:enr.no, refId:enr.id, fee, rebate, deduct,
+          refNo:enr.no, refId:enr.id, fee:owedToCentre, rebate, deduct,
         });
         enr.centerPayable = s.payable;
         enr.rebateReceivable = s.receivable;

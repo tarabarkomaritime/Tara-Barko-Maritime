@@ -277,10 +277,25 @@ const invOf = enrId => {
   return D().invoices.find(i => i.enrollmentId === enrId && !i.voided);
 };
 
-/* The trainings on a bill, in the words they were charged under. */
-const billCourses = i => (i && i.items || [])
-  .filter(x => (x.account || '4000') === '4000')
-  .map(x => x.desc);
+/* The trainings on a bill, in the words they were charged under.
+
+   A charge booking has no fee line, so there is nothing on the invoice naming
+   the course — which left the collection window offering "no course on file"
+   and a cashier no way to tell which training a rescheduling fee belonged to.
+   The bookings that share the bill know, so they are asked. */
+const billCourses = i => {
+  const lines = (i && i.items || [])
+    .filter(x => (x.account || '4000') === '4000')
+    .map(x => x.desc);
+  if(lines.length) return lines;
+  return D().enrollments
+    .filter(e => i && e.invoiceId === i.id)
+    .map(e => {
+      const c = CRS(e.courseId);
+      return (c ? c.title : '') + (e.center ? ' \u2014 ' + e.center : '');
+    })
+    .filter(x => x.trim());
+};
 function traineeBalance(tid){
   return ACC.r2(D().invoices.filter(i => i.traineeId === tid && !i.voided)
     .reduce((s,i) => s + ACC.balanceOf(ACC.recomputeInvoice(i)), 0));
@@ -4722,10 +4737,6 @@ function paymentForm(inv){
           first, and you can type over any figure afterwards. One receipt covers
           the lot.</p>
         <div id="bills">${billRows(who0)}</div>
-        <div style="display:flex;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
-          <button type="button" class="btn btn-ghost btn-xs" id="splitAcross">Split Payment</button>
-          <button type="button" class="btn btn-ghost btn-xs" id="clearBills">Clear</button>
-        </div>
 
         <div class="hr"></div>
         <h4 style="margin:0 0 4px;font-size:13px">How It Was Paid</h4>
@@ -4733,9 +4744,6 @@ function paymentForm(inv){
           What was actually handed over. One line per mode — GCash and Bank need the
           reference number that appears on the statement.</p>
         <div id="tenders">${line(0)}</div>
-        <div style="display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap">
-          <button type="button" class="btn btn-ghost btn-xs" id="addTender">+ Another payment mode</button>
-        </div>
         <div id="payWarn"></div>
 
         <div class="hr"></div>
@@ -4932,59 +4940,14 @@ function paymentForm(inv){
             than was received.</b> Lower one of the amounts, or add how the rest was paid.</div>`;
   };
 
-  /* One payment across two or three trainings, which is what the trainee is
-     actually doing when they hand over a sum for a day's bookings. It ticks
-     every outstanding training and lays the money over them in the order they
-     were booked — each taking what it is owed until the money runs out.
+  /* One tender line, and no buttons over the bill list. Ticking a training and
+     typing what goes against it is the whole of the window now.
 
-     It is a button rather than a rule because the amounts stay the cashier's:
-     press it to get the ordinary split, then type over any of the figures. The
-     old behaviour of putting everything against one training is what happens
-     when only one is ticked, which is also right. */
-  document.getElementById('splitAcross').onclick = () => {
-    const bills = openFor(whoNow());
-    if(!bills.length) return;
-    let left = tendered();
-    /* Nothing typed in yet: take the whole of what is outstanding as the
-       starting point, so pressing it first is the "settle everything" case. */
-    if(left <= 0.004){
-      left = ACC.r2(bills.reduce((t, i) => t + ACC.balanceOf(ACC.recomputeInvoice(i)), 0));
-      form.a0.dataset.touched = '1';
-      form.a0.value = left.toFixed(2);
-    }
-    bills.forEach(i => {
-      const pick = form['pick_' + i.id], box = form['amt_' + i.id];
-      if(!pick || !box) return;
-      const owed = ACC.balanceOf(ACC.recomputeInvoice(i));
-      const take = ACC.r2(Math.max(0, Math.min(owed, left)));
-      left = ACC.r2(left - take);
-      pick.checked = take > 0.004;
-      box.disabled = !pick.checked;
-      box.value = pick.checked ? take.toFixed(2) : '';
-    });
-    warn();
-  };
-
-  document.getElementById('clearBills').onclick = () => {
-    openFor(whoNow()).forEach(i => {
-      const pick = form['pick_' + i.id];
-      if(pick) pick.checked = false;
-    });
-    syncBills();
-    warn();
-  };
-
-  let rows = 1;
-  document.getElementById('addTender').onclick = () => {
-    if(rows >= 6) return;
-    const box = document.getElementById('tenders');
-    box.insertAdjacentHTML('beforeend', line(rows));
-    /* Default the new line to whatever is still unpaid on this receipt. */
-    const left = ACC.r2(dueNow() - tendered());
-    if(left > 0) form['a'+rows].value = left.toFixed(2);
-    rows++;
-    warn();
-  };
+     What this gives up, said plainly so it can be asked for back: a receipt
+     cannot be part cash and part GCash any more. The machinery underneath still
+     handles several tenders — the reconciliation screen reads them, and a
+     receipt that has them prints them — so restoring the line is one button,
+     not a rebuild. */
   const setFirst = v => { form.a0.value = v.toFixed(2);
     for(let i = 1; i < 6; i++){ if(form['a'+i]) form['a'+i].value = ''; } warn(); };
 
