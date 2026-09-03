@@ -4883,16 +4883,29 @@ function paymentForm(inv){
       </aside>
 
       <div class="pay-main">
-        ${inv
-          ? `<input type="hidden" name="who" value="${inv.traineeId}">`
-          : UI.f.select('who','Trainee', who0, owing, { req:true })}
+        <!-- Two facts about the receipt itself, before anything about what it
+             settles: who handed the money over, and when. The date was at the
+             foot of the form next to the notes, which is where a cashier looks
+             last and often not at all — and a receipt dated the day it was
+             typed puts yesterday's takings into today's report while leaving
+             yesterday short, against a drawer that was counted on yesterday's
+             figure. -->
+        ${UI.row(
+          inv
+            ? `<input type="hidden" name="who" value="${inv.traineeId}">
+               <label class="fld"><span>Trainee</span>
+                 <input value="${UI.esc(name(T(inv.traineeId)))}" readonly></label>`
+            : UI.f.select('who','Trainee', who0, owing, { req:true }),
+          UI.f.date('paidOn','Date received', DB.today(),
+            { req:true, attr:`max="${DB.today()}"`,
+              hint:'the day it was handed over, not the day it is typed' }))}
 
         <h4 style="margin:${inv ? '0' : '10px'} 0 2px;font-size:13px">What This Money Settles</h4>
         <p class="muted" style="margin:0 0 8px;font-size:12px">
           Tick every training this payment covers and put the amount against each.
-          <b>Split Payment</b> spreads what was received across all of them, oldest
-          first, and you can type over any figure afterwards. One receipt covers
-          the lot.</p>
+          One receipt covers the lot, and what goes against each training is
+          recorded against that training — so paying for one course out of three
+          leaves the other two owing.</p>
         <div id="bills">${billRows(who0)}</div>
 
         <div class="hr"></div>
@@ -4904,13 +4917,7 @@ function paymentForm(inv){
         <div id="payWarn"></div>
 
         <div class="hr"></div>
-        ${UI.row(
-          UI.f.date('paidOn','Date received', DB.today(), { req:true, attr:`max="${DB.today()}"` }),
-          UI.f.text('note','Notes','', {}))}
-        <p class="muted" style="margin:-6px 0 4px;font-size:12px">
-          Money taken yesterday and encoded this morning belongs to yesterday. The
-          receipt carries this date and so does the daily report, so the day it is
-          entered never moves what a day took.</p>
+        ${UI.f.text('note','Notes','', {})}
       </div>
     </div>`,
     submitLabel:'Record payment',
