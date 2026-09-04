@@ -1836,6 +1836,129 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---------- one training comes off, the rest stand ----------
+     A day's bookings share one bill. Voiding a double-encoded training used to
+     void the whole document, taking the two the trainee had paid for with it
+     and leaving their receipts standing against a voided bill. */
+  console.log('\n- one training comes off, the rest stand -');
+  {
+    run(`(() => {
+      DB.reset(true);
+      const d = DB.get();
+      const t = { id:'rt1', no:'TRN-R1', last:'ROSALDO', first:'NOEL', middle:'',
+                  suffix:'', srn:'SR1', registered:DB.today() };
+      d.trainees.push(t);
+      const cs = d.courses.filter(c => c.amount > 0).slice(0, 2);
+      /* Three seats in one day: one real, one real, one encoded twice. */
+      globalThis.RA = APPS.enroll(t, { courseId:cs[0].id, start:'2026-09-07', end:'2026-09-08',
+                                       fee:2500, discount:200, mode:'Enrolled', by:'K' });
+      globalThis.RB = APPS.enroll(t, { courseId:cs[1].id, start:'2026-09-09', end:'2026-09-09',
+                                       fee:2600, discount:2500, mode:'Enrolled', by:'K' });
+      globalThis.RC = APPS.enroll(t, { courseId:cs[1].id, start:'2026-09-09', end:'2026-09-09',
+                                       fee:2600, discount:100, mode:'Enrolled', by:'K' });
+      globalThis.RI = RA.invoice;
+      return true;
+    })()`);
+
+    check('the three share one bill', () =>
+      (run('RB.invoice.id') === run('RI.id') && run('RC.invoice.id') === run('RI.id'))
+        || 'they did not compile');
+
+    check('and it asks for all three, net of their discounts', () =>
+      run('ACC.r2(RI.total)') === 4900 || run('RI.total'));
+
+    /* Paid for the two real ones and nothing towards the duplicate. */
+    run(`(() => {
+      const d = DB.get();
+      const no = DB.nextNo('receipt','OR');
+      [['RA', 2300], ['RB', 2500]].forEach(([k, amt], n) => {
+        const p = ACC.buildPayment({ no:n ? no + '/' + (n + 1) : no, invoiceId:RI.id,
+          enrollmentId:globalThis[k].enrollment.id, traineeId:'rt1', date:DB.today(),
+          tenders:[{ method:'Cash', ref:'21041', amount:amt }] });
+        d.payments.push(p);
+        ACC.postPayment(p, RI);
+      });
+    })()`);
+
+    check('the duplicate carries none of that money', () =>
+      run('ACC.r2(DB.get().payments.filter(p => p.enrollmentId === RC.enrollment.id).length)') === 0
+        || 'the duplicate was paid against');
+
+    /* The removal itself, which is what voiding a booking now calls. */
+    run(`globalThis.RJ = ACC.removeFromInvoice(RI, RC.enrollment.id, 'double encoded')`);
+
+    check('the bill is not voided to get rid of one line', () =>
+      run('RI.voided') !== true || 'the whole document was voided');
+
+    check('only the duplicate came off it', () => {
+      const ids = run('RI.items.map(x => x.enrId)');
+      return (ids.length === 2 && !ids.includes(run('RC.enrollment.id'))) || JSON.stringify(ids);
+    });
+
+    check('what it asks for falls by exactly that training', () =>
+      run('ACC.r2(RI.total)') === 2400 || run('RI.total'));
+
+    check('and the discount given on it comes off too', () =>
+      run('ACC.r2(RI.discount)') === 2700 || run('RI.discount'));
+
+    check('the money already received still stands', () =>
+      run('ACC.r2(ACC.recomputeInvoice(RI).paid)') === 4800 || run('RI.paid'));
+
+    check('the trainee is now overpaid rather than owing', () =>
+      (run('ACC.balanceOf(RI)') === 0 && run('ACC.overpaidOn(RI)') === 2400)
+        || run('ACC.balanceOf(RI)') + ' / ' + run('ACC.overpaidOn(RI)'));
+
+    check('a reversing entry was posted for it', () =>
+      !!run('RJ') || 'nothing was posted');
+
+    check('the books still balance', () => {
+      const diff = run(`(() => { let dr = 0, cr = 0;
+        DB.get().journal.filter(x => !x.voided).forEach(e => (e.lines || []).forEach(l => {
+          dr += ACC.r2(l.debit || 0); cr += ACC.r2(l.credit || 0); }));
+        return ACC.r2(dr - cr); })()`);
+      return Math.abs(diff) < 0.005 || 'out by ' + diff;
+    });
+
+    check('a booking alone on its bill is refused, so the caller voids it whole', () => {
+      run(`(() => {
+        DB.reset(true);
+        const d = DB.get();
+        const t = { id:'rt2', no:'TRN-R2', last:'SOLO', first:'ONE', middle:'', suffix:'',
+                    srn:'SR2', registered:DB.today() };
+        d.trainees.push(t);
+        const c = d.courses.find(x => x.amount > 0);
+        globalThis.RS = APPS.enroll(t, { courseId:c.id, start:'2026-09-07', end:'2026-09-08',
+                                         fee:c.amount, mode:'Enrolled', by:'K' });
+      })()`);
+      return run(`ACC.removeFromInvoice(RS.invoice, RS.enrollment.id, 'x')`) === null
+        || 'it stripped the only line off a bill';
+    });
+
+    check('a discount added to a bill lands in Discounts Given', () => {
+      run('DB.reset(true)');
+      run(`(() => {
+        const d = DB.get();
+        const t = { id:'rt3', no:'TRN-R3', last:'DISC', first:'TWO', middle:'', suffix:'',
+                    srn:'SR3', registered:DB.today() };
+        d.trainees.push(t);
+        const cs = d.courses.filter(x => x.amount > 0).slice(0, 2);
+        APPS.enroll(t, { courseId:cs[0].id, start:'2026-09-07', end:'2026-09-08',
+                         fee:1000, mode:'Enrolled', by:'K' });
+        /* The second training of the day, which joins the bill already raised. */
+        APPS.enroll(t, { courseId:cs[1].id, start:'2026-09-09', end:'2026-09-09',
+                         fee:1000, discount:250, mode:'Enrolled', by:'K' });
+      })()`);
+      /* 4400 is not an account in this chart; it used to be posted there. */
+      const stray = run(`DB.get().journal.filter(j => !j.voided)
+        .some(j => (j.lines || []).some(l => l.account === '4400'))`);
+      const given = run(`(() => { let n = 0;
+        DB.get().journal.filter(j => !j.voided).forEach(j => (j.lines || []).forEach(l => {
+          if(l.account === '4900') n = ACC.r2(n + ACC.r2(l.debit || 0)); }));
+        return n; })()`);
+      return (!stray && given === 250) || `stray 4400: ${stray}, 4900 debits: ${given}`;
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

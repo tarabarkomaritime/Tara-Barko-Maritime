@@ -1224,9 +1224,17 @@ VIEWS.invoices = () => {
      not pretend to be: no invoice number, nothing paid, nothing outstanding,
      and the money tiles above stay measurements of what has actually been
      billed. */
+  /* Every booking with no bill behind it — Pending included.
+
+     This leaned on billableUnbilled, which is the rule for what may be billed
+     and deliberately excludes Pending: a seat asked for and not yet agreed
+     bills nothing. That is right for billing and wrong for looking. A trainee
+     whose only booking was Pending did not appear on this page at all, and
+     picking Pending from the status box could never return anything. */
   const unbilled = (f && !bookingFilter ? [] : D().enrollments)
     .filter(e => !e.invoiceId
       && e.status !== 'Void'
+      && e.status !== 'Cancelled'
       && ACC.r2(e.fee || 0) > 0.004
       && (!bookingFilter || e.status === f))
     .filter(e => {
@@ -1323,7 +1331,7 @@ VIEWS.invoices = () => {
    the two it is, and only the ones that have to be chased carry a button. */
 function rebatesAll(){
   return D().enrollments
-    .filter(e => (e.rebate || 0) > 0 && e.status !== 'Void')
+    .filter(e => (e.rebate || 0) > 0 && e.status !== 'Void' && e.status !== 'Cancelled')
     .map(e => ({
       e,
       center:String(e.center || '').toUpperCase(),
@@ -1635,22 +1643,48 @@ VIEWS.sales = () => {
     return true;
   });
 
+  /* Two bookings for one seat.
+
+     Double encoding puts the same training on the same trainee twice and the
+     rebate on both, so the quota reads over by whatever the duplicate was
+     worth. The copy is not counted — and it is not hidden either. The row says
+     there are two of it, because the fix is to void one, and a report that
+     quietly swallowed the extra would be the reason nobody ever did.
+
+     Same trainee, same course, same centre, booked on the same day. A seafarer
+     re-sitting a course books it on another day, and that is left alone: two
+     genuine seats are two rebates. */
+  const dupKey = r => [r.e.traineeId, r.e.courseId, r.center, r.e.date || ''].join('|');
+  const groups = {};
+  all.forEach(r => { const k = dupKey(r); (groups[k] = groups[k] || []).push(r); });
+
+  const seats = [], extras = [];
+  Object.keys(groups).forEach(k => {
+    const g = groups[k].sort((a, b) => String(a.e.no).localeCompare(String(b.e.no)));
+    seats.push({ ...g[0], copies:g.length });
+    g.slice(1).forEach(r => extras.push(r));
+  });
+  seats.sort((a, b) =>
+       String(b.e.date || b.e.start || '').localeCompare(String(a.e.date || a.e.start || ''))
+    || String(b.e.no).localeCompare(String(a.e.no)));
+
   const sum = rows => ACC.r2(rows.reduce((s, r) => s + r.amount, 0));
-  const earned    = sum(all);
+  const doubled  = sum(extras);
+  const earned    = sum(seats);
   /* A seat with no training date is an estimate: the rebate is agreed and the
      booking is real, but the training has not run and the seat can still move
      or be cancelled. It counts towards the quota — that is the point of
      knowing it — and it is marked so nobody reads it as money already made. */
-  const estimated = sum(all.filter(r => !r.e.start));
-  const kept      = sum(all.filter(r => r.deduct));
-  const toCollect = sum(all.filter(r => !r.deduct && !r.received));
-  const banked    = sum(all.filter(r => !r.deduct && r.received));
+  const estimated = sum(seats.filter(r => !r.e.start));
+  const kept      = sum(seats.filter(r => r.deduct));
+  const toCollect = sum(seats.filter(r => !r.deduct && !r.received));
+  const banked    = sum(seats.filter(r => !r.deduct && r.received));
 
   /* One line per centre, because that is the unit the office negotiates in —
      what a centre is worth over a season is the number that decides whether to
      keep sending people there. */
   const byCentre = {};
-  all.forEach(r => {
+  seats.forEach(r => {
     const m = byCentre[r.center] || (byCentre[r.center] = {
       center:r.center, n:0, kept:0, toCollect:0, banked:0, total:0 });
     m.n++;
@@ -1675,14 +1709,17 @@ VIEWS.sales = () => {
            training date. A seat still waiting on the centre is counted on the
            day it was booked, and saying so is the difference between a quota
            that looks short and one that is. -->
-      <span class="muted">${all.length} seat(s) · ${span} · by the day the seat was booked</span>
+      <span class="muted">${seats.length} seat(s) · ${span} · by the day the seat was booked${
+        extras.length ? ` · ${UI.int(extras.length)} double-encoded, counted once` : ''}</span>
     </div>
 
     <div class="grid g4" style="margin-bottom:18px">
       ${UI.kpi('Earned', UI.peso(earned),
-               estimated > 0.004
-                 ? `${all.length} seat(s) · ${UI.peso(estimated)} estimated, not yet scheduled`
-                 : `${all.length} seat(s) booked`, 'ok')}
+               doubled > 0.004
+                 ? `${seats.length} seat(s) · ${UI.peso(doubled)} left out as double-encoded`
+                 : estimated > 0.004
+                 ? `${seats.length} seat(s) · ${UI.peso(estimated)} estimated, not yet scheduled`
+                 : `${seats.length} seat(s) booked`, 'ok')}
       ${UI.kpi('Rebates kept', UI.peso(kept), 'deducted from what we remit', '')}
       ${UI.kpi('Rebates to collect', UI.peso(toCollect), 'centers owe us this back',
                toCollect > 0 ? 'sea' : '')}
@@ -1698,7 +1735,7 @@ VIEWS.sales = () => {
       { h:'Earned', k:c => `<b>${UI.num(c.total)}</b>`, cls:'num' },
       { h:'', k:c => can('payables')
           ? `<a class="btn btn-ghost btn-xs" href="#/payables">Open</a>` : '', w:'80px' },
-    ], centres, { foot:['TOTAL', UI.int(all.length), UI.num(kept), UI.num(toCollect),
+    ], centres, { foot:['TOTAL', UI.int(seats.length), UI.num(kept), UI.num(toCollect),
                         UI.num(banked), UI.num(earned), ''] }),
       { flush:true,
         sub:`Highest earning first · ${span}` })
@@ -1708,7 +1745,7 @@ VIEWS.sales = () => {
             : 'No booking carries a rebate yet.'}</div>`, { flush:true })}
 
     <div style="height:18px"></div>
-    ${all.length ? UI.card('Rebate On Every Seat', UI.table([
+    ${seats.length ? UI.card('Rebate On Every Seat', UI.table([
       /* Booked first, because that is the day this row is counted on. When it
          runs is worth knowing and is not what the total is measured by. */
       { h:'Booked', k:r => `${UI.date(r.e.date)}<br>
@@ -1716,7 +1753,10 @@ VIEWS.sales = () => {
             ? 'trains ' + UI.dateRange(r.e.start, r.e.end)
             : 'no training date yet'}</span>`, w:'165px' },
       { h:'Trainee', k:r => UI.esc(name(T(r.e.traineeId))) },
-      { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || 'no course on file') },
+      { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || 'no course on file')
+          + (r.copies > 1
+              ? `<br><span style="color:var(--bad);font-size:11.5px">encoded ${UI.int(r.copies)}×
+                   · counted once · void the extra</span>` : '') },
       { h:'Training center', k:r => UI.esc(r.center) },
       { h:'Booking', k:r => UI.statusTag(r.e.status) },
       { h:'How it settles', k:r => r.deduct
@@ -1727,14 +1767,14 @@ VIEWS.sales = () => {
       { h:'Rebate', k:r => r.e.start
           ? `<b>${UI.num(r.amount)}</b>`
           : `<span class="muted">${UI.num(r.amount)} est.</span>`, cls:'num' },
-    ], all.slice().sort((a, b) =>
-         String(b.e.date || b.e.start || '').localeCompare(String(a.e.date || a.e.start || ''))
-      || String(b.e.no).localeCompare(String(a.e.no))),
-      { foot:['TOTAL', '', '', '', '', '', UI.num(earned)] }),
+    ], seats, { foot:['TOTAL', '', '', '', '', '', UI.num(earned)] }),
       { flush:true,
         sub:`Every booking that earns a rebate · ${span}`
             + (estimated > 0.004
                 ? ` · ${UI.peso(estimated)} of it estimated on seats with no date yet`
+                : '')
+            + (doubled > 0.004
+                ? ` · ${UI.peso(doubled)} on double-encoded copies is not in the total`
                 : '') }) : ''}
 
     <div style="height:18px"></div>
@@ -4102,8 +4142,13 @@ function canVoidBooking(e){
      it here would say the debt never existed while the cash plainly left. */
   if(e.remitNo || (e.centerPaid || 0) > 0)
     return 'The center has already been remitted for this seat — settle it with them first.';
+  /* What has been paid against this training, not against the bill it shares.
+
+     It read the whole invoice, so one paid training on a shared bill locked
+     every other training on it — including a double-encoded one nobody had
+     paid a peso towards, which is precisely the one that needs removing. */
   const inv = invOf(e.id);
-  if(inv && !inv.voided && ACC.r2(ACC.recomputeInvoice(inv).paid || 0) > 0)
+  if(inv && !inv.voided && (ACC.recomputeInvoice(inv), bookingPaid(e)) > 0.004)
     return 'This booking has payments against it. Void the receipts first, then the booking.';
   return '';
 }
@@ -4113,8 +4158,17 @@ function voidEnrollment(e, reason){
   if(why){ UI.toast(why, 'bad'); return false; }
   const inv = invOf(e.id);
   if(inv && !inv.voided){
-    inv.voided = true; inv.status = 'Void';
-    ACC.reverse(inv.id, reason || 'Booking voided');
+    /* A day's bookings share one bill, so voiding the document because one
+       training came off it would take the others with it — and their receipts
+       with them. A booking that shares its bill is taken off it instead; only
+       a bill that carries nothing else is voided whole.
+
+       Bills raised before the lines carried their booking cannot be split, so
+       they are still voided entire; there is nothing else to do with them. */
+    if(!ACC.removeFromInvoice(inv, e.id, reason || 'Booking voided')){
+      inv.voided = true; inv.status = 'Void';
+      ACC.reverse(inv.id, reason || 'Booking voided');
+    }
   }
   /* The debt to the centre was posted the moment the seat was booked, not when
      the trainee paid, so it has to come off too or the payables list keeps
@@ -4901,9 +4955,22 @@ function invoiceModal(inv){
   const t = T(inv.traineeId);
   /* Every booking this bill covers, not just the one it was opened with. A
      document that named one training while charging for three would be the
-     first thing a trainee queried, and rightly. */
+     first thing a trainee queried, and rightly.
+
+     What it charges for is the test, not what points at it. A voided booking
+     keeps its invoiceId — that is how the file records which bill it once sat
+     on — so listing by that alone put a double-encoded training back in the
+     header of a document that no longer charges a peso for it: three
+     enrollment numbers and three training dates above two lines. The bill says
+     what it is for, and that is its own items. */
+  /* Bills raised before the lines carried their booking cannot be matched that
+     way, so those still list every booking pointing at them; there is nothing
+     else to go on. */
+  const marked = (inv.items || []).some(i => i.enrId);
   const bookings = D().enrollments
-    .filter(x => x.invoiceId === inv.id)
+    .filter(x => x.invoiceId === inv.id
+      && x.status !== 'Void'
+      && (!marked || (inv.items || []).some(i => i.enrId === x.id)))
     .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')));
   const only = bookings.length === 1 ? bookings[0] : null;
   const co = D().company, bal = ACC.balanceOf(inv);

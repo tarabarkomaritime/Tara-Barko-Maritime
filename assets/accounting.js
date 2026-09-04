@@ -103,9 +103,56 @@ const ACC = (() => {
     const byAcct = {};
     added.forEach(i => { const a = i.account || '4000'; byAcct[a] = r2((byAcct[a] || 0) + i.amount); });
     Object.entries(byAcct).forEach(([a, v]) => lines.push({ account:a, debit:0, credit:v }));
-    if(extraDiscount) lines.push({ account:'4400', debit:r2(extraDiscount), credit:0 });
+    /* 4900, Discounts Given. This said 4400, which is not an account in this
+       chart at all — so every discount on a training added to a bill already
+       raised was posted to a code nothing reports on, and disappeared from the
+       discount figure while still balancing. It only ever happened on the
+       second and later trainings of a day, which is why it went unseen. */
+    if(extraDiscount) lines.push({ account:'4900', debit:r2(extraDiscount), credit:0 });
 
     return post({ date:DB.today(), memo:`Added to ${inv.no}`,
+                  refType:'Invoice', refNo:inv.no, refId:inv.id, lines });
+  }
+
+  /* Taking one booking's lines off a bill that carries others.
+
+     A day's bookings share one invoice, so voiding one training used to void
+     the whole document — three trainings billed together and one of them
+     double-encoded meant reversing the lot, including the two the trainee had
+     paid for. The receipts then stood against a voided bill.
+
+     So the lines belonging to that booking come off, the bill is recomputed
+     around what is left, and the entry posted is the mirror of what put them
+     there: revenue debited back at what was charged, the discount given on it
+     credited back, and receivables reduced by the net. What the trainee still
+     owes falls by exactly what came off, and every other training on the bill
+     is untouched.
+
+     Returns null when the booking is the only one on the bill — there is no
+     invoice left to recompute, and the caller voids the document instead. */
+  function removeFromInvoice(inv, enrId, reason){
+    const mine = (inv.items || []).filter(i => i.enrId === enrId);
+    const rest = (inv.items || []).filter(i => i.enrId !== enrId);
+    if(!mine.length || !rest.length) return null;
+
+    const gross = r2(mine.reduce((s, i) => s + i.amount, 0));
+    const disc  = r2(mine.reduce((s, i) => s + (i.discount || 0), 0));
+    const net   = r2(gross - disc);
+
+    inv.items = rest;
+    const c = computeInvoice(rest, r2(Math.max(0, (inv.discount || 0) - disc)));
+    inv.subtotal = c.subtotal; inv.discount = c.discount; inv.total = c.total;
+    recomputeInvoice(inv);
+
+    const lines = [];
+    const byAcct = {};
+    mine.forEach(i => { const a = i.account || '4000'; byAcct[a] = r2((byAcct[a] || 0) + i.amount); });
+    Object.entries(byAcct).forEach(([a, v]) => lines.push({ account:a, debit:v, credit:0 }));
+    if(disc) lines.push({ account:'4900', debit:0, credit:disc });
+    lines.push({ account:'1200', debit:0, credit:net });
+
+    return post({ date:DB.today(),
+                  memo:`Taken off ${inv.no}${reason ? ' (' + reason + ')' : ''}`,
                   refType:'Invoice', refNo:inv.no, refId:inv.id, lines });
   }
 
@@ -537,7 +584,7 @@ const ACC = (() => {
   return {
     r2, computeInvoice, post, reverse, acct,
     methods, methodNames, needsRef, DEFAULT_METHODS,
-    buildInvoice, addToInvoice, postInvoice, buildPayment, drawTenders, postPayment, postExpense,
+    buildInvoice, addToInvoice, removeFromInvoice, postInvoice, buildPayment, drawTenders, postPayment, postExpense,
     postRefund, creditBalance, refundable, splitRefund,
     recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
     centerSettlement, postCenterPayable, postCenterRemittance, postRebateReceipt,
