@@ -547,9 +547,40 @@ const DB = (() => {
   }
 
   /* Document numbers: PREFIX-YYYY-#### */
+  /* Which list holds the documents of each kind, so a counter that has fallen
+     behind can be caught up from what is actually on file. */
+  const NUMBERED = { trainee:'trainees', enrollment:'enrollments', invoice:'invoices',
+                     receipt:'payments', voucher:'expenses', refund:'refunds',
+                     change:'changes' };
+
+  /* The next number of its kind, never one already in use.
+
+     This counter is not the only one running. The public registration form
+     allocates trainee numbers on the server, for seafarers this browser has
+     never heard of, and this browser's copy of the counter is a snapshot taken
+     when somebody signed in. So between the sign-up and the next refresh the
+     office's copy is behind, and it would hand a walk-in a trainee number that
+     already belongs to somebody — which the server refuses, taking the whole
+     save down with it.
+
+     The rows themselves are the record of what has been issued, and they come
+     down on every refresh. So the counter is only ever a floor: what is on
+     file wins where it is higher. A receipt covering three trainings is
+     numbered OR-2026-0007/2 and /3, and parseInt stops at the slash.
+
+     The other half of this is on the server, where doc_seq refuses to go
+     backwards — without that, saving from here would walk the counter back
+     over registrations taken in the meantime, which is what broke the public
+     form. */
   function nextNo(kind, prefix){
-    data.seq[kind] = (data.seq[kind] || 0) + 1;
-    return `${prefix}-${new Date().getFullYear()}-${String(data.seq[kind]).padStart(4,'0')}`;
+    let high = 0;
+    (data[NUMBERED[kind]] || []).forEach(r => {
+      const n = parseInt(String(r.no || '').split('-')[2], 10);
+      if(n > high) high = n;
+    });
+    const next = Math.max(data.seq[kind] || 0, high) + 1;
+    data.seq[kind] = next;
+    return `${prefix}-${new Date().getFullYear()}-${String(next).padStart(4,'0')}`;
   }
 
   /* Reading and parsing used to share one try block, so a store that would not

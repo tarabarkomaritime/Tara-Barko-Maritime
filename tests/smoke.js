@@ -1764,6 +1764,78 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---------- a number is never handed out twice ----------
+     A seafarer on the public form was refused with "duplicate key value
+     violates unique constraint trainees_no_key". Two counters run against one
+     sequence: the server allocates a trainee number when somebody signs up on
+     the portal, and this browser allocates from a copy of the counter taken
+     when its user signed in. Whichever is behind issues a number that is
+     already somebody's. */
+  console.log('\n- a number is never handed out twice -');
+  {
+    run('DB.reset(true)');
+
+    check('the counter still counts up on its own', () => {
+      const a = run(`DB.nextNo('trainee','TRN')`);
+      const b = run(`DB.nextNo('trainee','TRN')`);
+      return (a !== b && b > a) || a + ' then ' + b;
+    });
+
+    /* A registration taken on the portal, pulled down since. The counter this
+       browser holds knows nothing about it. */
+    check('a row that came from elsewhere is not numbered over', () => {
+      run('DB.reset(true)');
+      run(`(() => { const d = DB.get();
+             d.trainees.push({ id:'p1', no:'TRN-2026-0053', last:'A', first:'B',
+                               srn:'S9', registered:DB.today() });
+             d.seq.trainee = 40;          /* behind, as a stale copy would be */
+           })()`);
+      const next = run(`DB.nextNo('trainee','TRN')`);
+      return next === 'TRN-2026-0054' || next;
+    });
+
+    check('and the counter is left where it was moved to', () =>
+      run('DB.get().seq.trainee') === 54 || run('DB.get().seq.trainee'));
+
+    check('a receipt split across trainings does not confuse it', () => {
+      run('DB.reset(true)');
+      run(`(() => { const d = DB.get();
+             d.payments.push({ id:'q1', no:'OR-2026-0007' },
+                             { id:'q2', no:'OR-2026-0007/2' },
+                             { id:'q3', no:'OR-2026-0007/3' });
+             d.seq.receipt = 2;
+           })()`);
+      const next = run(`DB.nextNo('receipt','OR')`);
+      return next === 'OR-2026-0008' || next;
+    });
+
+    check('every kind of document is covered, not just trainees', () => {
+      run('DB.reset(true)');
+      const kinds = [['enrollment','ENR','enrollments'], ['invoice','INV','invoices'],
+                     ['voucher','DV','expenses'], ['refund','RF','refunds'],
+                     ['change','CHG','changes']];
+      const bad = [];
+      kinds.forEach(([kind, prefix, list]) => {
+        run(`(() => { const d = DB.get();
+               d.${list}.push({ id:'z_${kind}', no:'${prefix}-2026-0099' });
+               d.seq.${kind} = 5; })()`);
+        const next = run(`DB.nextNo('${kind}','${prefix}')`);
+        if(next !== prefix + '-2026-0100') bad.push(kind + ' gave ' + next);
+      });
+      return !bad.length || bad.join(', ');
+    });
+
+    check('a counter ahead of the rows is still believed', () => {
+      run('DB.reset(true)');
+      run(`(() => { const d = DB.get();
+             d.trainees.push({ id:'r1', no:'TRN-2026-0002' });
+             d.seq.trainee = 80;       /* rows deleted since; the counter stands */
+           })()`);
+      return run(`DB.nextNo('trainee','TRN')`) === 'TRN-2026-0081'
+        || run('DB.get().seq.trainee');
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
