@@ -443,6 +443,132 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 .doc-sign{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:44px;font-size:12px}
 .doc-sign div{border-top:1px solid var(--text-2);padding-top:5px;text-align:center;color:var(--text-2)}
 
+/* ---------- Acknowledgement receipt ----------
+   The one piece of paper a seafarer walks out with. It was the same plain
+   header as every other document, which is fine for an internal voucher and
+   thin for the thing a trainee keeps in a folder for two years and shows to a
+   manning agency.
+
+   Colour is printed, not decorative: print-color-adjust keeps the navy band and
+   the balance panel on the page, because a receipt whose header comes out white
+   looks like a draft. */
+.ar{background:#fff;color:var(--navy-800);font-size:13px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.ar-band{background:var(--navy-800);color:#fff;padding:20px 24px 22px;
+  display:flex;align-items:flex-start;gap:16px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.ar-band img{width:70px;height:70px;flex:none}
+.ar-rule{width:2px;align-self:stretch;background:rgba(255,255,255,.3);flex:none}
+.ar-co{min-width:0}
+.ar-co h2{margin:0;font-size:17px;line-height:1.16;letter-spacing:.01em;color:#fff}
+.ar-co h2 span{display:block;font-weight:500;font-size:14px;opacity:.92}
+.ar-co .l{display:flex;gap:7px;align-items:center;font-size:11.5px;margin-top:5px;opacity:.88}
+/* .fact-ico paints itself navy for the profile cards it was written for. On a
+   navy band that is a mark nobody can see, so here it takes the band's colour. */
+.ar-co .l svg{color:#fff;opacity:.8;flex:none;width:15px;height:15px}
+.ar-meta .k svg{color:var(--navy-700);opacity:.9;width:16px;height:16px;
+  vertical-align:-3px;margin-right:5px}
+.ar-panel dt svg{color:var(--navy-700);opacity:.85;width:16px;height:16px}
+.dv-co .l svg{color:var(--navy-700);opacity:.7;width:13px;height:13px}
+.ar-co .by{font-size:11px;opacity:.7;margin-top:5px}
+.ar-title{margin-left:auto;text-align:right;padding-left:16px}
+.ar-title .t{font-size:23px;font-weight:800;letter-spacing:.015em;line-height:1.06;color:#fff}
+.ar-title .u{height:3px;width:112px;margin:9px 0 0 auto;border-radius:2px;background:var(--tb-orange);
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+
+/* The number and the date, in a card of their own. They are what the office
+   looks for first when a trainee rings up about a payment. */
+.ar-meta{display:flex;justify-content:flex-end;margin:-14px 24px 0}
+.ar-meta table{width:auto;margin:0;background:#fff;border:2px solid var(--navy-800);border-radius:6px}
+.ar-meta td{border:none;border-bottom:1px solid var(--border);padding:8px 14px;font-size:12.5px}
+.ar-meta tr:last-child td{border-bottom:none}
+.ar-meta .k{color:var(--text-2);white-space:nowrap}
+.ar-meta .v{font-weight:800;font-size:14px;text-align:right;white-space:nowrap}
+
+.ar-body{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;padding:18px 24px 0}
+.ar-panel{border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
+.ar-panel > h4{margin:0;background:var(--navy-800);color:#fff;font-size:11px;font-weight:800;
+  letter-spacing:.13em;padding:8px 14px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.ar-panel dl{display:grid;grid-template-columns:auto 1fr;gap:0;margin:0}
+.ar-panel dt{display:flex;gap:8px;align-items:center;color:var(--text-2);font-size:12px;
+  padding:9px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+.ar-panel dd{margin:0;padding:9px 14px 9px 0;border-bottom:1px solid var(--border);font-size:12.5px}
+.ar-panel dl > :nth-last-child(1),.ar-panel dl > :nth-last-child(2){border-bottom:none}
+
+.ar-body > .ar-panel{align-self:start}
+.ar-sum{display:flex;flex-direction:column}
+.ar-sum table{width:100%;margin:0}
+.ar-sum td{border:none;border-bottom:1px solid var(--border);padding:9px 14px;font-size:12.5px}
+.ar-sum td.num{font-variant-numeric:tabular-nums}
+.ar-sum tr.grand td{border-bottom:none;border-top:2px solid var(--navy-800);
+  background:var(--surface-2);font-weight:800;padding-top:11px;padding-bottom:11px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.ar-sum tr.grand td:first-child{font-size:13.5px;letter-spacing:.02em}
+.ar-sum tr.grand td.num{font-size:17px;color:var(--tb-orange)}
+
+.ar-applied{padding:16px 24px 0}
+.ar-applied table{margin:0}
+.ar-sign{display:grid;grid-template-columns:1fr 1px 1fr;gap:26px;align-items:end;
+  padding:34px 24px 22px;font-size:12px}
+.ar-sign .s{border-top:1px solid var(--navy-800);padding-top:6px;text-align:center;
+  color:var(--navy-800);font-weight:600}
+.ar-sign .v{background:var(--border);align-self:stretch;margin:8px 0}
+.ar-note{padding:0 24px 22px;font-size:10.5px;color:var(--muted);line-height:1.5}
+
+/* ---------- Disbursement voucher ----------
+   Bordered, compact, and the same family as the receipt: the two go out of the
+   same office on the same day and should look it. */
+.dv{background:#fff;color:var(--navy-800);border:1px solid var(--navy-800);border-radius:6px;
+  overflow:hidden;font-size:12.5px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dv-head{display:flex;align-items:flex-start;gap:12px;padding:14px 16px 12px}
+.dv-head img{width:44px;height:44px;flex:none}
+.dv-co h2{margin:0;font-size:15px;line-height:1.1;letter-spacing:.02em;color:var(--navy-800)}
+.dv-co h2 span{display:block;font-weight:600;font-size:11.5px;letter-spacing:.14em;color:var(--text-2)}
+.dv-co .l{display:flex;gap:6px;align-items:center;font-size:10.5px;color:var(--text-2);margin-top:3px}
+.dv-badge{margin-left:auto;text-align:right}
+.dv-badge .b{display:inline-block;background:var(--navy-800);color:#fff;font-weight:800;
+  font-size:12px;letter-spacing:.06em;padding:6px 14px;border-radius:3px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dv-badge .n{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--bad);margin-top:5px}
+.dv-badge .m{font-size:11px;color:var(--text-2);margin-top:3px}
+.dv-fields{margin:0 16px;border:1px solid var(--border-strong);border-radius:4px;overflow:hidden}
+.dv-fields table{margin:0}
+.dv-fields td{border:none;border-bottom:1px solid var(--border);padding:8px 12px;font-size:12px}
+.dv-fields tr:last-child td{border-bottom:none}
+.dv-fields td.k{width:150px;background:var(--surface-2);color:var(--text-2);white-space:nowrap;
+  border-right:1px solid var(--border);
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dv-lines{margin:12px 16px 0;border:1px solid var(--border-strong);border-radius:4px;overflow:hidden}
+.dv-lines table{margin:0}
+.dv-lines th{background:var(--navy-800);color:#fff;font-size:10.5px;letter-spacing:.09em;
+  padding:8px 12px;border:none;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dv-lines td{border:none;border-bottom:1px solid var(--border);padding:9px 12px;font-size:12px}
+/* Pale blue, not the orange --sea-soft resolves to: the total is the figure the
+   payee checks, and it should read as part of the document rather than a
+   warning about it. */
+.dv-lines tr.total td{background:var(--tb-blue-soft);border-bottom:none;
+  font-weight:800;font-size:13.5px;padding:10px 12px;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dv-foot{padding:12px 16px 16px}
+.dv-note{font-size:10.5px;color:var(--text-2);line-height:1.5;margin:10px 0 0}
+.dv-sign{margin:26px auto 0;width:230px;border-top:1px solid var(--navy-800);padding-top:6px;
+  text-align:center;font-size:11.5px;color:var(--navy-800);font-weight:600}
+/* Sits under the signature at the foot of the sheet, where a house line goes.
+   It was pulled up alongside the note and the two read as one sentence. */
+.dv-tag{text-align:right;font-size:12px;font-style:italic;color:var(--tb-blue);
+  padding-right:4px;line-height:1.35;margin:18px 0 0}
+
+@media (max-width:720px){
+  .ar-body{grid-template-columns:1fr}
+  .ar-band{flex-wrap:wrap}
+  .ar-title{margin-left:0;text-align:left;padding-left:0}
+  .ar-title .u{margin-left:0}
+  .ar-meta{justify-content:flex-start;margin-left:24px}
+}
+
 /* ---------- original + duplicate on one sheet ----------
    A voucher goes to the training center and a copy stays in the file; an
    invoice goes to the trainee and a copy stays with the booking. Both print
@@ -514,6 +640,31 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
   .doc2 .doc-total tr.grand td{font-size:11px;padding-top:4px}
   .doc2 .doc-sign{margin-top:10mm;font-size:9px;gap:20px}
   .copy-mark{display:inline-block !important;font-size:8px;padding:0 5px}
+
+  /* The voucher on half a sheet. It is its own bordered card rather than the
+     plain .doc header the rules above shrink, so it is sized here — otherwise
+     two copies at full size are two pages and the second comes out mostly
+     blank. */
+  .doc2 .dv{font-size:8.5px;border-radius:3px}
+  .doc2 .dv-head{padding:8px 10px 6px;gap:8px}
+  .doc2 .dv-head img{width:30px;height:30px}
+  .doc2 .dv-co h2{font-size:10px}
+  .doc2 .dv-co .l{font-size:7.5px;margin-top:1px}
+  .doc2 .dv-co .l svg{width:9px;height:9px}
+  .doc2 .dv-badge .b{font-size:8.5px;padding:3px 8px}
+  .doc2 .dv-badge .n{font-size:9px;margin-top:3px}
+  .doc2 .dv-badge .m{font-size:7.5px}
+  .doc2 .dv-fields{margin-left:10px;margin-right:10px}
+  .doc2 .dv-fields td{padding:4px 8px;font-size:8.5px}
+  .doc2 .dv-fields td.k{width:105px}
+  .doc2 .dv-lines{margin:7px 10px 0}
+  .doc2 .dv-lines th{font-size:7.5px;padding:4px 8px}
+  .doc2 .dv-lines td{padding:5px 8px;font-size:8.5px}
+  .doc2 .dv-lines tr.total td{font-size:9.5px;padding:5px 8px}
+  .doc2 .dv-foot{padding:7px 10px 9px}
+  .doc2 .dv-note{font-size:7.5px}
+  .doc2 .dv-sign{margin-top:12mm;width:170px;font-size:8.5px}
+  .doc2 .dv-tag{font-size:8.5px;margin-top:8px}
 }
 
 /* A list of twenty-odd ranks needs a box you can actually see them in. */

@@ -185,6 +185,19 @@ function wireCopy(textFn){
 /* The company block as it appears at the head of a document. One function so
    the receipt, the bill and the voucher cannot drift into saying different
    things about who we are. */
+/* The contact line is one field, written with a bullet between the number and
+   the address it is reached at. On a letterhead each wants its own line and its
+   own mark, so it is split where the office typed the separator and falls back
+   to the whole string when there is none. */
+function contactLines(){
+  const co = D().company;
+  return String(co.contact || '').split(/\s*\u2022\s*|\s{2,}\|\s{2,}/)
+    .map(x => x.trim()).filter(Boolean);
+}
+
+/* The mark, once, from the file the rest of the system already uses. */
+const LOGO = 'assets/logo.svg';
+
 function docCompany(){
   const co = D().company;
   return `<div><h2>${UI.esc(co.name)}</h2>
@@ -211,6 +224,8 @@ const ICO = (() => {
     home:  s('<path d="M3 10.5L12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>'),
     chat:  s('<path d="M12 3c5 0 9 3.6 9 8s-4 8-9 8a10 10 0 0 1-2.8-.4L4 21l1.2-3.4A7.6 7.6 0 0 1 3 11c0-4.4 4-8 9-8z"/>'),
     user:  s('<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>'),
+    cal:   s('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
+    peso:  s('<circle cx="12" cy="12" r="9"/><path d="M9 17V7h3.2a2.9 2.9 0 0 1 0 5.8H9M7.6 10.4h6M7.6 13h6"/>'),
     alert: s('<path d="M12 3l9 16H3z"/><path d="M12 9v5M12 17.2v.1"/>'),
   };
 })();
@@ -2454,46 +2469,74 @@ function expenseVoucherModal(v){
   const co = D().company;
   const voided = wasVoided(v);
 
+  /* A document somebody is handed and signs for, so it is bordered, compact and
+     carries the mark \u2014 the same family as the acknowledgement receipt, because
+     the two leave the same office on the same day. */
+  const chargedTo = (() => {
+    if(!v.account) return '\u2014';
+    const nm = ACC.acct(v.account).name;
+    /* An account with no name on file falls back to its own code, and a voucher
+       reading "5110 5110" looks like a fault in the document. */
+    return `<span class="mono">${UI.esc(v.account)}</span>`
+      + (nm && nm !== v.account ? ' ' + UI.esc(nm) : '');
+  })();
+
   const sheet = `
-    <div class="doc">
-      <div class="doc-head">
-        ${docCompany()}
-        <div class="doc-title">
-          <div class="t">DISBURSEMENT VOUCHER</div>
+    <div class="doc" style="padding:0;background:transparent">
+     <div class="dv">
+      <div class="dv-head">
+        <img src="${LOGO}" alt="">
+        <div class="dv-co">
+          <h2>${UI.esc(co.name)}</h2>
+          ${co.address ? `<div class="l">${ICO.pin}<span>${UI.esc(co.address)}</span></div>` : ''}
+          ${contactLines().map((x, n) =>
+            `<div class="l">${n ? ICO.mail : ICO.phone}<span>${UI.esc(x)}</span></div>`).join('')}
+          ${co.tradeName ? `<div class="l" style="opacity:.75">${UI.esc(co.tradeName)}</div>` : ''}
+        </div>
+        <div class="dv-badge">
+          <div class="b">DISBURSEMENT VOUCHER</div>
           <div class="n">${UI.esc(v.no)}</div>
-          <div class="muted" style="font-size:12px">${UI.date(v.date)}</div>
-          ${voided ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}
-          ${v.state === 'Pending' ? '<div style="margin-top:5px">' + UI.tag('Awaiting approval','warn') + '</div>' : ''}
+          <div class="m">Date issued : ${UI.date(v.date)}</div>
+          ${v.ref ? `<div class="m">Reference : <span class="mono">${UI.esc(v.ref)}</span></div>` : ''}
+          ${voided ? '<div style="margin-top:6px">' + UI.tag('VOID','bad') + '</div>' : ''}
+          ${v.state === 'Pending'
+            ? '<div style="margin-top:6px">' + UI.tag('Awaiting approval','warn') + '</div>' : ''}
         </div>
       </div>
-      <dl class="def" style="margin-bottom:14px">
-        <dt>Pay To</dt><dd><b>${UI.esc(v.payee || '\u2014')}</b></dd>
-        <dt>Particulars</dt><dd>${UI.esc(v.particulars || '\u2014')}</dd>
-        <dt>Charged To</dt><dd>${(() => {
-          if(!v.account) return '\u2014';
-          const nm = ACC.acct(v.account).name;
-          /* An account with no name on file falls back to its own code, and a
-             voucher reading "5110 5110" looks like a fault in the document. */
-          return `<span class="mono">${UI.esc(v.account)}</span>`
-            + (nm && nm !== v.account ? ' ' + UI.esc(nm) : '');
-        })()}</dd>
-        <dt>Paid From</dt><dd>${UI.esc(v.method || '\u2014')}${v.ref
-          ? ' \u00b7 Ref ' + UI.esc(v.ref) : ''}</dd>
-        <dt>Amount In Words</dt><dd><b>${UI.esc(amountInWords(v.amount))}</b></dd>
-      </dl>
-      <div class="doc-total">
-        <table>
-          <tr class="grand"><td>TOTAL DISBURSED</td><td class="num">${UI.peso(v.amount)}</td></tr>
-        </table>
+
+      <div class="dv-fields"><table>
+        <tr><td class="k">Pay To</td><td><b>${UI.esc(v.payee || '\u2014')}</b></td></tr>
+        <tr><td class="k">Charged To</td><td>${chargedTo}</td></tr>
+        <tr><td class="k">Amount In Words</td><td><b>${UI.esc(amountInWords(v.amount))}</b></td></tr>
+      </table></div>
+
+      <div class="dv-lines"><table>
+        <thead><tr><th style="text-align:left">DESCRIPTION</th>
+          <th class="num">AMOUNT (\u20b1)</th></tr></thead>
+        <tbody>
+          <tr><td>${UI.esc(v.particulars || '\u2014')}</td>
+              <td class="num">${UI.num(v.amount)}</td></tr>
+          <tr class="total"><td>TOTAL DISBURSED</td>
+              <td class="num">${UI.peso(v.amount)}</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="dv-fields" style="margin-top:12px"><table>
+        <tr><td class="k">Mode Of Payment</td><td>${UI.esc(v.method || '\u2014')}</td></tr>
+        <tr><td class="k">Reference No.</td>
+            <td>${v.ref ? `<span class="mono">${UI.esc(v.ref)}</span>` : '\u2014'}</td></tr>
+      </table></div>
+
+      <div class="dv-foot">
+        <p class="dv-note">Received the sum stated above in full settlement of the
+          particulars described.${v.state === 'Approved' && v.approvedBy
+            ? ` Approved by ${UI.esc(v.approvedBy)} on ${UI.date(v.approvedOn)}.` : ''}</p>
+        <div class="dv-sign">Received By ${UI.esc(String(v.payee || '').toUpperCase())}</div>
+        ${v.raisedBy ? `<p class="dv-note" style="text-align:center;margin-top:8px">Prepared by
+          ${UI.esc(v.raisedBy)}.</p>` : ''}
+        <div class="dv-tag">Sailing Towards<br>Better Opportunities.</div>
       </div>
-      <div class="doc-sign">
-        <div>Prepared By${v.raisedBy ? '<br><span class="muted" style="font-size:10px">'
-          + UI.esc(v.raisedBy) + '</span>' : ''}</div>
-        <div>Received By ${UI.esc(String(v.payee || '').toUpperCase())}</div>
-      </div>
-      ${v.state === 'Approved' && v.approvedBy
-        ? `<p class="muted" style="font-size:11px;margin-top:14px">Approved by
-             ${UI.esc(v.approvedBy)} on ${UI.date(v.approvedOn)}.</p>` : ''}
+     </div>
     </div>`;
 
   UI.modal({
@@ -5757,25 +5800,75 @@ function receiptModal(p){
     footExtra:`${!p.voided && can('payments') ? `<button type="button" class="btn btn-danger" id="voidPay">Void payment</button>` : ''}
                <button type="button" class="btn btn-primary"
                  onclick="UI.printDoc('${UI.esc(receiptNo(p))} — Acknowledgement Receipt')">Print / PDF</button>`,
-    body: `<div class="doc">
-      <div class="doc-head">
-        ${docCompany()}
-        <div class="doc-title"><div class="t">ACKNOWLEDGEMENT RECEIPT</div>
-          <div class="muted" style="font-size:12px">${UI.date(p.date)}</div>
-          ${p.voided ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}</div>
+    /* The one piece of paper a seafarer walks out with, and keeps. It carried
+       the same plain header as an internal voucher — right for something that
+       stays in a drawer, thin for a document shown to a manning agency two
+       years later. */
+    body: `<div class="doc ar" style="padding:0">
+      <div class="ar-band">
+        <img src="${LOGO}" alt="">
+        <div class="ar-rule"></div>
+        <div class="ar-co">
+          <h2>${UI.esc(co.name)}</h2>
+          ${co.address ? `<div class="l">${ICO.pin}<span>${UI.esc(co.address)}</span></div>` : ''}
+          ${contactLines().map((x, n) =>
+            `<div class="l">${n ? ICO.mail : ICO.phone}<span>${UI.esc(x)}</span></div>`).join('')}
+          ${co.tradeName ? `<div class="by">${UI.esc(co.tradeName)}</div>` : ''}
+        </div>
+        <div class="ar-title">
+          <div class="t">ACKNOWLEDGEMENT<br>RECEIPT</div>
+          <div class="u"></div>
+          ${p.voided ? '<div style="margin-top:9px">' + UI.tag('VOID','bad') + '</div>' : ''}
+        </div>
       </div>
-      <dl class="def" style="margin-bottom:14px">
-        <dt>Received From</dt><dd><b>${UI.esc(name(t))}</b> · ${UI.esc(t?.no||'')}</dd>
-        <dt>Address</dt><dd>${UI.esc(t?.address||'—')}</dd>
-        <dt>The Sum Of</dt><dd><b>${UI.esc(words)}</b></dd>
-        <dt>In Payment Of</dt><dd>${settles.map(s =>
-          `${UI.esc(s.course)}${s.center ? ' <span class="muted">— ' + UI.esc(s.center) + '</span>' : ''}`
-          + `${s.inv ? ' · Bill ' + UI.esc(s.inv.no) : ''}`).join('<br>')}</dd>
-        <dt>Mode Of Payment</dt><dd>${allTenders
-          .map(t => `${UI.esc(t.method)}${t.ref ? ' · Ref ' + UI.esc(t.ref) : ''} — ${UI.num(t.amount)}`).join('<br>')}</dd>
-      </dl>
+
+      <div class="ar-meta"><table>
+        <tr><td class="k">${ICO.doc} Receipt No.</td>
+            <td class="v mono">${UI.esc(receiptNo(p))}</td></tr>
+        <tr><td class="k">${ICO.cal} Date</td>
+            <td class="v">${UI.date(p.date)}</td></tr>
+      </table></div>
+
+      <div class="ar-body">
+        <section class="ar-panel">
+          <h4>RECEIPT DETAILS</h4>
+          <dl>
+            <dt>${ICO.user} Received From</dt>
+            <dd><b>${UI.esc(name(t))}</b>${t?.no ? ` · <span class="mono">${UI.esc(t.no)}</span>` : ''}</dd>
+            <dt>${ICO.pin} Address</dt><dd>${UI.esc(t?.address || '—')}</dd>
+            <dt>${ICO.peso} The Sum Of</dt><dd><b>${UI.esc(words)}</b></dd>
+            <dt>${ICO.doc} In Payment Of</dt><dd>${settles.map(s =>
+              `${UI.esc(s.course)}${s.center ? ' <span class="muted">— ' + UI.esc(s.center) + '</span>' : ''}`
+              + `${s.inv ? '<br>Bill <span class="mono">' + UI.esc(s.inv.no) + '</span>' : ''}`).join('<br>')}</dd>
+            <dt>${ICO.build} Mode Of Payment</dt><dd>${allTenders
+              .map(t => `<b>${UI.esc(t.method)}</b>${t.ref ? ' · Ref ' + UI.esc(t.ref) : ''} — ${UI.num(t.amount)}`)
+              .join('<br>')}</dd>
+          </dl>
+        </section>
+
+        <section class="ar-panel ar-sum">
+          <h4>PAYMENT SUMMARY</h4>
+          <table>
+            <tr><td>Amount Received</td><td class="num">${UI.num(total)}</td></tr>
+            ${settles.length === 1 && settles[0].inv ? (() => {
+              const inv = settles[0].inv;
+              ACC.recomputeInvoice(inv);
+              /* What came in over the bill is the office's business, not
+                 something to hand the trainee a claim on. The receipt states
+                 the money received and that the bill is settled, and stops. */
+              return `<tr><td>Invoice Total</td><td class="num">${UI.num(inv.total)}</td></tr>
+                <tr><td>Total Paid To Date</td><td class="num">${UI.num(inv.paid||0)}</td></tr>
+                <tr class="grand"><td>REMAINING BALANCE</td>
+                  <td class="num">${UI.peso(ACC.balanceOf(inv))}</td></tr>`;
+            })() : `<tr class="grand"><td>TOTAL RECEIVED</td>
+                      <td class="num">${UI.peso(total)}</td></tr>`}
+          </table>
+        </section>
+      </div>
+
       ${settles.length > 1 ? `
-      <table style="width:100%;margin-bottom:14px">
+      <div class="ar-applied">
+      <table style="width:100%">
         <thead><tr><th>Applied To</th><th>Bill</th><th class="num">Amount</th>
           <th class="num">Balance After</th></tr></thead>
         <tbody>${settles.map(s => {
@@ -5785,24 +5878,16 @@ function receiptModal(p){
             <td class="num">${UI.num(s.pay.amount)}</td>
             <td class="num">${s.inv ? UI.num(ACC.balanceOf(s.inv)) : '—'}</td></tr>`;
         }).join('')}</tbody>
-      </table>` : ''}
-      <div class="doc-total"><table>
-        <tr><td>Amount Received</td><td class="num">${UI.num(total)}</td></tr>
-        ${settles.length === 1 && settles[0].inv ? (() => {
-          const inv = settles[0].inv;
-          ACC.recomputeInvoice(inv);
-          /* What came in over the bill is the office's business, not something
-             to hand the trainee a claim on. The receipt states the money
-             received and that the bill is settled, and stops there. */
-          return `<tr><td>Invoice Total</td><td class="num">${UI.num(inv.total)}</td></tr>
-            <tr><td>Total Paid To Date</td><td class="num">${UI.num(inv.paid||0)}</td></tr>
-            <tr class="grand"><td>REMAINING BALANCE</td><td class="num">${UI.peso(ACC.balanceOf(inv))}</td></tr>`;
-        })() : ''}
-      </table></div>
-      <div class="doc-sign"><div>Cashier</div><div>Received The Above Amount</div></div>
-      <p class="muted" style="font-size:11px;margin-top:18px">Valid only when the corresponding
-        payment has cleared. Computer-generated. The official receipt for the training
-        itself is issued by the training center.</p>
+      </table></div>` : ''}
+
+      <div class="ar-sign">
+        <div class="s">Cashier</div>
+        <div class="v"></div>
+        <div class="s">Received the Above Amount</div>
+      </div>
+      <p class="ar-note">Valid only when the corresponding payment has cleared.
+        Computer-generated. The official receipt for the training itself is issued
+        by the training center.</p>
     </div>`
   });
   const vb = document.getElementById('voidPay');
