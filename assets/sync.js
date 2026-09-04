@@ -204,12 +204,25 @@ const SYNC = (() => {
     return out;
   }
 
+  /* Only the columns this map knows about.
+
+     It used to keep everything the server sent. A table with a housekeeping
+     column the map had never heard of — cash_counts.updated_at — came in as
+     updatedAt, sat in the store, and then could not go back out again, because
+     toRow refuses a field with no column. The office got NOT SAVED on a column
+     they had never typed into and could not have known about.
+
+     created_at was already skipped by name, which was this same bug being
+     patched one column at a time. Anything the map does not declare cannot be
+     pushed, so keeping it achieves nothing and breaks the save; the server
+     keeps its own copy either way. */
   function fromRow(name, row){
     const m = MAP[name];
     const back = Object.fromEntries(Object.entries(m.rename || {}).map(([a, b]) => [b, a]));
+    const known = new Set(m.cols || []);
     const out = {};
     for(const [col, v] of Object.entries(row)){
-      if(col === 'created_at') continue;
+      if(!known.has(col)) continue;
       const k = back[col] || camel(col);
       out[k] = trimDay(v);
     }

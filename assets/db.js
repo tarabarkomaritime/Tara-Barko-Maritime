@@ -307,6 +307,23 @@ const DB = (() => {
        the column allows, so the save was refused and everything after it went
        down too. They are moved to Rejected here, with a note saying which of
        the two it was, so work already stuck goes up on the next save. */
+    /* Housekeeping columns the server keeps and the app never asked for.
+
+       cash_counts carries an updated_at; the pull used to bring every column
+       down whatever the map knew, so it arrived as updatedAt, sat in the store,
+       and then could not be sent back — a field with no column stops the whole
+       save. The office saw NOT SAVED naming a column they had never typed into.
+
+       The pull no longer takes them. These are the ones already in a store,
+       stripped on the way in so work stuck behind them goes up on the next
+       save. Nothing reads them: they were never the app's to keep. */
+    ['cashCounts','trainees','courses','accounts','enrollments','invoices',
+     'payments','expenses','refunds','journal','log','changes','applications']
+      .forEach(k => {
+        if(!Array.isArray(d[k])) return;
+        d[k].forEach(r => { delete r.updatedAt; delete r.createdAt; });
+      });
+
     if(Array.isArray(d.expenses)){
       d.expenses.forEach(v => {
         if(v.state !== 'Voided') return;

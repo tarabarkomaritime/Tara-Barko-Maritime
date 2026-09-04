@@ -1517,6 +1517,69 @@ console.log('\n- old stores lose their passwords -');
       || 'something is still on the old file');
   }
 
+  /* ---------- what comes down must be able to go back up ----------
+     Four times now a save has failed for the whole office because a value in
+     the store had nowhere to go on the server. This is the shape of the last
+     one: cash_counts keeps an updated_at, the pull took every column the server
+     offered, and the field it brought back could not be sent again. */
+  console.log('\n- the round trip -');
+  {
+    /* A row as the server actually returns it, housekeeping column and all. */
+    const raw = { on_date:'2026-09-03', opening:'8000.00', closing:'21800.00',
+                  note:'', counted_by:'Jocelyn Eala',
+                  updated_at:'2026-09-03T04:11:22.000Z',
+                  created_at:'2026-09-03T04:11:22.000Z' };
+
+    check('the pull leaves the housekeeping columns behind', () => {
+      const back = run('SYNC.fromRow("cashCounts",' + JSON.stringify(raw) + ')');
+      return (!('updatedAt' in back) && !('createdAt' in back))
+        || 'brought in: ' + Object.keys(back).join(', ');
+    });
+
+    check('and keeps everything the office typed', () => {
+      const back = run('SYNC.fromRow("cashCounts",' + JSON.stringify(raw) + ')');
+      return (back.date === '2026-09-03' && back.countedBy === 'Jocelyn Eala'
+              && String(back.closing) === '21800.00')
+        || JSON.stringify(back);
+    });
+
+    check('what came down goes back up without complaint', () => {
+      try{
+        const back = run('SYNC.fromRow("cashCounts",' + JSON.stringify(raw) + ')');
+        run('SYNC.toRow("cashCounts",' + JSON.stringify(run('SYNC.fromRow("cashCounts",'
+            + JSON.stringify(raw) + ')')) + ')');
+        return true;
+      }catch(e){ return e.message; }
+    });
+
+    /* Every table, not just the one that broke. */
+    check('no table can bring back a field it cannot send', () => {
+      const bad = [];
+      const map = run('SYNC.MAP');
+      Object.keys(map).forEach(name => {
+        const cols = map[name].cols || [];
+        const row = {};
+        cols.forEach(c => { row[c] = null; });
+        row.updated_at = 'x'; row.created_at = 'x'; row.some_new_column = 'x';
+        const back = run('SYNC.fromRow(' + JSON.stringify(name) + ',' + JSON.stringify(row) + ')');
+        try{ run('SYNC.toRow(' + JSON.stringify(name) + ',' + JSON.stringify(back) + ')'); }
+        catch(e){ bad.push(name + ': ' + e.message); }
+      });
+      return !bad.length || bad.join(' | ');
+    });
+
+    /* And a store that already collected one is repaired as it opens. */
+    check('a store already holding one is cleaned on the way in', () => {
+      run('DB.reset(true)');
+      run(`(() => { DB.get().cashCounts.push({ date:'2026-09-03', opening:8000,
+             closing:21800, note:'', countedBy:'J', updatedAt:'2026-09-03T04:11:22Z' });
+             DB.save(); })()`);
+      run('DB.load()');
+      const c = run('DB.get().cashCounts[0]');
+      return (!('updatedAt' in c) && c.closing === 21800) || JSON.stringify(c);
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
