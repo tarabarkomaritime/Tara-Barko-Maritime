@@ -240,7 +240,6 @@ const APPS = (() => {
     enr.rebate = rebate;
     enr.deduct = deduct;
 
-    /* Billing, only when the booking is confirmed. A reservation is not receivable. */
     /* Billed as soon as the seat is taken, date or no date.
 
        I had this the other way round on the reasoning that a booking without a
@@ -251,86 +250,136 @@ const APPS = (() => {
 
        Only Pending is left unbilled — that is a seat asked for and not yet
        agreed, where there is nothing to charge for until somebody says yes. */
-    let inv = null;
-    if(mode !== 'Pending' && mode !== 'Reserved'){
-      /* A seat we take no training fee on still gets a booking — the centre is
-         endorsed against it and it belongs on the day's list — but it does not
-         get a nil line on the bill. "PEME MEDICAL — GRAMCARE ... 0.00" reads as
-         a training that was somehow free rather than as one the office is not
-         charging for, and the trainee queries it. The course is named in the
-         invoice's own header either way. */
-      /* Each line remembers the booking it came from and the discount that was
-         given on it. One bill can carry six trainings, and a single "Less:
-         Discount" at the foot of it tells nobody which of the six was
-         discounted or by how much — which is the line a trainee queries and the
-         office then cannot answer from the document it handed over.
-
-         The invoice total still nets the discount off once, exactly as before.
-         This is what the figure is made of, recorded beside it. */
-      const items = [
-        ...(fee > 0
-          ? [{ desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee,
-               enrId:enr.id, discount, discountNote:t(opts.discountNote) }]
-          : []),
-        ...(opts.charges || []).map(a => ({ desc:a.desc, account:a.account || '4100', qty:1, price:a.price,
-               enrId:enr.id })),
-      ];
-      /* One bill a day per trainee. Somebody booking three courses across the
-         counter is one conversation and one amount to pay, and three separate
-         invoices for it is three documents to hand over, three to chase and
-         three to reconcile against one payment.
-
-         Same trainee, same day, still open, not voided: the training joins the
-         bill already raised. A bill already settled is left alone — adding to a
-         paid invoice would reopen a document the trainee has a receipt for. */
-      const open = D().invoices.find(i =>
-        i.traineeId === trainee.id
-        && i.date === enr.date
-        && !i.voided
-        && ACC.r2(i.paid || 0) <= 0.004);
-
-      if(open){
-        ACC.addToInvoice(open, items, discount);
-        inv = open;
-      }else{
-        inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:trainee.id, date:enr.date, items, discount });
-        D().invoices.push(inv);
-        ACC.postInvoice(inv);
-      }
-      enr.invoiceId = inv.id;
-
-      /* What this booking owes the centre.
-
-         Normally it is the fee. On a booking taken with no fee it is the
-         charges: a rescheduling fee, a make-up class, a cancellation — the
-         centre is the one levying those, we collect them at the counter and
-         they have to reach the centre, which means appearing on that centre's
-         payables and going out on that centre's voucher. Without this a charge
-         booking took the trainee's money and owed nobody, and the centre was
-         never paid.
-
-         On a booking that does have a fee the charges stay ours, which is
-         today's behaviour and the right one: a documentary stamp is the
-         office's to keep. */
-      const charged = ACC.r2((opts.charges || []).reduce((s, a) => s + ACC.r2(a.price), 0));
-      const owedToCentre = fee > 0 ? fee : charged;
-
-      /* The debt to the center exists from the moment the seat is booked, not
-         when the trainee finishes paying — so it posts here, alongside the bill. */
-      if(owedToCentre > 0){
-        const s = ACC.postCenterPayable({
-          date:enr.date,
-          memo:`${c.title}${enr.center ? ' — ' + enr.center : ''} · ${enr.no}`,
-          refNo:enr.no, refId:enr.id, fee:owedToCentre, rebate, deduct,
-        });
-        enr.centerPayable = s.payable;
-        enr.rebateReceivable = s.receivable;
-      }
-    }
+    const inv = billBooking(enr, { charges:opts.charges, discount,
+                                   discountNote:opts.discountNote });
 
     DB.activity('Enrolled trainee', `${trainee.no} → ${enr.no}`);
     DB.save();
     return { trainee, enrollment:enr, invoice:inv };
+  }
+
+  /* Raising the bill for a booking, whenever that happens to be.
+
+     This used to live inside enroll and nowhere else, which meant a booking
+     that was not billed at the moment it was taken could never be billed at
+     all. Two ways in existed. A seat marked Open Schedule under the old rule
+     — that a booking without a date is not receivable — was recorded and then
+     stranded: the office could not take money for a training the trainee was
+     standing there paying for, because there was no bill to put it against and
+     no receipt to hand over. And a Pending seat, once the centre agreed it,
+     was moved to Enrolled by the change form, which changes the booking and
+     knows nothing about billing — so it too stayed unbilled forever.
+
+     So the billing is here, on its own, and both the counter and the office
+     screens reach the same code. What it raises is identical either way: the
+     course line at the agreed fee, any charges, the day's open bill joined if
+     the trainee already has one, and the centre's payable posted beside it.
+
+     Pending and Reserved bill nothing and say so by returning null rather than
+     throwing — enroll leans on that. Everything else that cannot be billed is
+     an error with the reason in it, because by then somebody has pressed a
+     button expecting a bill.
+
+     opts carries only what enroll knows and the booking does not: the charges
+     ticked on the form, which are recorded as invoice lines and nowhere else. */
+  function billBooking(enr, opts = {}){
+    if(!enr) throw new Error('There is no booking to bill.');
+    if(enr.status === 'Void') throw new Error('That booking is void — there is nothing to bill.');
+    if(enr.status === 'Pending' || enr.status === 'Reserved') return null;
+    if(enr.invoiceId) throw new Error('That booking is already on a bill.');
+
+    const trainee = D().trainees.find(x => x.id === enr.traineeId);
+    if(!trainee) throw new Error('That booking has no trainee on file.');
+    const c = course(enr.courseId);
+    if(!c) throw new Error('That booking has no course on file.');
+
+    const fee = ACC.r2(enr.fee);
+    const discount = ACC.r2(opts.discount != null ? opts.discount : (enr.discount || 0));
+    const discountNote = t(opts.discountNote != null ? opts.discountNote : enr.discountNote);
+    const charges = opts.charges || [];
+    /* A charge booking carries its charges as invoice lines and nowhere else,
+       so one that reaches here unbilled has nothing left to bill from. Say that
+       rather than raising a bill for zero. */
+    if(fee <= 0 && !charges.length)
+      throw new Error('That booking has no fee and no charges on it — there is nothing to bill.');
+
+    /* The day the bill is raised, which is the day it is asked for. At the
+       counter that is the day of the booking; for a seat billed later it is
+       today, and today is when the money is being collected. */
+    const on = DB.today();
+
+    /* A seat we take no training fee on still gets a booking — the centre is
+       endorsed against it and it belongs on the day's list — but it does not
+       get a nil line on the bill. "PEME MEDICAL — GRAMCARE ... 0.00" reads as
+       a training that was somehow free rather than as one the office is not
+       charging for, and the trainee queries it. The course is named in the
+       invoice's own header either way. */
+    /* Each line remembers the booking it came from and the discount that was
+       given on it. One bill can carry six trainings, and a single "Less:
+       Discount" at the foot of it tells nobody which of the six was discounted
+       or by how much — which is the line a trainee queries and the office then
+       cannot answer from the document it handed over. */
+    const items = [
+      ...(fee > 0
+        ? [{ desc:`${c.title}${enr.center ? ' — ' + enr.center : ''}`, account:'4000', qty:1, price:fee,
+             enrId:enr.id, discount, discountNote }]
+        : []),
+      ...charges.map(a => ({ desc:a.desc, account:a.account || '4100', qty:1, price:a.price,
+             enrId:enr.id })),
+    ];
+
+    /* One bill a day per trainee. Somebody booking three courses across the
+       counter is one conversation and one amount to pay, and three separate
+       invoices for it is three documents to hand over, three to chase and three
+       to reconcile against one payment.
+
+       Same trainee, same day, still open, not voided: the training joins the
+       bill already raised. A bill already settled is left alone — adding to a
+       paid invoice would reopen a document the trainee has a receipt for. */
+    const open = D().invoices.find(i =>
+      i.traineeId === trainee.id
+      && i.date === on
+      && !i.voided
+      && ACC.r2(i.paid || 0) <= 0.004);
+
+    let inv;
+    if(open){
+      ACC.addToInvoice(open, items, discount);
+      inv = open;
+    }else{
+      inv = ACC.buildInvoice({ enrollmentId:enr.id, traineeId:trainee.id, date:on, items, discount });
+      D().invoices.push(inv);
+      ACC.postInvoice(inv);
+    }
+    enr.invoiceId = inv.id;
+
+    /* What this booking owes the centre.
+
+       Normally it is the fee. On a booking taken with no fee it is the charges:
+       a rescheduling fee, a make-up class, a cancellation — the centre is the
+       one levying those, we collect them at the counter and they have to reach
+       the centre, which means appearing on that centre's payables and going out
+       on that centre's voucher. Without this a charge booking took the trainee's
+       money and owed nobody, and the centre was never paid.
+
+       On a booking that does have a fee the charges stay ours, which is today's
+       behaviour and the right one: a documentary stamp is the office's to keep. */
+    const charged = ACC.r2(charges.reduce((s, a) => s + ACC.r2(a.price), 0));
+    const owedToCentre = fee > 0 ? fee : charged;
+
+    /* The debt to the centre exists from the moment the seat is billed, not
+       when the trainee finishes paying — so it posts here, alongside the bill. */
+    if(owedToCentre > 0 && !enr.centerPayable){
+      const st = ACC.postCenterPayable({
+        date:on,
+        memo:`${c.title}${enr.center ? ' — ' + enr.center : ''} · ${enr.no}`,
+        refNo:enr.no, refId:enr.id, fee:owedToCentre,
+        rebate:ACC.r2(enr.rebate || 0), deduct:!!enr.deduct,
+      });
+      enr.centerPayable = st.payable;
+      enr.rebateReceivable = st.receivable;
+    }
+    return inv;
   }
 
   /* Register and enroll in one step — the walk-in at the counter, who is not
@@ -400,7 +449,7 @@ const APPS = (() => {
 
   return {
     REQUIRED, LABELS,
-    refCode, validate, submit, encode, enroll,
+    refCode, validate, submit, encode, enroll, billBooking,
     matchTrainee, upsertTrainee,
     track, findTrainee, enrollmentsFor, registrationsFor,
     forName, course,

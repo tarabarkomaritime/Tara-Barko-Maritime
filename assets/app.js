@@ -359,6 +359,23 @@ function bookingBalance(e){
     : ACC.balanceOf(ACC.recomputeInvoice(inv));
 }
 
+/* A booking that owes money and has no bill to owe it on.
+
+   Two make these. A seat marked Open Schedule before the billing rule changed
+   was recorded and never billed — the office is looking at a training the
+   trainee is standing there paying for, with no bill to put the money against.
+   And a Pending seat the centre has since agreed: the change form moves it to
+   Enrolled and knows nothing about billing, so it stays unbilled forever.
+
+   Both read as "not billed" beside a fee the trainee plainly owes. So the
+   screens that list bookings say what it comes to and offer to raise it. */
+const billableUnbilled = e => !!e && !e.invoiceId
+  && !['Void', 'Pending', 'Reserved'].includes(e.status)
+  && ACC.r2(e.fee || 0) > 0.004;
+
+/* What it would be billed — the agreed fee less whatever was taken off it. */
+const wouldBill = e => ACC.r2((e.fee || 0) - (e.discount || 0));
+
 /* The trainings on a bill, in the words they were charged under.
 
    A charge booking has no fee line, so there is nothing on the invoice naming
@@ -1163,8 +1180,13 @@ VIEWS.enrollments = () => {
           return i ? `${UI.statusTag(invStatus(i))}<br><span class="muted mono" style="font-size:11px">${UI.esc(i.no)}</span>`
                    : `<span class="tag t-muted">Not billed</span>`; } },
       { h:'Balance', k:e => { const b = bookingBalance(e);
-          if(b == null) return '<span class="muted">—</span>';
-          return b > 0.004 ? `<b style="color:var(--bad)">${UI.peso(b)}</b>` : `<span style="color:var(--ok)">Settled</span>`; }, cls:'num' },
+          if(b != null)
+            return b > 0.004 ? `<b style="color:var(--bad)">${UI.peso(b)}</b>`
+                             : `<span style="color:var(--ok)">Settled</span>`;
+          /* Agreed fee, no bill yet. The dash said nothing was owed. */
+          return billableUnbilled(e)
+            ? `<span class="muted">${UI.peso(wouldBill(e))} unbilled</span>`
+            : '<span class="muted">—</span>'; }, cls:'num' },
     ], rows, { empty:'No enrollments recorded.', rowClass:'clickable',
                rowAttrs:e => `data-act="view-enrollment" data-id="${e.id}"` }), { flush:true })}
   `;
@@ -3685,9 +3707,21 @@ function traineeProfile(t){
         { h:'Training center', k:e => UI.esc(e.center || '—') },
         { h:'When', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
         { h:'Booking', k:e => UI.statusTag(e.status) },
+        /* What this one training still owes — its own share of the day's
+           bill, not the bill's whole balance repeated down the column.
+
+           A booking with no bill behind it used to stop at "not billed", which
+           is true and useless: the fee is agreed, the trainee is at the counter
+           with the money, and nothing on the screen would take it. Now it says
+           what it comes to and offers to raise the bill, after which the money
+           can be received against it like any other. */
         { h:'Paid?', k:e => { const due = bookingBalance(e);
-            if(due == null) return '<span class="muted">not billed</span>';
-            return due > 0.004 ? `<span class="neg">${UI.peso(due)} left</span>` : 'Paid'; } },
+            if(due != null) return due > 0.004 ? `<span class="neg">${UI.peso(due)} left</span>` : 'Paid';
+            if(billableUnbilled(e))
+              return `<span class="neg">${UI.peso(wouldBill(e))} due</span>
+                <button class="btn btn-ghost btn-xs" style="margin-left:6px"
+                  data-act="bill-booking" data-id="${e.id}">Bill it</button>`;
+            return '<span class="muted">not billed</span>'; } },
         /* One request at a time per booking. Two people asking for different
            dates on the same seat is a queue where whichever is signed second
            silently wins, so the second is refused while the first is open. */
@@ -4097,6 +4131,39 @@ function cancelRebateAsk(enrId){
          : 'Nothing changes yet. The rebate stays exactly as it is until the admin signs it off.' });
 }
 
+/* Raise the bill for a booking that has none, then open the till.
+
+   The two are one action at the counter: the reason a bill is being raised
+   against a seat booked last week is that the trainee is standing there paying
+   for it. Stopping at "billed" would leave the cashier to find the same trainee
+   again in another module. */
+function billBookingNow(e){
+  if(!e) return;
+  if(!billableUnbilled(e)){
+    UI.toast(e.invoiceId ? 'That booking is already on a bill.'
+      : e.status === 'Pending' ? 'A Pending booking is not agreed yet — confirm it first.'
+      : 'There is no fee on that booking to bill.', 'bad');
+    return;
+  }
+  const c = CRS(e.courseId);
+  UI.confirm(`Bill ${e.no} for ${UI.peso(wouldBill(e))}?`, () => {
+    let inv;
+    try{ inv = APPS.billBooking(e); }
+    catch(err){ UI.toast(err.message, 'bad'); return; }
+    if(!inv){ UI.toast('That booking is not agreed yet — there is nothing to bill.', 'bad'); return; }
+    DB.activity('Billed a booking', `${e.no} → ${inv.no}`);
+    DB.save();
+    UI.toast(`${e.no} billed on ${inv.no} — ${UI.peso(inv.total)}.`);
+    render();
+    /* A tick late: the confirm closes its own dialog after this handler runs,
+       and would close the collection window with it. */
+    setTimeout(() => paymentForm(inv), 0);
+  }, { yes:'Raise the bill and collect',
+       detail:`${c ? c.title : 'This training'}${e.center ? ' — ' + e.center : ''}. `
+            + 'It joins the trainee\'s open bill for today if they have one, and the centre '
+            + 'is owed for the seat from this point. The collection window opens next.' });
+}
+
 function bookingChangeForm(e){
   if(!e) return;
   if(e.status === 'Void'){ UI.toast('That booking is void — there is nothing left to change.', 'bad'); return; }
@@ -4302,6 +4369,7 @@ function approveChange(id, ok, note){
   }
 
   const gap = feeGap(ch);
+  let billed = null;
   if(ch.kind === 'invoice-void'){
     const inv = INV(ch.to && ch.to.invoiceId);
     if(!inv){ UI.toast('That bill is no longer on file.', 'bad'); return; }
@@ -4321,6 +4389,18 @@ function approveChange(id, ok, note){
     if(!voidEnrollment(e, ch.reason)) return;
   }else{
     CHANGE_FIELDS.forEach(f => { e[f.k] = ch.to[f.k]; });
+    /* Pending is the one state that bills nothing — a seat asked for and not
+       yet agreed. This form is where the centre's answer is recorded, so it is
+       also the moment the seat becomes chargeable. Left to itself the booking
+       would read Enrolled with no bill against it for good.
+
+       A failure here does not undo the change: the dates and the status are
+       right either way, and the bill can still be raised from the trainee's
+       own list. */
+    if(billableUnbilled(e)){
+      try{ billed = APPS.billBooking(e); }
+      catch(err){ UI.toast('Changed, but not billed: ' + err.message, 'warn'); }
+    }
   }
   ch.state = 'Approved';
   ch.approvedBy = SESSION.name; ch.approvedOn = DB.today();
@@ -4336,6 +4416,8 @@ function approveChange(id, ok, note){
     ? `${e.no} voided. The bill against it was reversed.`
     : gap
       ? `${e.no} updated. The bill still reads ${UI.peso(gap.was)} — revise it if it should say ${UI.peso(gap.next)}.`
+      : billed
+      ? `${e.no} updated and billed on ${billed.no} — ${UI.peso(wouldBill(e))} now collectable.`
       : `${e.no} updated.`, gap ? 'warn' : '');
   refresh();
 }
@@ -4452,10 +4534,30 @@ ${addons().map((a,i) => `
           discount:fd.discount, discountNote:fd.discountNote, remarks:fd.remarks,
           by:SESSION.name,
         });
-        UI.toast(out.invoice
-          ? `Enrolled ${out.enrollment.no} — invoice ${out.invoice.no} for ${UI.peso(out.invoice.total)}`
-          : `Booking reserved as ${out.enrollment.no} — not yet billed.`);
         refresh();
+        /* Booking and paying are one conversation across the counter. The
+           office used to enroll here, read a toast, and then go and find the
+           same trainee again in Collections to take the money they were already
+           holding — and a booking with several trainings on it meant doing that
+           once and picking the trainings apart by hand.
+
+           So the collection window is offered on the bill just raised, with
+           every training on it already listed and priced. Declining it costs
+           one click and nothing is lost: the bill stands and can be collected
+           whenever. */
+        if(out.invoice){
+          /* A tick late, like everywhere else this modal opens another: the
+             enrollment form closes itself after this handler returns, and it
+             would take the offer with it. */
+          setTimeout(() => UI.confirm(`Enrolled ${out.enrollment.no} — ${out.invoice.no} for ${UI.peso(out.invoice.total)}.`
+            + ' Record the payment now?',
+            () => setTimeout(() => paymentForm(out.invoice), 0),
+            { title:'Enrolled', yes:'Record the payment',
+              detail:'Every training on this bill is listed in the collection window with its '
+                   + 'own amount. Close this instead if they are not paying yet — the bill stands.' }), 0);
+        }else{
+          UI.toast(`${out.enrollment.no} recorded as ${out.enrollment.status} — nothing billed yet.`);
+        }
       }catch(err){
         UI.toast(err.message, 'bad');
         return false;
@@ -5892,6 +5994,7 @@ document.addEventListener('click', ev => {
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'change-booking':() => { ev.stopPropagation(); bookingChangeForm(ENR(id)); },
+    'bill-booking':  () => { ev.stopPropagation(); billBookingNow(ENR(id)); },
     'void-booking':  () => { ev.stopPropagation(); voidBooking(ENR(id)); },
     'approve-change':() => UI.confirm('Approve this change to the booking?',
                        () => approveChange(id, true),

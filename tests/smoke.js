@@ -1580,6 +1580,110 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---------- a seat billed after the fact ----------
+     Billing used to happen only inside enroll, so a booking not billed at the
+     moment it was taken could never be billed at all. An Open Schedule seat
+     recorded under the old rule, and a Pending seat the centre later agreed,
+     both sat there owing money with no bill to owe it on — the office could not
+     take the payment the trainee was standing there offering. */
+  console.log('\n- a seat billed after the fact -');
+  {
+    const setup = () => run(`(() => {
+      DB.reset(true);
+      const d = DB.get();
+      const t = { id:'bt1', no:'TRN-B1', last:'ARCILLAS', first:'LEWELL', middle:'',
+                  suffix:'', srn:'SB1', registered:DB.today() };
+      d.trainees.push(t);
+      globalThis.BT = t;
+      globalThis.BC = d.courses.filter(c => c.amount > 0).slice(0, 3);
+      return true;
+    })()`);
+
+    setup();
+    run(`globalThis.BOPEN = APPS.enroll(BT, { courseId:BC[0].id, fee:BC[0].amount,
+           mode:'Open Schedule', by:'K' })`);
+
+    check('a seat with no date yet is billed all the same', () =>
+      !!run('BOPEN.invoice') || 'Open Schedule raised no bill');
+
+    check('and the bill is for the agreed fee', () =>
+      run('ACC.r2(BOPEN.invoice.total)') === run('ACC.r2(BC[0].amount)')
+        || run('BOPEN.invoice.total'));
+
+    check('the centre is owed for it from that moment', () =>
+      !!run('BOPEN.enrollment.centerPayable') || 'no payable posted');
+
+    /* Pending is the one that bills nothing. */
+    run(`globalThis.BPEND = APPS.enroll(BT, { courseId:BC[1].id, fee:BC[1].amount,
+           mode:'Pending', by:'K' })`);
+
+    check('a seat only asked for bills nothing yet', () =>
+      run('BPEND.invoice') === null || 'Pending raised a bill');
+
+    check('and asking to bill it says so rather than raising one', () =>
+      run('APPS.billBooking(BPEND.enrollment)') === null
+        || 'billBooking billed a Pending seat');
+
+    /* The centre answers. The change form moves it to Enrolled; that is the
+       moment it becomes chargeable, and what the office presses next. */
+    run(`(() => { const e = BPEND.enrollment;
+           e.status = 'Enrolled'; e.start = '2026-10-05'; e.end = '2026-10-09'; })()`);
+    run('globalThis.BLATE = APPS.billBooking(BPEND.enrollment)');
+
+    check('once the centre agrees it, it can be billed', () =>
+      !!run('BLATE') || 'no bill raised');
+
+    check('the booking now points at that bill', () =>
+      run('BPEND.enrollment.invoiceId') === run('BLATE.id') || run('BPEND.enrollment.invoiceId'));
+
+    check('the centre is owed for it too', () =>
+      !!run('BPEND.enrollment.centerPayable') || 'no payable posted');
+
+    check('it joined the bill already open for that trainee today', () =>
+      run('BLATE.id') === run('BOPEN.invoice.id') || 'a second bill was raised for the same day');
+
+    check('and that bill now asks for both trainings', () =>
+      run('ACC.r2(BLATE.total)') === run('ACC.r2(BC[0].amount + BC[1].amount)')
+        || run('BLATE.total'));
+
+    check('each line still names the booking it came from', () => {
+      const ids = run('BLATE.items.map(x => x.enrId)');
+      return (ids.length === 2 && ids.includes(run('BOPEN.enrollment.id'))
+              && ids.includes(run('BPEND.enrollment.id'))) || JSON.stringify(ids);
+    });
+
+    check('billing the same seat twice is refused', () =>
+      throws('APPS.billBooking(BPEND.enrollment)', /already on a bill/));
+
+    check('a voided seat cannot be billed', () => {
+      run(`(() => { const d = DB.get();
+             d.enrollments.push({ id:'bvoid', no:'ENR-V', traineeId:'bt1',
+               courseId:BC[2].id, status:'Void', fee:BC[2].amount, discount:0,
+               date:DB.today(), start:'', end:'' }); })()`);
+      return throws(`APPS.billBooking(DB.get().enrollments.find(e => e.id === 'bvoid'))`,
+                    /void/);
+    });
+
+    check('a seat with nothing on it to charge for is refused', () => {
+      run(`(() => { const d = DB.get();
+             d.enrollments.push({ id:'bfree', no:'ENR-F', traineeId:'bt1',
+               courseId:BC[2].id, status:'Enrolled', fee:0, discount:0,
+               date:DB.today(), start:'2026-10-01', end:'2026-10-02' }); })()`);
+      return throws(`APPS.billBooking(DB.get().enrollments.find(e => e.id === 'bfree'))`,
+                    /nothing to bill/);
+    });
+
+    check('the books still balance after a bill raised late', () => {
+      const d = run(`(() => { const j = DB.get().journal.filter(x => !x.voided);
+        let dr = 0, cr = 0;
+        j.forEach(e => (e.lines || []).forEach(l => { dr += ACC.r2(l.debit || 0);
+                                                      cr += ACC.r2(l.credit || 0); }));
+        return ACC.r2(dr - cr);
+      })()`);
+      return Math.abs(d) < 0.005 || 'out by ' + d;
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
