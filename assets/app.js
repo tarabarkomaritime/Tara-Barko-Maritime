@@ -3218,12 +3218,34 @@ VIEWS.daily = () => {
            Counted by ${UI.esc(c.count.countedBy)}</p>` : ''}`,
         { flush:true,
           sub:'Counted by hand, against what the day\'s receipts and payments say it should be',
-          /* The cashier reads it; the admin records it. Hiding the button is
-             the courtesy — the table on the server is what actually refuses. */
-          actions:canApprove()
-            ? `<button class="btn btn-ghost btn-xs" data-act="cash-count" data-id="${on}">
-                 ${c.count ? (canApprove() ? 'Edit the count' : 'Counted') : 'Record the count'}</button>`
-            : '<span class="muted" style="font-size:11.5px">counted at the desk · only the admin can change it</span>' })
+          /* The person who counts the drawer is the person standing at it.
+
+             The button was shown to the admin alone, so the desk — the only
+             one who can see the money at the end of the day — had no way to
+             record what was in it, and the count ended up typed by somebody
+             being told a figure over the phone. That is not a count of
+             anything.
+
+             So the desk records it. What the desk cannot do is record it
+             twice: a count that can be revised after the fact is a second
+             opinion, and the whole reason for writing down what was actually
+             there is that it can be set against what the books say should have
+             been. The admin can still change one, because somebody has to be
+             able to fix a mistyped figure and the discrepancy is escalated to
+             them anyway.
+
+             Both halves are the table's own policies on the server — insert
+             for any of the staff, update for an admin. This is the courtesy of
+             not offering a button that would be refused. */
+          actions:(() => {
+            const btn = label => `<button class="btn btn-ghost btn-xs"
+                data-act="cash-count" data-id="${on}">${label}</button>`;
+            if(!c.count)
+              return can('daily') ? btn('Record the count')
+                : '<span class="muted" style="font-size:11.5px">not counted yet</span>';
+            return canApprove() ? btn('Edit the count')
+              : '<span class="muted" style="font-size:11.5px">counted · only the admin can change it</span>';
+          })() })
         + '<div style="height:18px"></div>';
     })()}
 
