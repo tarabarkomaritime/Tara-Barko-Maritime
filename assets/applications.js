@@ -241,11 +241,18 @@ const APPS = (() => {
     enr.deduct = deduct;
 
     /* Billing, only when the booking is confirmed. A reservation is not receivable. */
-    /* Billed when the booking is confirmed. A seat still waiting on the centre
-       for a date is not receivable — the trainee has not been told what they
-       are paying for yet — so it is recorded and billed later. */
+    /* Billed as soon as the seat is taken, date or no date.
+
+       I had this the other way round on the reasoning that a booking without a
+       date is not yet receivable. That is not how the counter works: the
+       trainee pays when they book, and the centre confirms the schedule
+       afterwards. Withholding the bill meant the office could not take the
+       money it had just been handed, and there was no receipt to give.
+
+       Only Pending is left unbilled — that is a seat asked for and not yet
+       agreed, where there is nothing to charge for until somebody says yes. */
     let inv = null;
-    if(mode === 'Enrolled' || mode === 'On Process'){
+    if(mode !== 'Pending' && mode !== 'Reserved'){
       /* A seat we take no training fee on still gets a booking — the centre is
          endorsed against it and it belongs on the day's list — but it does not
          get a nil line on the bill. "PEME MEDICAL — GRAMCARE ... 0.00" reads as

@@ -4133,8 +4133,8 @@ function bookingChangeForm(e){
         UI.f.select('center','Training center', startCenter, CENTERS.map(c => ({ v:c, l:c })),
           { req:true }),
         UI.f.select('courseId','Course', e.courseId, [], { req:true }))}
-      ${UI.row(UI.f.date('start','Training starts', e.start || '', { req:true }),
-               UI.f.date('end','Training ends', e.end || '', { req:true }))}
+      ${UI.row(UI.f.date('start','Training starts', e.start || '', {}),
+               UI.f.date('end','Training ends', e.end || '', {}))}
       ${UI.f.select('status','Booking', e.status, states.map(s => ({ v:s, l:s })), { req:true })}
       ${UI.f.area('reason','Why is it changing?', '',
         { req:true, ph:'e.g. the center moved the run to the following week' })}
@@ -4151,6 +4151,14 @@ function bookingChangeForm(e){
       }
       if(fd.end && fd.start && fd.end < fd.start){
         UI.toast('The end date cannot fall before the start date.', 'bad'); return false;
+      }
+      /* Confirming a schedule is exactly this form: pick the status that has
+         dates and put them in. So the dates are demanded by the status rather
+         than always, and a booking still waiting on the centre can be changed
+         without inventing them. */
+      if(!['Pending','Open Schedule'].includes(fd.status) && !fd.start){
+        UI.toast('A booking that is not Pending or Open Schedule needs its training dates.', 'bad');
+        return false;
       }
       const to = { center:fd.center === NO_CENTER ? '' : fd.center, courseId:fd.courseId,
                    start:fd.start, end:fd.end, status:fd.status };
