@@ -477,7 +477,42 @@ function initLogin(){
       enterShell(staff);
     }catch(e){
       btn.disabled = false;
-      say('Signed in, but the records did not load: ' + (e.message || 'unknown error'));
+      const why = e.message || 'unknown error';
+
+      /* A tab that has been open for days is running the code it opened with,
+         and that code can be asking the server for a column that has since been
+         renamed. It reads as the office being locked out of their own system —
+         "column journal.at does not exist" is not a sentence anybody at a desk
+         can act on — and the answer, reloading, is the one thing the message
+         did not say.
+
+         The version bar catches this for tabs new enough to have it, and a tab
+         old enough to hit this is often older than the bar. So the way out is
+         put here too, where the person actually is. The reload carries a
+         throwaway query so the page itself comes back from the server rather
+         than from the cache that is causing the problem. */
+      const stale = /column .* does not exist|schema cache|PGRST|could not find/i.test(why);
+      say(stale
+        ? 'This page is running an old copy of the system, which is asking the '
+          + 'server for something that has since changed. Reloading fixes it.'
+        : 'Signed in, but the records did not load: ' + why);
+
+      const msg = document.getElementById('loginMsg');
+      if(msg && !document.getElementById('reloadFix')){
+        const b = document.createElement('button');
+        b.id = 'reloadFix';
+        b.type = 'button';
+        b.className = 'btn btn-primary btn-block';
+        b.textContent = 'Reload the system';
+        b.onclick = () => location.replace(location.pathname + '?r=' + Date.now());
+        msg.insertAdjacentElement('afterend', b);
+        if(!stale){
+          const note = document.createElement('p');
+          note.className = 'login-hint';
+          note.textContent = 'If reloading does not help, the message above is the real fault.';
+          b.insertAdjacentElement('afterend', note);
+        }
+      }
     }
   };
 
