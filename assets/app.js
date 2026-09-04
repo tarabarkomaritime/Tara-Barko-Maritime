@@ -1627,6 +1627,11 @@ VIEWS.sales = () => {
 
   const sum = rows => ACC.r2(rows.reduce((s, r) => s + r.amount, 0));
   const earned    = sum(all);
+  /* A seat with no training date is an estimate: the rebate is agreed and the
+     booking is real, but the training has not run and the seat can still move
+     or be cancelled. It counts towards the quota — that is the point of
+     knowing it — and it is marked so nobody reads it as money already made. */
+  const estimated = sum(all.filter(r => !r.e.start));
   const kept      = sum(all.filter(r => r.deduct));
   const toCollect = sum(all.filter(r => !r.deduct && !r.received));
   const banked    = sum(all.filter(r => !r.deduct && r.received));
@@ -1652,15 +1657,23 @@ VIEWS.sales = () => {
 
   return `
     <div class="toolbar">
-      <label class="muted" style="font-size:12px">Training from</label>
+      <label class="muted" style="font-size:12px">From</label>
       <input type="date" data-q="salFrom" value="${from}">
       <label class="muted" style="font-size:12px">to</label>
       <input type="date" data-q="salTo" value="${to}">
-      <span class="muted">${all.length} seat(s) · ${span}</span>
+      <!-- It said "Training from", which is only true of the seats that have a
+           training date. A seat still waiting on the centre is counted on the
+           day it was booked, and saying so is the difference between a quota
+           that looks short and one that is. -->
+      <span class="muted">${all.length} seat(s) · ${span}
+        · by training date, or the day it was booked where there is none</span>
     </div>
 
     <div class="grid g4" style="margin-bottom:18px">
-      ${UI.kpi('Earned', UI.peso(earned), `${all.length} seat(s) booked`, 'ok')}
+      ${UI.kpi('Earned', UI.peso(earned),
+               estimated > 0.004
+                 ? `${all.length} seat(s) · ${UI.peso(estimated)} estimated, not yet scheduled`
+                 : `${all.length} seat(s) booked`, 'ok')}
       ${UI.kpi('Rebates kept', UI.peso(kept), 'deducted from what we remit', '')}
       ${UI.kpi('Rebates to collect', UI.peso(toCollect), 'centers owe us this back',
                toCollect > 0 ? 'sea' : '')}
@@ -1684,6 +1697,33 @@ VIEWS.sales = () => {
           `<div class="empty"><span class="big">⚓</span>${from || to
             ? 'No seats with a rebate were trained in this window.'
             : 'No booking carries a rebate yet.'}</div>`, { flush:true })}
+
+    <div style="height:18px"></div>
+    ${all.length ? UI.card('Rebate On Every Seat', UI.table([
+      { h:'When', k:r => r.e.start
+          ? UI.dateRange(r.e.start, r.e.end)
+          : `<span class="muted">booked ${UI.date(r.e.date)}</span>`, w:'150px' },
+      { h:'Trainee', k:r => UI.esc(name(T(r.e.traineeId))) },
+      { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || 'no course on file') },
+      { h:'Training center', k:r => UI.esc(r.center) },
+      { h:'Booking', k:r => UI.statusTag(r.e.status) },
+      { h:'How it settles', k:r => r.deduct
+          ? '<span class="muted">kept from remittance</span>'
+          : r.received ? '<span style="color:var(--ok)">received</span>'
+                       : '<span style="color:var(--bad)">to collect</span>' },
+      /* Firm where the training has a date, marked est. where it does not. */
+      { h:'Rebate', k:r => r.e.start
+          ? `<b>${UI.num(r.amount)}</b>`
+          : `<span class="muted">${UI.num(r.amount)} est.</span>`, cls:'num' },
+    ], all.slice().sort((a, b) =>
+         String(b.e.start || b.e.date || '').localeCompare(String(a.e.start || a.e.date || ''))
+      || String(b.e.no).localeCompare(String(a.e.no))),
+      { foot:['TOTAL', '', '', '', '', '', UI.num(earned)] }),
+      { flush:true,
+        sub:`Every booking that earns a rebate · ${span}`
+            + (estimated > 0.004
+                ? ` · ${UI.peso(estimated)} of it estimated on seats with no date yet`
+                : '') }) : ''}
 
     <div style="height:18px"></div>
     ${UI.card('How A Rebate Reaches Us', `
@@ -5014,16 +5054,32 @@ function paymentForm(inv){
     .filter(i => !i.voided && ACC.balanceOf(i) > 0.004 && (!tid || i.traineeId === tid))
     .sort((a,b) => a.date.localeCompare(b.date));
 
+  /* Seats booked but never billed — an Open Schedule taken before the billing
+     rule changed, or one whose bill was voided. The trainee is at the counter
+     paying for it, and the window used to have nothing to offer them: no bill,
+     so no line, so no way to take the money. They are listed here and the bill
+     is raised as the money is taken. */
+  const unbilledFor = tid => D().enrollments
+    .filter(e => billableUnbilled(e) && (!tid || e.traineeId === tid))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+
   const anyOpen = openFor(null);
-  if(!inv && !anyOpen.length){ UI.toast('Nothing outstanding — every invoice is settled.', 'bad'); return; }
+  const anyUnbilled = unbilledFor(null);
+  if(!inv && !anyOpen.length && !anyUnbilled.length){
+    UI.toast('Nothing outstanding — every training is settled.', 'bad'); return; }
 
   /* One trainee per receipt. A document covering two people is a document
      neither of them can be handed. */
-  const owing = [...new Set(anyOpen.map(i => i.traineeId))]
+  const owing = [...new Set([...anyOpen.map(i => i.traineeId),
+                             ...anyUnbilled.map(e => e.traineeId)])]
     .map(id => ({ id, t:T(id) })).filter(x => x.t)
-    .map(({ id, t }) => ({ v:id,
-      l:`${name(t)} — ${UI.peso(ACC.r2(openFor(id).reduce((s,i) => s + ACC.balanceOf(i), 0)))} outstanding`
-        + ` · ${openFor(id).length} bill(s)` }))
+    .map(({ id, t }) => {
+      const billed = ACC.r2(openFor(id).reduce((s, i) => s + ACC.balanceOf(i), 0));
+      const booked = ACC.r2(unbilledFor(id).reduce((s, e) => s + wouldBill(e), 0));
+      const n = openFor(id).length + unbilledFor(id).length;
+      return { v:id, l:`${name(t)} — ${UI.peso(ACC.r2(billed + booked))} outstanding`
+                        + ` · ${n} training(s)` };
+    })
     .sort((a,b) => a.l.localeCompare(b.l));
 
   const who0 = inv ? inv.traineeId : (owing[0] ? owing[0].v : '');
@@ -5070,6 +5126,16 @@ function paymentForm(inv){
                    left });
       });
     });
+    /* And the seats with no bill behind them. They carry no invoice, so the
+       line says so; ticking one raises the bill when the payment is written. */
+    unbilledFor(tid).forEach(e => {
+      const c = CRS(e.courseId);
+      out.push({ key:e.id, inv:null, e,
+                 title:(c ? c.title : 'no course on file')
+                       + (e.center ? ` — ${e.center}` : ''),
+                 sub:`${e.no} · ${e.status} · not billed yet — the bill is raised with this receipt`,
+                 left:wouldBill(e) });
+    });
     return out;
   };
 
@@ -5077,7 +5143,8 @@ function paymentForm(inv){
     const list = payLines(tid);
     if(!list.length) return '<p class="muted" style="margin:0">Nothing outstanding for them.</p>';
     return list.map(r => {
-      const on = !!(inv && r.inv.id === inv.id && list.filter(x => x.inv.id === inv.id).length === 1)
+      const on = !!(inv && r.inv && r.inv.id === inv.id
+                    && list.filter(x => x.inv && x.inv.id === inv.id).length === 1)
                  || list.length === 1;
       return `<div class="bill-row${on ? ' on' : ''}" data-bill="${r.key}">
         <label class="bill-pick">
@@ -5218,6 +5285,28 @@ function paymentForm(inv){
       if(paidOn > DB.today()){
         UI.toast('That date is in the future — money cannot have been received yet.', 'bad');
         return false;
+      }
+
+      /* A seat that was never billed is billed now, dated the day the money
+         came in. The receivable and the receipt are then the same day's
+         business — a bill dated today against money received last week would
+         put revenue in one report and its collection in another.
+
+         The centre's payable posts with it, so a seat paid for at the counter
+         owes the centre from the same moment. If it cannot be billed nothing is
+         written at all: half a receipt is worse than none. */
+      for(const b of bills){
+        if(b.inv) continue;
+        try{ b.inv = APPS.billBooking(b.line.e, { date:paidOn }); }
+        catch(err){
+          UI.toast(`${b.line.e.no} could not be billed: ${err.message}`, 'bad');
+          return false;
+        }
+        if(!b.inv){
+          UI.toast(`${b.line.e.no} is still ${b.line.e.status} — confirm the seat before`
+            + ' taking money for it.', 'bad');
+          return false;
+        }
       }
 
       const no = DB.nextNo('receipt','OR');

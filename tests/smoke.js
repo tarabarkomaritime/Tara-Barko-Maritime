@@ -1684,6 +1684,86 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---------- billed on the day the money came in ----------
+     The collection window can take money for a seat that was never billed — an
+     Open Schedule taken before the billing rule changed. It raises the bill as
+     it writes the receipt, and it passes the date received, so the bill and its
+     receipt are the same day's business instead of a day apart. */
+  console.log('\n- billed on the day the money came in -');
+  {
+    run(`(() => {
+      DB.reset(true);
+      const d = DB.get();
+      const t = { id:'ct1', no:'TRN-C1', last:'ARCILLAS', first:'LEWELL', middle:'',
+                  suffix:'', srn:'SC1', registered:DB.today() };
+      d.trainees.push(t);
+      globalThis.CT = t;
+      globalThis.CC = d.courses.filter(c => c.amount > 0 && c.rebate > 0).slice(0, 2);
+      /* Two seats recorded the way the old rule left them: no date, no bill. */
+      CC.forEach((c, n) => d.enrollments.push({ id:'os' + n, no:'ENR-OS-' + n,
+        traineeId:t.id, courseId:c.id, center:c.center, start:'', end:'',
+        date:'2026-09-03', status:'Open Schedule', result:'', fee:c.amount,
+        discount:0, discountNote:'', rebate:c.rebate, deduct:!!c.deduct,
+        certificateNo:'', remarks:'' }));
+      return true;
+    })()`);
+
+    check('an unscheduled seat still carries its rebate', () =>
+      run(`DB.get().enrollments.every(e => (e.rebate || 0) > 0)`)
+        || 'a booking lost its rebate');
+
+    run(`globalThis.CI1 = APPS.billBooking(
+           DB.get().enrollments.find(e => e.id === 'os0'), { date:'2026-09-03' })`);
+
+    check('the bill takes the date it was given, not today', () =>
+      run('CI1.date') === '2026-09-03' || run('CI1.date'));
+
+    check('and today is not that date, so the date is doing work', () =>
+      run('DB.today()') !== '2026-09-03' || 'the test date is today — it proves nothing');
+
+    run(`globalThis.CI2 = APPS.billBooking(
+           DB.get().enrollments.find(e => e.id === 'os1'), { date:'2026-09-03' })`);
+
+    check('a second seat billed on that day joins the same bill', () =>
+      run('CI2.id') === run('CI1.id') || 'a second invoice was raised');
+
+    check('the bill asks for both seats', () =>
+      run('ACC.r2(CI2.total)') === run('ACC.r2(CC[0].amount + CC[1].amount)')
+        || run('CI2.total'));
+
+    check('the centre is owed for each of them', () =>
+      run(`DB.get().enrollments.filter(e => e.id === 'os0' || e.id === 'os1')
+             .every(e => !!e.centerPayable)`) || 'a payable is missing');
+
+    /* The receipt written against it carries the same day, so the money and the
+       revenue land in the same report. */
+    run(`(() => {
+      const d = DB.get();
+      const p = ACC.buildPayment({ no:DB.nextNo('receipt','OR'), invoiceId:CI2.id,
+        enrollmentId:'os0', traineeId:'ct1', date:'2026-09-03',
+        tenders:[{ method:'Cash', ref:'', amount:1000 }] });
+      d.payments.push(p);
+      ACC.postPayment(p, CI2);
+      globalThis.CP = p;
+    })()`);
+
+    check('the receipt and the bill are the same day', () =>
+      run('CP.date') === run('CI2.date') || run('CP.date') + ' vs ' + run('CI2.date'));
+
+    check('and so is the entry the report is built from', () => {
+      const e = run(`DB.get().journal.find(x => x.refType === 'Receipt' && x.refNo === CP.no)`);
+      return (e && e.date === '2026-09-03') || JSON.stringify(e && e.date);
+    });
+
+    check('the books balance after all of it', () => {
+      const diff = run(`(() => { let dr = 0, cr = 0;
+        DB.get().journal.filter(x => !x.voided).forEach(e => (e.lines || []).forEach(l => {
+          dr += ACC.r2(l.debit || 0); cr += ACC.r2(l.credit || 0); }));
+        return ACC.r2(dr - cr); })()`);
+      return Math.abs(diff) < 0.005 || 'out by ' + diff;
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

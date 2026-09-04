@@ -304,9 +304,11 @@ const APPS = (() => {
       throw new Error('That booking has no fee and no charges on it — there is nothing to bill.');
 
     /* The day the bill is raised, which is the day it is asked for. At the
-       counter that is the day of the booking; for a seat billed later it is
-       today, and today is when the money is being collected. */
-    const on = DB.today();
+       counter that is the day of the booking. A seat billed later is billed on
+       the day the money came in — the collection window passes that date — so
+       the bill and its receipt are the same day's business and land in the same
+       day's report rather than a day apart. */
+    const on = opts.date || DB.today();
 
     /* A seat we take no training fee on still gets a booking — the centre is
        endorsed against it and it belongs on the day's list — but it does not
