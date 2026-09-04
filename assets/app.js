@@ -2162,21 +2162,27 @@ function centerVoucherForm(center){
      to send — so it is shown and locked rather than hidden, because the debt is
      still real and the office should see why it cannot pay it yet. */
   const ready = r => r.remittable > 0.004;
+  /* Every cell was padded 4px 0 — no space between columns at all — so a
+     discount and the amount owed beside it ran together as "500.005,500.00",
+     and a dash for no discount read as a minus sign on the number after it.
+     The office checks this against the centre's own statement line by line,
+     which is what the row number is for. */
   const row = (r,i) => `
     <tr data-start="${UI.esc(r.e.start || '')}" data-end="${UI.esc(r.e.end || r.e.start || '')}"
-        ${ready(r) ? '' : ' style="opacity:.55"'}>
-      <td style="padding:4px 0"><label style="display:flex;gap:8px;align-items:center;${ready(r) ? 'cursor:pointer' : ''}">
-        <input type="checkbox" name="pick${i}" value="${r.e.id}" ${ready(r) ? 'checked' : 'disabled'} style="width:auto;margin:0">
-        <span>${UI.esc(name(T(r.e.traineeId)))}</span></label></td>
-      <td class="muted" style="padding:4px 0">${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
-      <td class="muted" style="padding:4px 0">${r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—'}</td>
-      <td class="num" style="padding:4px 0">${UI.num(r.collected)}</td>
-      <td class="num" style="padding:4px 0">${r.discount
-        ? UI.num(r.discount) : '<span class="muted">—</span>'}</td>
-      <td class="num" style="padding:4px 0">${UI.num(r.payable)}</td>
-      <td class="num" style="padding:4px 0">${ready(r)
+        class="${ready(r) ? '' : 'locked'}">
+      <td class="vch-n">${i + 1}</td>
+      <td><label class="vch-pick">
+        <input type="checkbox" name="pick${i}" value="${r.e.id}" ${ready(r) ? 'checked' : 'disabled'}>
+        <b>${UI.esc(name(T(r.e.traineeId)))}</b></label></td>
+      <td>${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
+      <td class="nowrap">${r.e.start
+        ? UI.dateRange(r.e.start, r.e.end) : '<span class="muted">—</span>'}</td>
+      <td class="num">${r.collected ? UI.num(r.collected) : '<span class="muted">—</span>'}</td>
+      <td class="num">${r.discount ? UI.num(r.discount) : '<span class="muted">—</span>'}</td>
+      <td class="num">${UI.num(r.payable)}</td>
+      <td class="num">${ready(r)
         ? `<b>${UI.num(r.remittable)}</b>`
-        : '<span class="muted">nothing collected</span>'}</td>
+        : '<span class="muted nowrap">nothing collected</span>'}</td>
     </tr>`;
 
   UI.modal({
@@ -2191,10 +2197,7 @@ function centerVoucherForm(center){
       ${group.remittable > 0.004 ? '' : `<div class="note warn">Nothing has been collected
         against these bookings yet, so there is nothing to remit. Take the trainees'
         payments first — the voucher pays what has actually come in.</div>`}
-      ${group.discount > 0.004 ? `<div class="note">${UI.peso(group.discount)} of discount was
-        given on these seats. The centre is owed the full fee either way, so the discount is
-        not taken off what we remit — it comes out of our rebate instead, and Sales reports
-        the rebate net of it.</div>` : ''}
+
       <!-- A centre with thirty outstanding seats is thirty boxes to go through
            by hand, and the office pays them a run at a time: this week's
            trainings, last month's. Narrowing by training date leaves the
@@ -2210,14 +2213,21 @@ function centerVoucherForm(center){
         <button type="button" class="btn btn-ghost btn-xs" id="vTickNone">Untick all</button>
         <span class="muted" id="vCount"></span>
       </div>
-      <table style="width:100%;font-size:12.5px;margin-bottom:12px">
-        <thead><tr>
-          <th style="text-align:left">Trainee</th><th style="text-align:left">Course</th>
-          <th style="text-align:left">Training</th><th class="num">Trainee paid</th>
-          <th class="num">Discount</th><th class="num">Owed</th><th class="num">Remitting</th>
-        </tr></thead>
-        <tbody>${group.rows.map(row).join('')}</tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="vch">
+          <thead><tr>
+            <th class="vch-n">#</th>
+            <th>Trainee name</th><th>Course</th><th>Training date</th>
+            <th class="num">Trainee paid (₱)</th><th class="num">Discount (₱)</th>
+            <th class="num">Amount owed (₱)</th><th class="num">Amount remitting (₱)</th>
+          </tr></thead>
+          <tbody>${group.rows.map(row).join('')}</tbody>
+        </table>
+      </div>
+      ${group.discount > 0.004 ? `<div class="note">${UI.peso(group.discount)} of discount was
+        given on these seats. The centre is owed the full fee either way, so the discount is
+        not taken off what we remit — it comes out of our rebate instead, and Sales reports
+        the rebate net of it.</div>` : ''}
       ${group.receivable ? `<div class="note warn">
         ${UI.peso(group.receivable)} of rebate on these bookings is <b>not deducted</b> —
         ${UI.esc(center.toUpperCase())} owes it back to us separately. It is deliberately

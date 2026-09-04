@@ -226,6 +226,27 @@ label.fld small{font-weight:400;color:var(--muted)}
 .kpi-row .kpi .sub{font-size:11px}
 @media(max-width:520px){ .kpi-row{grid-template-columns:1fr} }
 
+/* The remittance voucher's picking table.
+
+   The office reads it beside the centre's own statement, a line at a time, so
+   it carries a row number and every column is separated and right-aligned where
+   it holds money. It inherits the ordinary table look and only tightens it for
+   a dialog — the previous inline padding of 4px 0 left no gap between columns
+   at all, and two figures side by side read as one. */
+.vch{font-size:12.5px}
+.vch th,.vch td{padding:7px 10px}
+.vch th.vch-n,.vch td.vch-n{
+  width:34px;text-align:right;padding-right:4px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.vch td.num,.vch th.num{font-variant-numeric:tabular-nums}
+.vch .vch-pick{display:flex;gap:8px;align-items:center;cursor:pointer}
+.vch .vch-pick input{width:auto;margin:0;flex:none}
+/* A seat nobody has paid for cannot go on a voucher, and is shown rather than
+   hidden: the debt is real and the office should see why it cannot be paid. */
+.vch tr.locked{opacity:.5}
+.vch tr.locked .vch-pick{cursor:default}
+.vch tbody tr:last-child td{border-bottom:1px solid var(--border)}
+
 /* ---------- Tables ---------- */
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
