@@ -3711,16 +3711,21 @@ function traineeProfile(t){
            bill, not the bill's whole balance repeated down the column.
 
            A booking with no bill behind it used to stop at "not billed", which
-           is true and useless: the fee is agreed, the trainee is at the counter
-           with the money, and nothing on the screen would take it. Now it says
-           what it comes to and offers to raise the bill, after which the money
-           can be received against it like any other. */
+           is true and useless: the fee is agreed and the column read as though
+           the seat cost nothing. So it carries the price either way, greyed to
+           say it is not owed yet.
+
+           There is no button to raise it here. Billing follows the booking:
+           enrolling raises the bill, and confirming a seat off Pending raises
+           it then. A second way in, pressed from a list, is a bill raised on a
+           day nobody chose and money landing in the wrong day's report. */
         { h:'Paid?', k:e => { const due = bookingBalance(e);
             if(due != null) return due > 0.004 ? `<span class="neg">${UI.peso(due)} left</span>` : 'Paid';
-            if(billableUnbilled(e))
-              return `<span class="neg">${UI.peso(wouldBill(e))} due</span>
-                <button class="btn btn-ghost btn-xs" style="margin-left:6px"
-                  data-act="bill-booking" data-id="${e.id}">Bill it</button>`;
+            /* Pending as well as Open Schedule. Pending bills nothing — the
+               centre has not agreed the seat — but the price is settled and
+               the office is asked it across the counter. */
+            if(e.status !== 'Void' && ACC.r2(e.fee || 0) > 0.004)
+              return `<span class="muted">${UI.peso(wouldBill(e))}</span>`;
             return '<span class="muted">not billed</span>'; } },
         /* One request at a time per booking. Two people asking for different
            dates on the same seat is a queue where whichever is signed second
@@ -4129,39 +4134,6 @@ function cancelRebateAsk(enrId){
                ? 'This rebate was being kept back from what we remit, so cancelling it means the centre is owed the full fee. What we have to remit goes up by this amount.'
                : 'The income booked when the seat was sold is reversed and the amount comes off what centres owe us.')
          : 'Nothing changes yet. The rebate stays exactly as it is until the admin signs it off.' });
-}
-
-/* Raise the bill for a booking that has none, then open the till.
-
-   The two are one action at the counter: the reason a bill is being raised
-   against a seat booked last week is that the trainee is standing there paying
-   for it. Stopping at "billed" would leave the cashier to find the same trainee
-   again in another module. */
-function billBookingNow(e){
-  if(!e) return;
-  if(!billableUnbilled(e)){
-    UI.toast(e.invoiceId ? 'That booking is already on a bill.'
-      : e.status === 'Pending' ? 'A Pending booking is not agreed yet — confirm it first.'
-      : 'There is no fee on that booking to bill.', 'bad');
-    return;
-  }
-  const c = CRS(e.courseId);
-  UI.confirm(`Bill ${e.no} for ${UI.peso(wouldBill(e))}?`, () => {
-    let inv;
-    try{ inv = APPS.billBooking(e); }
-    catch(err){ UI.toast(err.message, 'bad'); return; }
-    if(!inv){ UI.toast('That booking is not agreed yet — there is nothing to bill.', 'bad'); return; }
-    DB.activity('Billed a booking', `${e.no} → ${inv.no}`);
-    DB.save();
-    UI.toast(`${e.no} billed on ${inv.no} — ${UI.peso(inv.total)}.`);
-    render();
-    /* A tick late: the confirm closes its own dialog after this handler runs,
-       and would close the collection window with it. */
-    setTimeout(() => paymentForm(inv), 0);
-  }, { yes:'Raise the bill and collect',
-       detail:`${c ? c.title : 'This training'}${e.center ? ' — ' + e.center : ''}. `
-            + 'It joins the trainee\'s open bill for today if they have one, and the centre '
-            + 'is owed for the seat from this point. The collection window opens next.' });
 }
 
 function bookingChangeForm(e){
@@ -5994,7 +5966,6 @@ document.addEventListener('click', ev => {
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'change-booking':() => { ev.stopPropagation(); bookingChangeForm(ENR(id)); },
-    'bill-booking':  () => { ev.stopPropagation(); billBookingNow(ENR(id)); },
     'void-booking':  () => { ev.stopPropagation(); voidBooking(ENR(id)); },
     'approve-change':() => UI.confirm('Approve this change to the booking?',
                        () => approveChange(id, true),
