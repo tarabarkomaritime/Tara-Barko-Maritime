@@ -53,6 +53,8 @@ for(const f of ['courses.js','terms.js','db.js','accounting.js','applications.js
 }
 
 const run = code => vm.runInContext(code, ctx);
+const ACC_r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+
 let pass = 0, fail = 0;
 const check = (label, fn) => {
   try{
@@ -1956,6 +1958,113 @@ console.log('\n- old stores lose their passwords -');
           if(l.account === '4900') n = ACC.r2(n + ACC.r2(l.debit || 0)); }));
         return n; })()`);
       return (!stray && given === 250) || `stray 4400: ${stray}, 4900 debits: ${given}`;
+    });
+  }
+
+  /* ---------- a discount is ours to fund ----------
+     The centre is owed the fee whatever we charged the trainee. The remittance
+     used to be capped at what had been collected, so a seat discounted by 2,500
+     came to the counter as 100 and the centre was sent 100 for a seat they are
+     owed 2,600 on — the centre paying for our discount. The seat's own numbers
+     are checked here; the screens that add them up are checked by hand. */
+  console.log('\n- a discount is ours to fund -');
+  {
+    const seat = (fee, discount, rebate, paid) => run(`(() => {
+      DB.reset(true);
+      const d = DB.get();
+      const t = { id:'dt1', no:'TRN-D1', last:'ROSALDO', first:'NOEL', middle:'',
+                  suffix:'', srn:'SD1', registered:DB.today() };
+      d.trainees.push(t);
+      const c = d.courses.find(x => x.amount > 0);
+      const o = APPS.enroll(t, { courseId:c.id, start:'2026-09-09', end:'2026-09-09',
+                                 fee:${fee}, discount:${discount}, rebate:${rebate},
+                                 deduct:false, mode:'Enrolled', by:'K' });
+      if(${paid} > 0){
+        const p = ACC.buildPayment({ no:DB.nextNo('receipt','OR'), invoiceId:o.invoice.id,
+          enrollmentId:o.enrollment.id, traineeId:t.id, date:DB.today(),
+          tenders:[{ method:'Cash', ref:'', amount:${paid} }] });
+        d.payments.push(p);
+        ACC.postPayment(p, o.invoice);
+      }
+      const e = o.enrollment;
+      return { fee:ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee),
+               discount:ACC.r2(e.discount || 0),
+               rebate:ACC.r2(e.rebate || 0),
+               billed:ACC.r2(o.invoice.total) };
+    })()`);
+
+    check('the trainee is billed the fee less the discount', () => {
+      const r = seat(2600, 2500, 600, 0);
+      return r.billed === 100 || r.billed;
+    });
+
+    check('but the centre is owed the whole fee', () => {
+      const r = seat(2600, 2500, 600, 0);
+      return r.fee === 2600 || r.fee;
+    });
+
+    check('a fully paid discounted seat remits in full', () => {
+      seat(2600, 2500, 600, 100);
+      /* collected 100 + discount 2500 = the fee. */
+      const funded = run(`(() => { const e = DB.get().enrollments[0];
+        const inv = DB.get().invoices[0];
+        const paid = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
+        return ACC.r2(Math.min(ACC.r2(paid + ACC.r2(e.discount || 0)),
+                               ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee)));
+      })()`);
+      return funded === 2600 || funded;
+    });
+
+    check('a part-paid one remits what is funded so far, not the lot', () => {
+      seat(5500, 500, 800, 3000);
+      const funded = run(`(() => { const e = DB.get().enrollments[0];
+        const inv = DB.get().invoices[0];
+        const paid = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
+        return ACC.r2(Math.min(ACC.r2(paid + ACC.r2(e.discount || 0)),
+                               ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee)));
+      })()`);
+      return funded === 3500 || funded;
+    });
+
+    check('and it never remits more than the seat is owed', () => {
+      seat(2600, 2500, 600, 100);
+      /* Somebody hands over more than the bill asks for. */
+      run(`(() => { const d = DB.get(), inv = d.invoices[0];
+        const p = ACC.buildPayment({ no:DB.nextNo('receipt','OR'), invoiceId:inv.id,
+          enrollmentId:d.enrollments[0].id, traineeId:'dt1', date:DB.today(),
+          tenders:[{ method:'Cash', ref:'', amount:5000 }] });
+        d.payments.push(p); ACC.postPayment(p, inv); })()`);
+      const funded = run(`(() => { const e = DB.get().enrollments[0];
+        const inv = DB.get().invoices[0];
+        const paid = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
+        return ACC.r2(Math.min(ACC.r2(paid + ACC.r2(e.discount || 0)),
+                               ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee)));
+      })()`);
+      return funded === 2600 || funded;
+    });
+
+    check('what we earn on the seat is the rebate less the discount', () => {
+      const r = seat(2600, 2500, 600, 100);
+      return ACC_r2(r.rebate - r.discount) === -1900
+        || ACC_r2(r.rebate - r.discount);
+    });
+
+    check('the centre payable posted is the fee, discount or no discount', () => {
+      seat(2600, 2500, 600, 0);
+      const owed = run(`(() => { let n = 0;
+        DB.get().journal.filter(j => !j.voided && j.refType === 'Booking')
+          .forEach(j => (j.lines || []).forEach(l => {
+            if(l.account === '2000') n = ACC.r2(n + ACC.r2(l.credit || 0)); }));
+        return n; })()`);
+      return owed === 2600 || owed;
+    });
+
+    check('the books balance through all of it', () => {
+      const diff = run(`(() => { let dr = 0, cr = 0;
+        DB.get().journal.filter(x => !x.voided).forEach(e => (e.lines || []).forEach(l => {
+          dr += ACC.r2(l.debit || 0); cr += ACC.r2(l.credit || 0); }));
+        return ACC.r2(dr - cr); })()`);
+      return Math.abs(diff) < 0.005 || 'out by ' + diff;
     });
   }
 

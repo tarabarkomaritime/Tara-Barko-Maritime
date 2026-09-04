@@ -1335,7 +1335,15 @@ function rebatesAll(){
     .map(e => ({
       e,
       center:String(e.center || '').toUpperCase(),
+      /* What the centre settles with us, whichever way round it goes. */
       amount:ACC.r2(e.rebate),
+      /* And what is left of it after the discount we gave on that seat. The
+         centre is owed the fee whatever we charged the trainee, so a discount
+         comes out of this and nowhere else. It can go past the rebate: a seat
+         discounted more than it earns is a loss on that seat, and saying so is
+         the only way anybody finds out. */
+      discount:ACC.r2(e.discount || 0),
+      earned:ACC.r2(ACC.r2(e.rebate) - ACC.r2(e.discount || 0)),
       deduct:!!e.deduct,
       /* Deducted rebates are settled the day the remittance goes out, because
          that is the payment they were taken off. */
@@ -1669,13 +1677,22 @@ VIEWS.sales = () => {
     || String(b.e.no).localeCompare(String(a.e.no)));
 
   const sum = rows => ACC.r2(rows.reduce((s, r) => s + r.amount, 0));
-  const doubled  = sum(extras);
-  const earned    = sum(seats);
+  const net = rows => ACC.r2(rows.reduce((s, r) => s + r.earned, 0));
+  const cut = rows => ACC.r2(rows.reduce((s, r) => s + r.discount, 0));
+
+  /* Earned is what the office keeps: the rebate less the discount given on that
+     seat. The three tiles beside it stay the gross rebate, because that is what
+     actually moves between us and the centre — a discount changes what we
+     collect from the trainee, never what the centre settles with us. */
+  const doubled   = net(extras);
+  const gross     = sum(seats);
+  const discounts = cut(seats);
+  const earned    = net(seats);
   /* A seat with no training date is an estimate: the rebate is agreed and the
      booking is real, but the training has not run and the seat can still move
      or be cancelled. It counts towards the quota — that is the point of
      knowing it — and it is marked so nobody reads it as money already made. */
-  const estimated = sum(seats.filter(r => !r.e.start));
+  const estimated = net(seats.filter(r => !r.e.start));
   const kept      = sum(seats.filter(r => r.deduct));
   const toCollect = sum(seats.filter(r => !r.deduct && !r.received));
   const banked    = sum(seats.filter(r => !r.deduct && r.received));
@@ -1686,9 +1703,10 @@ VIEWS.sales = () => {
   const byCentre = {};
   seats.forEach(r => {
     const m = byCentre[r.center] || (byCentre[r.center] = {
-      center:r.center, n:0, kept:0, toCollect:0, banked:0, total:0 });
+      center:r.center, n:0, kept:0, toCollect:0, banked:0, discount:0, total:0 });
     m.n++;
-    m.total = ACC.r2(m.total + r.amount);
+    m.total = ACC.r2(m.total + r.earned);
+    m.discount = ACC.r2(m.discount + r.discount);
     if(r.deduct) m.kept = ACC.r2(m.kept + r.amount);
     else if(r.received) m.banked = ACC.r2(m.banked + r.amount);
     else m.toCollect = ACC.r2(m.toCollect + r.amount);
@@ -1715,11 +1733,13 @@ VIEWS.sales = () => {
 
     <div class="grid g4" style="margin-bottom:18px">
       ${UI.kpi('Earned', UI.peso(earned),
-               doubled > 0.004
+               discounts > 0.004
+                 ? `${UI.peso(gross)} rebate less ${UI.peso(discounts)} discount given`
+                 : doubled > 0.004
                  ? `${seats.length} seat(s) · ${UI.peso(doubled)} left out as double-encoded`
                  : estimated > 0.004
                  ? `${seats.length} seat(s) · ${UI.peso(estimated)} estimated, not yet scheduled`
-                 : `${seats.length} seat(s) booked`, 'ok')}
+                 : `${seats.length} seat(s) booked`, earned < 0 ? 'bad' : 'ok')}
       ${UI.kpi('Rebates kept', UI.peso(kept), 'deducted from what we remit', '')}
       ${UI.kpi('Rebates to collect', UI.peso(toCollect), 'centers owe us this back',
                toCollect > 0 ? 'sea' : '')}
@@ -1732,11 +1752,14 @@ VIEWS.sales = () => {
       { h:'Kept from remittance', k:c => c.kept ? UI.num(c.kept) : '<span class="muted">—</span>', cls:'num' },
       { h:'Still to collect', k:c => c.toCollect ? UI.num(c.toCollect) : '<span class="muted">—</span>', cls:'num' },
       { h:'Already received', k:c => c.banked ? UI.num(c.banked) : '<span class="muted">—</span>', cls:'num' },
-      { h:'Earned', k:c => `<b>${UI.num(c.total)}</b>`, cls:'num' },
+      { h:'Less discount', k:c => c.discount
+          ? `<span style="color:var(--bad)">(${UI.num(c.discount)})</span>`
+          : '<span class="muted">—</span>', cls:'num' },
+      { h:'Earned', k:c => `<b${c.total < 0 ? ' style="color:var(--bad)"' : ''}>${UI.num(c.total)}</b>`, cls:'num' },
       { h:'', k:c => can('payables')
           ? `<a class="btn btn-ghost btn-xs" href="#/payables">Open</a>` : '', w:'80px' },
     ], centres, { foot:['TOTAL', UI.int(seats.length), UI.num(kept), UI.num(toCollect),
-                        UI.num(banked), UI.num(earned), ''] }),
+                        UI.num(banked), UI.num(discounts), UI.num(earned), ''] }),
       { flush:true,
         sub:`Highest earning first · ${span}` })
       : UI.card('Earnings By Training Center',
@@ -1763,11 +1786,19 @@ VIEWS.sales = () => {
           ? '<span class="muted">kept from remittance</span>'
           : r.received ? '<span style="color:var(--ok)">received</span>'
                        : '<span style="color:var(--bad)">to collect</span>' },
+      { h:'Rebate', k:r => UI.num(r.amount), cls:'num' },
+      /* The discount was given out of this rebate, so it is shown against it
+         rather than only on the bill — a seat discounted by more than it earns
+         is a loss on that seat, and the office should be able to see which. */
+      { h:'Less discount', k:r => r.discount
+          ? `<span style="color:var(--bad)">(${UI.num(r.discount)})</span>`
+          : '<span class="muted">—</span>', cls:'num' },
       /* Firm where the training has a date, marked est. where it does not. */
-      { h:'Rebate', k:r => r.e.start
-          ? `<b>${UI.num(r.amount)}</b>`
-          : `<span class="muted">${UI.num(r.amount)} est.</span>`, cls:'num' },
-    ], seats, { foot:['TOTAL', '', '', '', '', '', UI.num(earned)] }),
+      { h:'Earned', k:r => r.e.start
+          ? `<b${r.earned < 0 ? ' style="color:var(--bad)"' : ''}>${UI.num(r.earned)}</b>`
+          : `<span class="muted">${UI.num(r.earned)} est.</span>`, cls:'num' },
+    ], seats, { foot:['TOTAL', '', '', '', '', '', UI.num(gross),
+                      UI.num(discounts), UI.num(earned)] }),
       { flush:true,
         sub:`Every booking that earns a rebate · ${span}`
             + (estimated > 0.004
@@ -1902,15 +1933,39 @@ function openPayables(){
     .map(e => {
       const fee  = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
       const sent = ACC.r2(e.centerPaid || 0);
-      const collected = collectedFor(e);
+      /* What has actually been received against this one seat. collectedFor
+         laid the bill's payments over its bookings in order, which is what the
+         system had to do before a payment could name the training it was for.
+         It can now, and bookingPaid asks that question properly — falling back
+         to the same ordering only for bills raised before the lines carried
+         their booking. Two functions answering one question differently is one
+         of them being wrong on any bill where the cashier said which training
+         the money was for. */
+      const collected = bookingPaid(e);
+
+      /* A discount is ours to give, and ours to fund.
+
+         The centre is owed the fee. What the trainee is asked for is the fee
+         less whatever we took off, so a seat discounted by 2,500 came to the
+         counter as 100 — and the remittance, capped at what had been collected,
+         sent the centre 100 for a seat they are owed 2,600 on. The centre was
+         paying for our discount.
+
+         So the discount counts as funded: a trainee who has paid everything
+         they were asked for has settled the seat, and the centre is remitted in
+         full. Where the money comes from is our rebate, which is exactly what
+         it is for — Sales reports the rebate net of it. */
+      const discount = ACC.r2(e.discount || 0);
+      const funded = ACC.r2(collected + discount);
       return {
         e,
         center:e.center,
         fee,
         sent,
         collected,
+        discount,
         payable:ACC.r2(fee - sent),
-        remittable:ACC.r2(Math.min(collected, fee) - sent),
+        remittable:ACC.r2(Math.min(funded, fee) - sent),
         rebate:ACC.r2(e.rebate || 0),
         receivable:ACC.r2(e.rebateReceivable || 0),
         deduct:!!e.deduct,
@@ -1934,11 +1989,12 @@ function payablesByCenter(from, to){
        that owes one amount, however the row happened to be typed. */
     const key = r.center.toUpperCase();
     const m = map[key] || (map[key] = {
-      key, center:r.center, rows:[], payable:0, remittable:0,
+      key, center:r.center, rows:[], payable:0, remittable:0, discount:0,
       rebateDeducted:0, receivable:0, oldest:'9999-12-31',
     });
     m.rows.push(r);
     m.payable = ACC.r2(m.payable + r.payable);
+    m.discount = ACC.r2(m.discount + (r.discount || 0));
     m.remittable = ACC.r2(m.remittable + Math.max(0, r.remittable));
     if(r.deduct) m.rebateDeducted = ACC.r2(m.rebateDeducted + r.rebate);
     m.receivable = ACC.r2(m.receivable + r.receivable);
@@ -2115,6 +2171,8 @@ function centerVoucherForm(center){
       <td class="muted" style="padding:4px 0">${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
       <td class="muted" style="padding:4px 0">${r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—'}</td>
       <td class="num" style="padding:4px 0">${UI.num(r.collected)}</td>
+      <td class="num" style="padding:4px 0">${r.discount
+        ? UI.num(r.discount) : '<span class="muted">—</span>'}</td>
       <td class="num" style="padding:4px 0">${UI.num(r.payable)}</td>
       <td class="num" style="padding:4px 0">${ready(r)
         ? `<b>${UI.num(r.remittable)}</b>`
@@ -2133,6 +2191,10 @@ function centerVoucherForm(center){
       ${group.remittable > 0.004 ? '' : `<div class="note warn">Nothing has been collected
         against these bookings yet, so there is nothing to remit. Take the trainees'
         payments first — the voucher pays what has actually come in.</div>`}
+      ${group.discount > 0.004 ? `<div class="note">${UI.peso(group.discount)} of discount was
+        given on these seats. The centre is owed the full fee either way, so the discount is
+        not taken off what we remit — it comes out of our rebate instead, and Sales reports
+        the rebate net of it.</div>` : ''}
       <!-- A centre with thirty outstanding seats is thirty boxes to go through
            by hand, and the office pays them a run at a time: this week's
            trainings, last month's. Narrowing by training date leaves the
@@ -2152,7 +2214,7 @@ function centerVoucherForm(center){
         <thead><tr>
           <th style="text-align:left">Trainee</th><th style="text-align:left">Course</th>
           <th style="text-align:left">Training</th><th class="num">Trainee paid</th>
-          <th class="num">Owed</th><th class="num">Remitting</th>
+          <th class="num">Discount</th><th class="num">Owed</th><th class="num">Remitting</th>
         </tr></thead>
         <tbody>${group.rows.map(row).join('')}</tbody>
       </table>
