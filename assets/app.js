@@ -1619,7 +1619,17 @@ VIEWS.payments = () => {
 VIEWS.sales = () => {
   const from = state.q.salFrom || '', to = state.q.salTo || '';
   const all = rebatesAll().filter(r => {
-    const when = r.e.start || r.e.date || '';
+    /* The day the seat was booked, not the day it trains.
+
+       It was the other way round, which put a seat booked in September into
+       October's earnings because that is when the centre happened to run it —
+       and left September looking short on the day the office was counting.
+       The page's own explanation has always said a seat earns its rebate the
+       day it is booked; the filter now agrees with it.
+
+       A booking with no date of its own falls back to the training date, which
+       only reaches records old enough to predate the field. */
+    const when = r.e.date || r.e.start || '';
     if(from && when < from) return false;
     if(to && when > to) return false;
     return true;
@@ -1665,8 +1675,7 @@ VIEWS.sales = () => {
            training date. A seat still waiting on the centre is counted on the
            day it was booked, and saying so is the difference between a quota
            that looks short and one that is. -->
-      <span class="muted">${all.length} seat(s) · ${span}
-        · by training date, or the day it was booked where there is none</span>
+      <span class="muted">${all.length} seat(s) · ${span} · by the day the seat was booked</span>
     </div>
 
     <div class="grid g4" style="margin-bottom:18px">
@@ -1700,9 +1709,12 @@ VIEWS.sales = () => {
 
     <div style="height:18px"></div>
     ${all.length ? UI.card('Rebate On Every Seat', UI.table([
-      { h:'When', k:r => r.e.start
-          ? UI.dateRange(r.e.start, r.e.end)
-          : `<span class="muted">booked ${UI.date(r.e.date)}</span>`, w:'150px' },
+      /* Booked first, because that is the day this row is counted on. When it
+         runs is worth knowing and is not what the total is measured by. */
+      { h:'Booked', k:r => `${UI.date(r.e.date)}<br>
+          <span class="muted" style="font-size:11.5px">${r.e.start
+            ? 'trains ' + UI.dateRange(r.e.start, r.e.end)
+            : 'no training date yet'}</span>`, w:'165px' },
       { h:'Trainee', k:r => UI.esc(name(T(r.e.traineeId))) },
       { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || 'no course on file') },
       { h:'Training center', k:r => UI.esc(r.center) },
@@ -1716,7 +1728,7 @@ VIEWS.sales = () => {
           ? `<b>${UI.num(r.amount)}</b>`
           : `<span class="muted">${UI.num(r.amount)} est.</span>`, cls:'num' },
     ], all.slice().sort((a, b) =>
-         String(b.e.start || b.e.date || '').localeCompare(String(a.e.start || a.e.date || ''))
+         String(b.e.date || b.e.start || '').localeCompare(String(a.e.date || a.e.start || ''))
       || String(b.e.no).localeCompare(String(a.e.no))),
       { foot:['TOTAL', '', '', '', '', '', UI.num(earned)] }),
       { flush:true,
@@ -4783,7 +4795,19 @@ function enrollmentModal(e){
   UI.modal({
     title:`Booking ${e.no}`, sub:`${name(t)} · ${c ? c.title : ''}`, wide:true, hideSubmit:true,
     footExtra:`
-      ${!inv && e.status !== 'Cancelled' ? `<button type="button" class="btn btn-brass" id="billIt">Bill this booking</button>` : ''}
+      <!-- Money is taken for the training, not billed for separately.
+
+           This said "Bill this booking" and opened a second invoice form of its
+           own — with a row of charges on it, which is what Book a charge is for.
+           Worse, a bill raised that way posted no payable, so the centre was
+           owed nothing for a seat we had just charged the trainee for, and its
+           line carried no booking, so the money could never be split per
+           training on a shared bill.
+
+           There is one way a bill is raised now, and this is the door to it:
+           the collection window raises it as it writes the receipt. -->
+      ${billableUnbilled(e) || (inv && ACC.balanceOf(inv) > 0.004)
+        ? `<button type="button" class="btn btn-brass" id="payIt">Record payment</button>` : ''}
       ${inv ? `<button type="button" class="btn btn-ghost" id="openInv">Open bill</button>` : ''}
       ${e.status !== 'Cancelled' ? `<button type="button" class="btn btn-danger" id="cancelEnr">Cancel booking</button>` : ''}`,
     body: `
@@ -4819,7 +4843,10 @@ function enrollmentModal(e){
   });
 
   const on = (id, fn) => { const el = document.getElementById(id); if(el) el.onclick = fn; };
-  on('billIt', () => billEnrollment(e));
+  /* A tick late: this modal closes itself when a button in its footer opens
+     another, and would take the collection window with it. */
+  on('payIt', () => setTimeout(() =>
+    paymentForm(inv || null, { traineeId:e.traineeId, enrollmentId:e.id }), 0));
   wireCopy(() => endorsementText(t, e));
   on('openInv', () => invoiceModal(inv));
   on('cancelEnr', () => UI.confirm(
@@ -4836,53 +4863,6 @@ function enrollmentModal(e){
     },
     { danger:true, reason:true, yes:'Cancel enrollment',
       detail: inv ? 'The invoice will be voided and a reversing journal entry posted. Payments already received are not automatically refunded.' : 'No invoice exists, so nothing will be reversed.' }));
-}
-
-function billEnrollment(e){
-  const c = CRS(e.courseId);
-  UI.modal({
-    title:'Generate invoice', sub:`${e.no} · ${name(T(e.traineeId))}`,
-    body: `
-      <div class="note"><b>${UI.esc(c.title)}</b><br>${UI.esc(e.center || '—')} · ${UI.esc(c.duration || '')} · fee ${UI.peso(e.fee || 0)}</div>
-      <div class="chips" style="margin-bottom:12px">
-${addons().map((a,i) => `
-        <div class="addon-row">
-          <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
-            <input type="checkbox" name="addon${i}" ${''} > ${UI.esc(a.desc)}</label>
-          <input type="number" name="addonAmt${i}" class="a-amt" step="0.01" min="0"
-            value="${ACC.r2(a.price).toFixed(2)}" disabled>
-        </div>`).join('')}
-      </div>
-      ${UI.row(UI.f.date('date','Invoice date', DB.today(), { req:true }),
-               UI.f.num('discount','Discount (₱)', e.discount || 0, { min:0 }))}
-      ${UI.f.text('terms','Terms','Due on or before first day of training')}`,
-    submitLabel:'Issue invoice',
-    onSubmit: fd => {
-      const items = [{ desc:`${c.title} — ${e.center}`, account:'4000', qty:1, price:e.fee }];
-      addons().forEach((a,i) => { if(fd['addon'+i]) items.push({ desc:a.desc, account:a.account, qty:1,
-        price:ACC.r2(fd['addonAmt'+i] != null ? fd['addonAmt'+i] : a.price) }); });
-      const inv = ACC.buildInvoice({ enrollmentId:e.id, traineeId:e.traineeId, date:fd.date, items, discount:ACC.r2(fd.discount), terms:fd.terms });
-      D().invoices.push(inv); ACC.postInvoice(inv);
-      e.invoiceId = inv.id; e.discount = ACC.r2(fd.discount);
-      if(e.status === 'Reserved') e.status = 'Enrolled';
-      DB.activity('Issued invoice', inv.no);
-      UI.toast(`Invoice ${inv.no} issued — ${UI.peso(inv.total)}`);
-      refresh();
-    }
-  });
-
-  /* A charge's amount box follows its tick. A disabled field is not submitted,
-     so without this the typed figure never reaches the invoice and the list
-     price goes on it instead — silently, which is the worst way to be wrong
-     about money. */
-  const form = document.getElementById('mForm');
-  /* The boxes are only on the charge form now, so every reader of them has to
-     cope with there being none. */
-  const syncAddons = () => addons().forEach((a,i) => {
-    if(form['addonAmt'+i]) form['addonAmt'+i].disabled = !(form['addon'+i] && form['addon'+i].checked);
-  });
-  form.addEventListener('change', syncAddons);
-  syncAddons();
 }
 
 /* One place a bill is taken off, so the admin's own click and the approval of
@@ -5049,7 +5029,11 @@ function invoiceModal(inv){
    allocations say what it settles; the two have to agree before anything is
    written. One receipt number covers the lot, because one document was handed
    over the counter. */
-function paymentForm(inv){
+/* opts = { traineeId, enrollmentId } — who to open on when there is no bill to
+   open on, and which training to tick. A booking with no invoice behind it has
+   no invoice to pass, and without this the window opened on whichever trainee
+   sorted first and the cashier had to find their way back. */
+function paymentForm(inv, opts = {}){
   const openFor = tid => D().invoices.map(i => (ACC.recomputeInvoice(i), i))
     .filter(i => !i.voided && ACC.balanceOf(i) > 0.004 && (!tid || i.traineeId === tid))
     .sort((a,b) => a.date.localeCompare(b.date));
@@ -5082,7 +5066,7 @@ function paymentForm(inv){
     })
     .sort((a,b) => a.l.localeCompare(b.l));
 
-  const who0 = inv ? inv.traineeId : (owing[0] ? owing[0].v : '');
+  const who0 = inv ? inv.traineeId : (opts.traineeId || (owing[0] ? owing[0].v : ''));
   const bal = inv ? ACC.balanceOf(inv) : 0;
   const MODES = ACC.methodNames();
 
@@ -5143,8 +5127,9 @@ function paymentForm(inv){
     const list = payLines(tid);
     if(!list.length) return '<p class="muted" style="margin:0">Nothing outstanding for them.</p>';
     return list.map(r => {
-      const on = !!(inv && r.inv && r.inv.id === inv.id
-                    && list.filter(x => x.inv && x.inv.id === inv.id).length === 1)
+      const on = r.key === opts.enrollmentId
+                 || !!(inv && r.inv && r.inv.id === inv.id
+                       && list.filter(x => x.inv && x.inv.id === inv.id).length === 1)
                  || list.length === 1;
       return `<div class="bill-row${on ? ' on' : ''}" data-bill="${r.key}">
         <label class="bill-pick">
