@@ -1921,6 +1921,42 @@ console.log('\n- old stores lose their passwords -');
       return Math.abs(diff) < 0.005 || 'out by ' + diff;
     });
 
+    /* The admin taking a double-encoded training off the bill rather than
+       voiding every receipt on it. The receipts stand as documents; they stop
+       naming a training that no longer exists, and settle what is left. */
+    check('a receipt against the removed training keeps its money on the bill', () => {
+      run(`(() => {
+        DB.reset(true);
+        const d = DB.get();
+        const t = { id:'rx1', no:'TRN-RX', last:'ROSALDO', first:'NOEL', middle:'',
+                    suffix:'', srn:'SRX', registered:DB.today() };
+        d.trainees.push(t);
+        const cs = d.courses.filter(c => c.amount > 0).slice(0, 2);
+        globalThis.XA = APPS.enroll(t, { courseId:cs[0].id, start:'2026-09-07', end:'2026-09-08',
+                                         fee:2500, discount:200, mode:'Enrolled', by:'K' });
+        globalThis.XB = APPS.enroll(t, { courseId:cs[1].id, start:'2026-09-09', end:'2026-09-09',
+                                         fee:2600, discount:100, mode:'Enrolled', by:'K' });
+        globalThis.XI = XA.invoice;
+        const p = ACC.buildPayment({ no:DB.nextNo('receipt','OR'), invoiceId:XI.id,
+          enrollmentId:XB.enrollment.id, traineeId:'rx1', date:DB.today(),
+          tenders:[{ method:'Cash', ref:'', amount:2500 }] });
+        d.payments.push(p);
+        ACC.postPayment(p, XI);
+        globalThis.XP = p;
+      })()`);
+
+      run(`ACC.removeFromInvoice(XI, XB.enrollment.id, 'double encoded')`);
+      /* What the screen does next: the receipt stops naming the removed one. */
+      run(`(() => { XP.enrollmentId = ''; ACC.recomputeInvoice(XI); })()`);
+
+      const after = run(`({ total:ACC.r2(XI.total), paid:ACC.r2(XI.paid),
+                            over:ACC.overpaidOn(XI), voided:!!XI.voided,
+                            receipt:ACC.r2(XP.amount), voidedReceipt:!!XP.voided })`);
+      return (after.total === 2300 && after.paid === 2500 && after.over === 200
+              && !after.voided && after.receipt === 2500 && !after.voidedReceipt)
+        || JSON.stringify(after);
+    });
+
     check('a booking alone on its bill is refused, so the caller voids it whole', () => {
       run(`(() => {
         DB.reset(true);

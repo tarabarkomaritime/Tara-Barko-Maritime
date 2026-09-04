@@ -94,12 +94,17 @@ const UI = (() => {
 
   /* ---------- modal ---------- */
   let onSubmitFn = null;
-  function modal({ title, sub, body, submitLabel, onSubmit, wide, footExtra, hideSubmit }){
+  /* `wide` is 900px, which is right for a form. A table the office reads across
+     — eight columns of a remittance against a centre's statement — does not fit
+     in it, and what does not fit is scrolled to sideways, a column at a time,
+     while the row you are on slides out of view. `widest` gives the dialog the
+     window, less a margin. */
+  function modal({ title, sub, body, submitLabel, onSubmit, wide, widest, footExtra, hideSubmit }){
     close();
     onSubmitFn = onSubmit;
     document.getElementById('modalRoot').innerHTML = `
       <div class="modal-backdrop" id="mBackdrop">
-        <div class="modal ${wide?'wide':''}" role="dialog" aria-modal="true">
+        <div class="modal ${widest ? 'widest' : wide ? 'wide' : ''}" role="dialog" aria-modal="true">
           <div class="modal-head">
             <div><h3>${esc(title)}</h3>${sub?`<p>${esc(sub)}</p>`:''}</div>
             <button class="x-close" id="mX" aria-label="Close">&times;</button>

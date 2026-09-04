@@ -2171,10 +2171,10 @@ function centerVoucherForm(center){
     <tr data-start="${UI.esc(r.e.start || '')}" data-end="${UI.esc(r.e.end || r.e.start || '')}"
         class="${ready(r) ? '' : 'locked'}">
       <td class="vch-n">${i + 1}</td>
-      <td><label class="vch-pick">
+      <td class="vch-name"><label class="vch-pick">
         <input type="checkbox" name="pick${i}" value="${r.e.id}" ${ready(r) ? 'checked' : 'disabled'}>
         <b>${UI.esc(name(T(r.e.traineeId)))}</b></label></td>
-      <td>${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
+      <td class="vch-course">${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
       <td class="nowrap">${r.e.start
         ? UI.dateRange(r.e.start, r.e.end) : '<span class="muted">—</span>'}</td>
       <td class="num">${r.collected ? UI.num(r.collected) : '<span class="muted">—</span>'}</td>
@@ -2188,7 +2188,7 @@ function centerVoucherForm(center){
   UI.modal({
     title:`Pay ${center.toUpperCase()}`,
     sub:`${group.rows.length} booking(s) · ${UI.peso(group.payable)} outstanding · ${UI.peso(group.remittable)} collected`,
-    wide:true,
+    widest:true,
     body:`
       ${hidden > 0 ? `<div class="note warn">The date filter is hiding ${UI.int(hidden)}
         other outstanding booking(s) for ${UI.esc(key)}, worth
@@ -2218,19 +2218,20 @@ function centerVoucherForm(center){
           <thead><tr>
             <th class="vch-n">#</th>
             <th>Trainee name</th><th>Course</th><th>Training date</th>
-            <th class="num">Trainee paid (₱)</th><th class="num">Discount (₱)</th>
-            <th class="num">Amount owed (₱)</th><th class="num">Amount remitting (₱)</th>
+            <th class="num">Paid (₱)</th><th class="num">Discount (₱)</th>
+            <th class="num">Owed (₱)</th><th class="num">Remitting (₱)</th>
           </tr></thead>
           <tbody>${group.rows.map(row).join('')}</tbody>
         </table>
       </div>
-      ${group.discount > 0.004 ? `<div class="note">${UI.peso(group.discount)} of discount was
-        given on these seats. The centre is owed the full fee either way, so the discount is
-        not taken off what we remit — it comes out of our rebate instead, and Sales reports
-        the rebate net of it.</div>` : ''}
-      ${group.receivable ? `<div class="note warn">
-        ${UI.peso(group.receivable)} of rebate on these bookings is <b>not deducted</b> —
-        ${UI.esc(center.toUpperCase())} owes it back to us separately. It is deliberately
+      <!-- Said in a line each. At three lines apiece they took the height the
+           eleventh booking needed, and the office scrolled to reach the row it
+           was looking for past an explanation it had already read. -->
+      ${group.discount > 0.004 ? `<div class="note">${UI.peso(group.discount)} of discount is
+        <b>not taken off</b> what we remit — the centre is owed the full fee, and it comes out
+        of our rebate.</div>` : ''}
+      ${group.receivable ? `<div class="note warn">${UI.peso(group.receivable)} of rebate is
+        <b>not deducted</b> — ${UI.esc(center.toUpperCase())} owes it back separately, so it is
         left out of this voucher.</div>` : ''}
       <div class="hr"></div>
       ${UI.row(UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()),
@@ -5022,6 +5023,67 @@ function voidInvoice(inv, reason){
   return true;
 }
 
+/* Whether this bill can have a training taken off it.
+
+   The admin only, on a live bill that still carries more than one training and
+   whose lines say which training each belongs to. Bills raised before the lines
+   carried their booking cannot be split at all, and a bill down to one training
+   is a document to void rather than a line to remove. */
+function canRemoveLines(inv){
+  if(!inv || inv.voided || !canApprove()) return false;
+  const marked = (inv.items || []).filter(i => i.enrId);
+  return marked.length > 1 && new Set(marked.map(i => i.enrId)).size > 1;
+}
+
+/* Taking it off. */
+function dropInvoiceLine(inv, enrId){
+  const e = ENR(enrId);
+  if(!e){ UI.toast('That booking is no longer on file.', 'bad'); return; }
+  if(!canRemoveLines(inv)){
+    UI.toast('This bill has only one training left — void the bill instead.', 'bad');
+    return;
+  }
+  const c = CRS(e.courseId);
+  /* Money the cashier put against this training by name. It was received and it
+     is not in question; what is in question is the training. So it stays on the
+     bill and settles what is left of it, rather than being voided and retaken. */
+  const named = D().payments.filter(p => !p.voided && p.enrollmentId === e.id);
+  const namedSum = ACC.r2(named.reduce((s, p) => s + ACC.r2(p.amount), 0));
+
+  UI.confirm(`Take ${UI.esc((c && c.title) || 'this training')} off ${inv.no}?`, fd => {
+    const reason = String(fd.reason || '').trim();
+    if(!reason){
+      UI.toast('Say why it is coming off — a removal with no reason is a gap in the file.', 'bad');
+      return;
+    }
+    if(!ACC.removeFromInvoice(inv, e.id, reason)){
+      UI.toast('That line could not be taken off. Void the bill instead.', 'bad');
+      return;
+    }
+    /* The receipts are untouched as documents. They stop naming a training that
+       no longer exists, which puts them back in the pool the remaining
+       trainings are settled from, oldest first. */
+    named.forEach(p => { p.enrollmentId = ''; });
+    /* The booking itself goes, and the centre stops being owed for it. */
+    ACC.reverse(e.id, reason);
+    e.status = 'Void';
+    e.invoiceId = '';
+    ACC.recomputeInvoice(inv);
+    DB.save();
+    DB.activity('Took a training off a bill', `${e.no} off ${inv.no} — ${reason}`);
+    UI.toast(`${e.no} taken off ${inv.no}. It now asks for ${UI.peso(inv.total)}.`);
+    render();
+    /* The document the office is looking at, as it now reads. */
+    setTimeout(() => invoiceModal(inv), 0);
+  }, { danger:true, reason:true, yes:'Take it off the bill',
+       detail:(namedSum > 0.004
+         ? `${UI.peso(namedSum)} was received against this training. The receipt stands — that `
+           + 'money stays on the bill and settles what is left of it. '
+         : '')
+         + 'The booking is voided, the centre stops being owed for it, and the bill is '
+         + 'recomputed. Nothing is deleted.' });
+}
+
 function invoiceModal(inv){
   ACC.recomputeInvoice(inv);
   const t = T(inv.traineeId);
@@ -5096,6 +5158,22 @@ function invoiceModal(inv){
         { h:'Qty', k:'qty', cls:'num', w:'60px' },
         { h:'Unit Price', k:i => UI.num(i.price), cls:'num' },
         { h:'Amount', k:i => UI.num(i.amount), cls:'num' },
+        /* Taking one training off the bill.
+
+           A training encoded twice used to mean voiding every receipt on the
+           bill and writing them again, because the only way off was voiding
+           the booking and the booking refused while the bill had money on it.
+           The admin can take the line off here instead: the booking is voided,
+           its line comes off, the bill recomputes, and money named against that
+           training moves to the rest of the bill rather than being unpicked.
+
+           Only where there is something left afterwards — a bill down to its
+           last training is voided as a document, which is what the Void button
+           beside it does. */
+        ...(canRemoveLines(inv) ? [{ h:'', w:'96px', k:i => i.enrId
+            ? `<button type="button" class="btn btn-ghost btn-xs"
+                 data-act="drop-line" data-id="${UI.esc(i.enrId)}">Remove</button>`
+            : '' }] : []),
       ], inv.items)}
       <div class="doc-total"><table>
         <tr><td>Gross Charges</td><td class="num">${UI.num(inv.subtotal)}</td></tr>
@@ -6272,6 +6350,9 @@ document.addEventListener('click', ev => {
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'change-booking':() => { ev.stopPropagation(); bookingChangeForm(ENR(id)); },
+    'drop-line':     () => { ev.stopPropagation();
+                       const e = ENR(id);
+                       dropInvoiceLine(INV(e && e.invoiceId), id); },
     'void-booking':  () => { ev.stopPropagation(); voidBooking(ENR(id)); },
     'approve-change':() => UI.confirm('Approve this change to the booking?',
                        () => approveChange(id, true),

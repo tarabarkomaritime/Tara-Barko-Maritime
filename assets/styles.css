@@ -235,6 +235,12 @@ label.fld small{font-weight:400;color:var(--muted)}
    at all, and two figures side by side read as one. */
 .vch{font-size:12.5px}
 .vch th,.vch td{padding:7px 10px}
+/* The name and the course each on one line. Wrapped, a long name took three
+   rows of height and pushed the table past the bottom of the dialog, so the
+   office scrolled both ways to read one voucher. The money columns are held to
+   their width so eleven bookings line up down the page. */
+.vch td.vch-name,.vch td.vch-course{white-space:nowrap}
+.vch th.num,.vch td.num{width:110px}
 .vch th.vch-n,.vch td.vch-n{
   width:34px;text-align:right;padding-right:4px;color:var(--muted);
   font-variant-numeric:tabular-nums}
@@ -325,6 +331,22 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
 .modal-backdrop{position:fixed;inset:0;background:rgba(10,28,51,.55);display:grid;place-items:center;padding:20px;z-index:100;overflow-y:auto}
 .modal{background:var(--surface);border-radius:12px;box-shadow:var(--shadow-lg);width:100%;max-width:620px;margin:auto;animation:pop .13s ease-out}
 .modal.wide{max-width:900px}
+/* Whatever the window has. A remittance voucher is eight columns of figures
+   checked against a centre's own statement, and reading it through a 900px
+   letterbox means scrolling sideways with the row you are on sliding away. */
+.modal.widest{max-width:min(1500px, calc(100vw - 48px))}
+.modal.widest .modal-body{max-height:calc(100vh - 132px);padding:14px 18px}
+.modal.widest .note{padding:8px 12px;margin:8px 0}
+/* The list scrolls, the dialog does not.
+
+   A voucher for eleven bookings overflowed the dialog, so reaching the row you
+   wanted meant scrolling the whole thing — the date filter above it and the
+   Post voucher button below it sliding away with it. Now the rows are the only
+   part that moves, the column names stay put above them, and the filter, the
+   payment fields and the button are always where they were. The height is
+   whatever the window has left after the rest of the dialog. */
+.modal.widest .table-wrap{max-height:calc(100vh - 580px);min-height:160px;overflow:auto}
+.modal.widest .vch thead th{position:sticky;top:0;z-index:1}
 @keyframes pop{from{opacity:0;transform:translateY(-8px)}}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:15px 20px;border-bottom:1px solid var(--border)}
 .modal-head h3{margin:0;font-size:15.5px}
@@ -456,6 +478,9 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
   body.printing-doc #newBuild{display:none !important}
   body,.shell,.main,.view{background:#fff;margin:0;padding:0;display:block}
   .modal-backdrop{position:static;background:none;padding:0;display:block}
+  /* A control on a document somebody is handed. The invoice carries a Remove
+     beside each training for the admin; on paper it is a word in a column. */
+  [data-act="drop-line"]{display:none !important}
   .modal{box-shadow:none;max-width:100%;border-radius:0}
   .modal-body{max-height:none;overflow:visible;padding:0}
   .modal-head{display:none}
