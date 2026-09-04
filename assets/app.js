@@ -1193,44 +1193,115 @@ VIEWS.enrollments = () => {
 };
 
 /* ---------- Invoices ---------- */
+/* The statuses a booking can be sitting in with no bill behind it. Pending is
+   waiting on the centre; Open Schedule and On Process are agreed but undated,
+   and those two bill as they are taken — so an unbilled one is either a seat
+   recorded before that rule, or one whose bill was voided. */
+const BOOKING_ONLY = ['Pending', 'On Process', 'Open Schedule', 'Enrolled', 'Reserved'];
+
 VIEWS.invoices = () => {
   const q = (state.q.inv || '').toLowerCase(), f = state.q.invStatus || '';
-  const rows = D().invoices.map(i => (ACC.recomputeInvoice(i), i)).filter(i => {
-    if(f && invStatus(i) !== f) return false;
-    if(!q) return true;
-    return [i.no, name(T(i.traineeId))].join(' ').toLowerCase().includes(q);
-  }).sort((a,b) => b.date.localeCompare(a.date) || b.no.localeCompare(a.no));
+  const bookingFilter = BOOKING_ONLY.includes(f);
 
-  const tot  = ACC.r2(rows.filter(i=>!i.voided).reduce((s,i) => s + i.total, 0));
-  const paid = ACC.r2(rows.filter(i=>!i.voided).reduce((s,i) => s + (i.paid||0), 0));
+  const invRows = (bookingFilter ? [] : D().invoices.map(i => (ACC.recomputeInvoice(i), i)))
+    .filter(i => {
+      if(f && invStatus(i) !== f) return false;
+      if(!q) return true;
+      return [i.no, name(T(i.traineeId)), (i.items || []).map(x => x.desc).join(' ')]
+        .join(' ').toLowerCase().includes(q);
+    });
+
+  /* Every training this trainee has, billed or not.
+
+     The page listed invoices, so a seat marked Open Schedule or Pending was
+     simply absent — searching a trainee's name returned the one course they had
+     been billed for and nothing else, as though the other four did not exist.
+     That is the page the office looks at to answer "what does this seafarer
+     have with us", and it was answering half the question.
+
+     So the bookings with no bill behind them are listed too, in the same rows,
+     carrying their price and their booking status. They are not invoices and do
+     not pretend to be: no invoice number, nothing paid, nothing outstanding,
+     and the money tiles above stay measurements of what has actually been
+     billed. */
+  const unbilled = (f && !bookingFilter ? [] : D().enrollments)
+    .filter(e => !e.invoiceId
+      && e.status !== 'Void'
+      && ACC.r2(e.fee || 0) > 0.004
+      && (!bookingFilter || e.status === f))
+    .filter(e => {
+      if(!q) return true;
+      const c = CRS(e.courseId);
+      return [e.no, name(T(e.traineeId)), c ? c.title : '', e.center || '']
+        .join(' ').toLowerCase().includes(q);
+    });
+
+  /* One list, newest first, whichever kind of thing the row is. */
+  const rows = [
+    ...invRows.map(i => ({ kind:'inv', id:i.id, date:i.date, no:i.no, i })),
+    ...unbilled.map(e => ({ kind:'enr', id:e.id, date:e.date || e.start || '', no:e.no, e })),
+  ].sort((a, b) => String(b.date).localeCompare(String(a.date))
+                || String(b.no).localeCompare(String(a.no)));
+
+  const live = invRows.filter(i => !i.voided);
+  const tot  = ACC.r2(live.reduce((s, i) => s + i.total, 0));
+  const paid = ACC.r2(live.reduce((s, i) => s + (i.paid || 0), 0));
+  const booked = ACC.r2(unbilled.reduce((s, e) => s + wouldBill(e), 0));
 
   return `
     <div class="toolbar">
-      <input type="search" data-q="inv" value="${UI.esc(state.q.inv||'')}" placeholder="Search invoice no. or trainee…" style="min-width:250px">
-      <select data-q="invStatus" style="min-width:150px">
-        ${['','Unpaid','Partial','Paid','Overdue','Void'].map(s =>
-          `<option value="${s}" ${f===s?'selected':''}>${s||'All statuses'}</option>`).join('')}
+      <input type="search" data-q="inv" value="${UI.esc(state.q.inv||'')}" placeholder="Search invoice no., trainee or course…" style="min-width:250px">
+      <select data-q="invStatus" style="min-width:180px">
+        <option value="" ${f===''?'selected':''}>All bills and bookings</option>
+        <optgroup label="Billed">
+          ${['Unpaid','Partial','Paid','Overdue','Void'].map(s =>
+            `<option value="${s}" ${f===s?'selected':''}>${s}</option>`).join('')}
+        </optgroup>
+        <optgroup label="Booked, not yet billed">
+          ${BOOKING_ONLY.map(s =>
+            `<option value="${s}" ${f===s?'selected':''}>${s}</option>`).join('')}
+        </optgroup>
       </select>
       <span class="spacer"></span>
     </div>
     <div class="grid g4" style="margin-bottom:18px">
-      ${UI.kpi('Invoices Shown', UI.int(rows.length), 'Matching current filter', '')}
-      ${UI.kpi('Total Billed', UI.peso(tot), 'no tax applied', 'sea')}
+      ${UI.kpi('Invoices Shown', UI.int(invRows.length),
+               unbilled.length
+                 ? `${UI.int(unbilled.length)} more booked, not yet billed`
+                 : 'Matching current filter', '')}
+      ${UI.kpi('Total Billed', UI.peso(tot),
+               booked > 0.004 ? `${UI.peso(booked)} booked but unbilled` : 'no tax applied', 'sea')}
       ${UI.kpi('Total Collected', UI.peso(paid), 'Applied to these invoices', 'ok')}
       ${UI.kpi('Outstanding', UI.peso(ACC.r2(tot - paid)), 'Still collectible', tot-paid>0?'warn':'ok')}
     </div>
     ${UI.card('', UI.table([
-      { h:'Invoice No.', k:i => `<b class="mono">${UI.esc(i.no)}</b>`, w:'135px' },
-      { h:'Date', k:i => UI.date(i.date), w:'115px' },
-      { h:'Trainee', k:i => UI.esc(name(T(i.traineeId))) },
-      { h:'Particulars', k:i => UI.esc(i.items.map(x => x.desc).join(', ')) },
-      { h:'Total', k:i => `<b>${UI.peso(i.total)}</b>`, cls:'num' },
-      { h:'Paid', k:i => UI.num(i.paid||0), cls:'num' },
-      { h:'Balance', k:i => { const b = ACC.balanceOf(i);
-          return i.voided ? '<span class="muted">—</span>' : (b > 0.004 ? `<b style="color:var(--bad)">${UI.num(b)}</b>` : `<span style="color:var(--ok)">0.00</span>`); }, cls:'num' },
-      { h:'Status', k:i => UI.statusTag(invStatus(i)) },
-    ], rows, { empty:'No invoices found.', rowClass:'clickable',
-               rowAttrs:i => `data-act="view-invoice" data-id="${i.id}"` }), { flush:true })}
+      { h:'Invoice No.', k:r => r.kind === 'inv'
+          ? `<b class="mono">${UI.esc(r.i.no)}</b>`
+          : `<span class="mono muted">${UI.esc(r.e.no)}</span>`, w:'135px' },
+      { h:'Date', k:r => r.date ? UI.date(r.date) : '<span class="muted">—</span>', w:'115px' },
+      { h:'Trainee', k:r => UI.esc(name(T(r.kind === 'inv' ? r.i.traineeId : r.e.traineeId))) },
+      { h:'Particulars', k:r => { if(r.kind === 'inv')
+            return UI.esc(r.i.items.map(x => x.desc).join(', '));
+          const c = CRS(r.e.courseId);
+          return UI.esc((c ? c.title : 'no course on file')
+                        + (r.e.center ? ' — ' + r.e.center : '')); } },
+      /* The price of an unbilled seat is greyed: it is what the training costs,
+         not what anybody has been asked for. */
+      { h:'Total', k:r => r.kind === 'inv'
+          ? `<b>${UI.peso(r.i.total)}</b>`
+          : `<span class="muted">${UI.peso(wouldBill(r.e))}</span>`, cls:'num' },
+      { h:'Paid', k:r => r.kind === 'inv' ? UI.num(r.i.paid||0)
+                                          : '<span class="muted">—</span>', cls:'num' },
+      { h:'Balance', k:r => { if(r.kind !== 'inv') return '<span class="muted">—</span>';
+          const b = ACC.balanceOf(r.i);
+          return r.i.voided ? '<span class="muted">—</span>'
+            : (b > 0.004 ? `<b style="color:var(--bad)">${UI.num(b)}</b>`
+                         : `<span style="color:var(--ok)">0.00</span>`); }, cls:'num' },
+      { h:'Status', k:r => UI.statusTag(r.kind === 'inv' ? invStatus(r.i) : r.e.status) },
+    ], rows, { empty:'Nothing billed or booked under that.', rowClass:'clickable',
+               rowAttrs:r => r.kind === 'inv'
+                 ? `data-act="view-invoice" data-id="${r.i.id}"`
+                 : `data-act="view-enrollment" data-id="${r.e.id}"` }), { flush:true })}
   `;
 };
 
