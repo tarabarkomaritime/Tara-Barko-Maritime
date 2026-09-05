@@ -198,6 +198,36 @@ function contactLines(){
 /* The mark, once, from the file the rest of the system already uses. */
 const LOGO = 'assets/logo.svg';
 
+/* The head both vouchers wear: the mark, the letterhead, and the document named
+   in a badge with its number and date beneath.
+
+   It was written twice, once per voucher, and the two drifted — one carried the
+   reference and the other did not, one said "Date issued" and the other printed
+   a bare date. A centre holding both should not be able to tell they came from
+   different code. */
+function dvHead(title, no, date, tags, ref){
+  const co = D().company;
+  return `
+      <div class="dv-head">
+        <img src="${LOGO}" alt="">
+        <div class="dv-co">
+          <h2>${UI.esc(co.name)}</h2>
+          ${co.address ? `<div class="l">${ICO.pin}<span>${UI.esc(co.address)}</span></div>` : ''}
+          ${contactLines().map((x, n) =>
+            `<div class="l">${n ? ICO.mail : ICO.phone}<span>${UI.esc(x)}</span></div>`).join('')}
+          ${co.tradeName ? `<div class="l" style="opacity:.75">${UI.esc(co.tradeName)}</div>` : ''}
+        </div>
+        <div class="dv-badge">
+          <div class="b">${UI.esc(title)}</div>
+          <div class="n">${UI.esc(no)}</div>
+          <div class="m">Date issued : ${UI.date(date)}</div>
+          ${ref ? `<div class="m">Reference : <span class="mono">${UI.esc(ref)}</span></div>` : ''}
+          ${(tags || []).filter(Boolean)
+            .map(t => `<div style="margin-top:6px">${t}</div>`).join('')}
+        </div>
+      </div>`;
+}
+
 function docCompany(){
   const co = D().company;
   return `<div><h2>${UI.esc(co.name)}</h2>
@@ -2484,25 +2514,10 @@ function expenseVoucherModal(v){
   const sheet = `
     <div class="doc" style="padding:0;background:transparent">
      <div class="dv">
-      <div class="dv-head">
-        <img src="${LOGO}" alt="">
-        <div class="dv-co">
-          <h2>${UI.esc(co.name)}</h2>
-          ${co.address ? `<div class="l">${ICO.pin}<span>${UI.esc(co.address)}</span></div>` : ''}
-          ${contactLines().map((x, n) =>
-            `<div class="l">${n ? ICO.mail : ICO.phone}<span>${UI.esc(x)}</span></div>`).join('')}
-          ${co.tradeName ? `<div class="l" style="opacity:.75">${UI.esc(co.tradeName)}</div>` : ''}
-        </div>
-        <div class="dv-badge">
-          <div class="b">DISBURSEMENT VOUCHER</div>
-          <div class="n">${UI.esc(v.no)}</div>
-          <div class="m">Date issued : ${UI.date(v.date)}</div>
-          ${v.ref ? `<div class="m">Reference : <span class="mono">${UI.esc(v.ref)}</span></div>` : ''}
-          ${voided ? '<div style="margin-top:6px">' + UI.tag('VOID','bad') + '</div>' : ''}
-          ${v.state === 'Pending'
-            ? '<div style="margin-top:6px">' + UI.tag('Awaiting approval','warn') + '</div>' : ''}
-        </div>
-      </div>
+      ${dvHead('DISBURSEMENT VOUCHER', v.no, v.date, [
+        voided ? UI.tag('VOID','bad') : '',
+        v.state === 'Pending' ? UI.tag('Awaiting approval','warn') : '',
+      ], v.ref)}
 
       <div class="dv-fields"><table>
         <tr><td class="k">Pay To</td><td><b>${UI.esc(v.payee || '\u2014')}</b></td></tr>
@@ -2560,38 +2575,55 @@ function voucherModal(v){
     return l ? l.amount : (e.centerPayable != null ? e.centerPayable : e.fee);
   };
 
+  /* The same document as an ordinary disbursement, with the seats it settles
+     listed on it — a centre reads this against its own statement, so the
+     trainees are the substance of the sheet rather than a note under it. */
   const sheet = `
-    <div class="doc">
-      <div class="doc-head">
-        ${docCompany()}
-        <div class="doc-title">
-          <div class="t">DISBURSEMENT VOUCHER</div>
-          <div class="n">${UI.esc(v.no)}</div>
-          ${wasVoided(v) ? '<div style="margin-top:5px">' + UI.tag('VOID','bad') + '</div>' : ''}
-          <div class="muted" style="font-size:12px">${UI.date(v.date)}</div>
-        </div>
+    <div class="doc" style="padding:0;background:transparent">
+     <div class="dv">
+      ${dvHead('DISBURSEMENT VOUCHER', v.no, v.date, [
+        wasVoided(v) ? UI.tag('VOID','bad') : '',
+      ], v.ref)}
+
+      <div class="dv-fields"><table>
+        <tr><td class="k">Pay To</td><td><b>${UI.esc(String(v.payee).toUpperCase())}</b></td></tr>
+        <tr><td class="k">Particulars</td><td>${UI.esc(v.particulars)}</td></tr>
+        <tr><td class="k">Amount In Words</td><td><b>${UI.esc(amountInWords(v.amount))}</b></td></tr>
+      </table></div>
+
+      <div class="dv-lines"><table>
+        <thead><tr>
+          <th style="text-align:left">TRAINEE</th>
+          <th style="text-align:left">COURSE</th>
+          <th style="text-align:left">TRAINING</th>
+          <th class="num">AMOUNT (₱)</th>
+        </tr></thead>
+        <tbody>
+          ${bookings.length ? bookings.map(e => `
+            <tr><td>${UI.esc(name(T(e.traineeId)))}</td>
+                <td>${UI.esc((CRS(e.courseId)||{}).title || '—')}</td>
+                <td class="nowrap">${e.start ? UI.dateRange(e.start, e.end) : '—'}</td>
+                <td class="num">${UI.num(lineFor(e))}</td></tr>`).join('')
+            : `<tr><td colspan="4" class="muted">No bookings recorded on this voucher.</td></tr>`}
+          <tr class="total"><td colspan="3">TOTAL REMITTED</td>
+              <td class="num">${UI.peso(v.amount)}</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="dv-fields" style="margin-top:12px"><table>
+        <tr><td class="k">Mode Of Payment</td><td>${UI.esc(v.method || '—')}</td></tr>
+        <tr><td class="k">Reference No.</td>
+            <td>${v.ref ? `<span class="mono">${UI.esc(v.ref)}</span>` : '—'}</td></tr>
+      </table></div>
+
+      <div class="dv-foot">
+        <p class="dv-note">Received the sum stated above in full settlement of the seats
+          listed. This serves as the office's record of the remittance.</p>
+        <div class="dv-sign">Received By ${UI.esc(String(v.payee).toUpperCase())}</div>
+        <p class="dv-note" style="text-align:center;margin-top:8px">Prepared by the office.</p>
+        <div class="dv-tag">Sailing Towards<br>Better Opportunities.</div>
       </div>
-      <dl class="def">
-        <dt>Pay To</dt><dd><b>${UI.esc(String(v.payee).toUpperCase())}</b></dd>
-        <dt>Particulars</dt><dd>${UI.esc(v.particulars)}</dd>
-        <dt>Paid From</dt><dd>${UI.esc(v.method)}${v.ref ? ` · Ref ${UI.esc(v.ref)}` : ''}</dd>
-        <dt>Amount In Words</dt><dd>${UI.esc(amountInWords(v.amount))}</dd>
-      </dl>
-      ${UI.table([
-        { h:'Trainee', k:e => UI.esc(name(T(e.traineeId))) },
-        { h:'Course', k:e => UI.esc((CRS(e.courseId)||{}).title || '—') },
-        { h:'Training', k:e => e.start ? UI.dateRange(e.start, e.end) : '—' },
-        { h:'Amount', k:e => UI.num(lineFor(e)), cls:'num' },
-      ], bookings, { empty:'No bookings recorded on this voucher.' })}
-      <div class="doc-total">
-        <table>
-          <tr class="grand"><td>TOTAL REMITTED</td><td class="num">${UI.peso(v.amount)}</td></tr>
-        </table>
-      </div>
-      <div class="doc-sign">
-        <div>Prepared By</div>
-        <div>Received By ${UI.esc(String(v.payee).toUpperCase())}</div>
-      </div>
+     </div>
     </div>`;
 
   UI.modal({
@@ -6536,6 +6568,42 @@ window.addEventListener('storage', ev => {
   if(now > before) UI.toast(`${now - before} new application(s) received.`);
   render();
 });
+
+/* ---------- the drawer ----------
+   On a phone the sidebar slides over the page instead of sitting beside it.
+   It closes on anything that means "I am done here": the button again, the
+   scrim, Escape, choosing a module, or the window growing back to a size where
+   the sidebar is a sidebar again — otherwise turning a phone sideways leaves an
+   open drawer pinned over a page that no longer needs one. */
+/* Not `nav`: an element with id="nav" already puts window.nav in scope, and a
+   binding that shadows a DOM id is a thing somebody trips over later. */
+const navDrawer = (() => {
+  const btn = document.getElementById('menuBtn');
+  const bar = document.getElementById('sidebar');
+  const scrim = document.getElementById('navScrim');
+  if(!btn || !bar || !scrim) return { close(){} };
+
+  const set = open => {
+    bar.classList.toggle('open', open);
+    scrim.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    /* The page behind a drawer should not scroll under it. */
+    document.body.style.overflow = open ? 'hidden' : '';
+  };
+  const close = () => set(false);
+
+  btn.onclick = () => set(!bar.classList.contains('open'));
+  scrim.onclick = close;
+  /* The nav items are buttons carrying data-nav, not links; the sign-out and
+     password buttons in the foot are ordinary buttons and close it too, since
+     both take you off this screen one way or another. */
+  bar.addEventListener('click', e => {
+    if(e.target.closest('[data-nav],[data-act],#logoutBtn')) close();
+  });
+  document.addEventListener('keydown', e => { if(e.key === 'Escape') close(); });
+  window.addEventListener('resize', () => { if(innerWidth > 760) close(); });
+  return { close };
+})();
 
 document.getElementById('logoutBtn').onclick = async () => {
   const s = DB.cloudStatus();

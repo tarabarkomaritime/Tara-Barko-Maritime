@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Tara Barko Maritime — Integrated System</title>
-<link rel="stylesheet" href="assets/styles.css?v=842f82ad" />
-<link rel="icon" href="assets/logo.svg?v=842f82ad" />
+<link rel="stylesheet" href="assets/styles.css?v=a1e0630b" />
+<link rel="icon" href="assets/logo.svg?v=a1e0630b" />
 </head>
 <body>
 
@@ -34,7 +34,8 @@
 </div>
 
 <div id="shell" class="shell hidden">
-  <aside class="sidebar">
+  <div class="nav-scrim" id="navScrim" hidden></div>
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
       <img src="assets/logo.svg" alt="" class="brand-logo" />
       <div class="brand-text">
@@ -58,7 +59,13 @@
 
   <main class="main">
     <header class="topbar">
-      <div>
+      <!-- The only way to another module on a phone. The sidebar used to be
+           hidden outright below 760px, which left the system on whatever screen
+           it opened on with no way off it. -->
+      <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="topbar-title">
         <h2 id="pageTitle">Dashboard</h2>
         <p id="pageSub" class="muted"></p>
       </div>
@@ -76,13 +83,13 @@
 <div id="modalRoot"></div>
 <div id="toastRoot" class="toast-root"></div>
 
-<script src="assets/courses.js?v=842f82ad"></script>
-<script src="assets/cloud.js?v=842f82ad"></script>
-<script src="assets/sync.js?v=842f82ad"></script>
-<script src="assets/db.js?v=842f82ad"></script>
-<script src="assets/ui.js?v=842f82ad"></script>
-<script src="assets/accounting.js?v=842f82ad"></script>
-<script src="assets/applications.js?v=842f82ad"></script>
-<script src="assets/app.js?v=842f82ad"></script>
+<script src="assets/courses.js?v=a1e0630b"></script>
+<script src="assets/cloud.js?v=a1e0630b"></script>
+<script src="assets/sync.js?v=a1e0630b"></script>
+<script src="assets/db.js?v=a1e0630b"></script>
+<script src="assets/ui.js?v=a1e0630b"></script>
+<script src="assets/accounting.js?v=a1e0630b"></script>
+<script src="assets/applications.js?v=a1e0630b"></script>
+<script src="assets/app.js?v=a1e0630b"></script>
 </body>
 </html>
