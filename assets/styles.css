@@ -245,6 +245,7 @@ label.fld small{font-weight:400;color:var(--muted)}
   width:34px;text-align:right;padding-right:4px;color:var(--muted);
   font-variant-numeric:tabular-nums}
 .vch td.num,.vch th.num{font-variant-numeric:tabular-nums}
+.vch th.vch-edit,.vch td.vch-edit{width:62px;text-align:right;padding-left:4px}
 .vch .vch-pick{display:flex;gap:8px;align-items:center;cursor:pointer}
 .vch .vch-pick input{width:auto;margin:0;flex:none}
 /* A seat nobody has paid for cannot go on a voucher, and is shown rather than

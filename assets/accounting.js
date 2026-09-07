@@ -48,9 +48,16 @@ const ACC = (() => {
 
   /* Mirror-image entry — used when a document is voided. Keeps the audit trail intact
      instead of deleting history. */
-  function reverse(refId, reason){
+  /* refType narrows it to one kind of entry on that reference.
+
+     A booking's id is on more than one entry: the centre's payable posted when
+     the seat was booked, and the rebate receipt posted when the centre paid it
+     back. Reversing "the booking" without saying which would undo cash that has
+     already arrived, so anything correcting one of them has to name it. */
+  function reverse(refId, reason, refType){
     const d = DB.get();
-    const originals = d.journal.filter(j => j.refId === refId && !j.voided && !j.reversalOf);
+    const originals = d.journal.filter(j => j.refId === refId && !j.voided && !j.reversalOf
+      && (!refType || j.refType === refType));
     originals.forEach(j => {
       j.voided = true;
       const je = post({

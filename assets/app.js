@@ -2377,6 +2377,103 @@ VIEWS.payables = () => {
 
 /* Pay one center. Every outstanding booking is on the voucher by default; the
    office can leave some off when it is settling only part of a statement. */
+/* Putting a seat's figures right.
+
+   Two numbers on a booking are frozen the day it is taken — what the centre is
+   owed for the seat, and what the rebate on it is worth — both copied from the
+   price list as it read that morning. A price typed wrong, or a rate agreed
+   after the booking, is found later: at the voucher, against the centre's own
+   statement, which is the one place both figures are read side by side.
+
+   The old entry is reversed and a new one posted in its place, so the ledger
+   shows the correction rather than a number that quietly changed. The reason is
+   required and goes on the record, because a month later it is the only part
+   nobody can reconstruct.
+
+   What the trainee paid is not here. That comes from their receipts, and a
+   receipt is changed by voiding it, not by typing over the total. */
+function seatFiguresForm(e){
+  if(!e) return;
+  if(!canApprove()){ UI.toast('Only an admin can change a seat\'s figures.', 'bad'); return; }
+  if(e.status === 'Void'){ UI.toast('That booking is void.', 'bad'); return; }
+  if(e.remitNo || ACC.r2(e.centerPaid || 0) > 0.004){
+    UI.toast('That seat has already been remitted — settle the difference with the centre.', 'bad');
+    return;
+  }
+  if(e.rebateReceivedOn){
+    UI.toast('The rebate on that seat has already been banked. Correcting it now would'
+      + ' contradict money that has arrived.', 'bad');
+    return;
+  }
+  const t = T(e.traineeId), c = CRS(e.courseId);
+  const owed = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
+  const rebate = ACC.r2(e.rebate || 0);
+
+  UI.modal({
+    title:'Seat figures — ' + e.no,
+    sub:`${name(t)} · ${(c && c.title) || '—'} · ${UI.esc(e.center || '')}`,
+    wide:true,
+    body:`
+      ${UI.row(
+        UI.f.num('owed','Owed to the centre (₱)', owed, { req:true, min:0, step:'0.01',
+          hint:'what this seat costs us, before the rebate' }),
+        UI.f.num('rebate','Rebate on this seat (₱)', rebate, { min:0, step:'0.01',
+          hint:e.source === 'Marketing'
+            ? 'already halved — this seat came in through marketing'
+            : 'what the centre gives back on it' }))}
+      ${UI.f.select('deduct','How the rebate settles', e.deduct ? 'Deduct' : 'Do not deduct',
+        ['Deduct', 'Do not deduct'],
+        { hint:'Deduct: kept back from what we remit. Do not deduct: the centre owes it separately.' })}
+      ${UI.f.area('reason','Why is it changing?', '',
+        { req:true, ph:'e.g. the centre\'s statement prices PSSR at 1,200' })}
+      <div class="note">The entry posted when this seat was booked is reversed and a new one
+        put in its place, dated today. What the trainee paid is not touched — that comes from
+        their receipts, and a receipt is changed by voiding it.</div>`,
+    submitLabel:'Post the correction',
+    onSubmit: fd => {
+      const reason = String(fd.reason || '').trim();
+      if(!reason){
+        UI.toast('Say why it is changing — a correction with no reason is a gap in the file.', 'bad');
+        return false;
+      }
+      const nowOwed = ACC.r2(fd.owed), nowRebate = ACC.r2(fd.rebate || 0);
+      if(!(nowOwed >= 0) || !(nowRebate >= 0)){ UI.toast('Both figures have to be amounts.', 'bad'); return false; }
+      const deduct = fd.deduct === 'Deduct';
+      if(deduct && nowRebate > nowOwed + 0.004){
+        UI.toast('A deducted rebate above what the seat costs would remit a negative amount.', 'bad');
+        return false;
+      }
+      if(nowOwed === owed && nowRebate === rebate && deduct === !!e.deduct){
+        UI.toast('Neither figure is different — there is nothing to post.', 'bad');
+        return false;
+      }
+
+      /* Only the seat's own payable. The rebate receipt, if there ever is one,
+         carries the same reference and is nobody's business here. */
+      ACC.reverse(e.id, reason, 'Booking');
+      const s = ACC.postCenterPayable({
+        date:DB.today(),
+        memo:`${(c && c.title) || 'Seat'}${e.center ? ' — ' + e.center : ''} · ${e.no}`
+          + ` · corrected (${reason})`,
+        refNo:e.no, refId:e.id, fee:nowOwed, rebate:nowRebate, deduct,
+      });
+      e.centerPayable = s.payable;
+      e.rebateReceivable = s.receivable;
+      e.rebate = nowRebate;
+      e.deduct = deduct;
+      DB.activity('Corrected a seat\'s figures',
+        `${e.no} — owed ${UI.peso(owed)} → ${UI.peso(nowOwed)},`
+        + ` rebate ${UI.peso(rebate)} → ${UI.peso(nowRebate)} — ${reason}`);
+      DB.save();
+      UI.toast(`${e.no} corrected — owed ${UI.peso(s.payable)}, rebate ${UI.peso(nowRebate)}.`);
+      render();
+      /* Back to the voucher, reading as it now does. */
+      setTimeout(() => centerVoucherForm(e.center), 0);
+      return false;
+    }
+  });
+}
+
 function centerVoucherForm(center){
   const key = String(center || '').toUpperCase();
   const { from } = payablesFilter();
@@ -2414,6 +2511,13 @@ function centerVoucherForm(center){
       <td class="num">${ready(r)
         ? `<b>${UI.num(r.remittable)}</b>`
         : '<span class="muted nowrap">nothing collected</span>'}</td>
+      <!-- What a seat owes the centre and what it earns us are both frozen at
+           booking time, from the price list as it read that day. A price typed
+           wrong is found here, against the centre's own statement, and there
+           was nowhere to put it right. -->
+      <td class="vch-edit">${canApprove()
+        ? `<button type="button" class="btn btn-ghost btn-xs"
+             data-act="seat-figures" data-id="${r.e.id}">Open</button>` : ''}</td>
     </tr>`;
 
   UI.modal({
@@ -2451,6 +2555,7 @@ function centerVoucherForm(center){
             <th>Trainee name</th><th>Course</th><th>Training date</th>
             <th class="num">Paid (₱)</th><th class="num">Discount (₱)</th>
             <th class="num">Owed (₱)</th><th class="num">Remitting (₱)</th>
+            <th class="vch-edit"></th>
           </tr></thead>
           <tbody>${group.rows.map(row).join('')}</tbody>
         </table>
@@ -6659,6 +6764,7 @@ document.addEventListener('click', ev => {
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'change-booking':() => { ev.stopPropagation(); bookingChangeForm(ENR(id)); },
+    'seat-figures':  () => { ev.stopPropagation(); seatFiguresForm(ENR(id)); },
     'mk-fee':        () => { ev.stopPropagation(); marketingFeeForm(ENR(id)); },
     'mk-pay':        () => { ev.stopPropagation(); marketingPay(ENR(id)); },
     'drop-line':     () => { ev.stopPropagation();
