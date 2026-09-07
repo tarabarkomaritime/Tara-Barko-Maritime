@@ -2272,7 +2272,13 @@ VIEWS.payables = () => {
      exactly what is being paid for. */
   const section = c => UI.card(c.key, UI.table([
       { h:'Trainee', k:r => `<b>${UI.esc(name(T(r.e.traineeId)))}</b>` },
-      { h:'Course', k:r => UI.esc((CRS(r.e.courseId) || {}).title || '—') },
+      /* Named the same way as on the voucher this screen raises. A booking for
+         a rescheduling fee, a make-up or a cancellation is a course title and a
+         price like any other row, and the office was reading down a column of
+         PSSR at 1,100 with no way to see which of them was a training seat and
+         which was a charge — on the one screen where it decides what to send a
+         centre. */
+      { h:'Course', k:r => chargeRow(r.e) },
       { h:'Training', k:r => r.e.start ? UI.dateRange(r.e.start, r.e.end) : '—' },
       /* What the trainee has handed over so far, and whether that settles their
          bill. The office reads this before deciding what to remit: a center
