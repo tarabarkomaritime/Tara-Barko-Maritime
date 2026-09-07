@@ -48,9 +48,13 @@ const SYNC = (() => {
             'date_encoded','status','result','certificate_no','invoice_id','fee','discount',
             'discount_note','rebate','deduct','center_payable','rebate_receivable','center_paid',
             'remit_no','remit_date','rebate_received_on','rebate_method','rebate_ref',
-            'rebate_received_by','remarks'],
+            'rebate_received_by','remarks',
+            /* Where the seat came from, and what the person who brought it is
+               owed for it. */
+            'source','marketing_fee','marketing_set_by','marketing_set_on','marketing_voucher'],
       blankToNull:['course_id','invoice_id','start_on','end_on','remit_no','remit_date',
-                   'rebate_received_on','rebate_method','rebate_ref','center_payable'],
+                   'rebate_received_on','rebate_method','rebate_ref','center_payable',
+                   'marketing_fee','marketing_set_by','marketing_set_on','marketing_voucher'],
       blankToDefault:['date_encoded'],
     },
     /* A correction to a booking, waiting for an admin. It has to reach the

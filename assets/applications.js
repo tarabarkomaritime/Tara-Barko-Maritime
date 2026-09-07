@@ -212,6 +212,12 @@ const APPS = (() => {
 
     const BOOKING_STATES = ['Enrolled', 'On Process', 'Open Schedule', 'Pending', 'Reserved'];
     const mode = BOOKING_STATES.includes(opts.mode) ? opts.mode : 'Enrolled';
+
+    /* How the seat reached us. A walk-in at the counter, the public form, or
+       somebody who went out and found the trainee — the last of those is paid
+       for, and paid for out of the rebate on that seat. */
+    const SOURCES = ['Walk-in', 'Online', 'Marketing'];
+    const source = SOURCES.includes(opts.source) ? opts.source : 'Walk-in';
     const discount = ACC.r2(opts.discount || 0);
 
     const enr = {
@@ -222,7 +228,7 @@ const APPS = (() => {
          course at one center — so it only has to be passed in to override it. */
       center:t(opts.center) || t(c.center), room:t(opts.room), instructor:t(opts.instructor),
       start:opts.start || '', end:opts.end || opts.start || '',
-      date:DB.today(), status:mode, result:'',
+      date:DB.today(), status:mode, result:'', source,
       fee, discount, discountNote:t(opts.discountNote),
       certificateNo:'', remarks:t(opts.remarks),
     };
@@ -234,8 +240,14 @@ const APPS = (() => {
     /* No seat sold, no rebate. A booking taken for a rescheduling fee alone
        would otherwise carry the whole course rebate for that centre, which is
        money the price list says we earn on a training nobody is attending. */
-    const rebate = opts.rebate != null ? ACC.r2(opts.rebate)
-                 : (fee > 0 ? ACC.r2(c.rebate || 0) : 0);
+    /* Half the rebate on a seat somebody was sent to us for. The other half is
+       what the marketer is paid, and it is settled from the Marketing tab under
+       Disbursements rather than netted off here — the money still has to be
+       approved and to leave through a voucher like any other. Halving it here
+       keeps Sales honest about what the office actually earns on that seat. */
+    const full = opts.rebate != null ? ACC.r2(opts.rebate)
+               : (fee > 0 ? ACC.r2(c.rebate || 0) : 0);
+    const rebate = source === 'Marketing' ? ACC.r2(full / 2) : full;
     const deduct = opts.deduct != null ? !!opts.deduct : !!c.deduct;
     enr.rebate = rebate;
     enr.deduct = deduct;
@@ -297,11 +309,17 @@ const APPS = (() => {
     const discount = ACC.r2(opts.discount != null ? opts.discount : (enr.discount || 0));
     const discountNote = t(opts.discountNote != null ? opts.discountNote : enr.discountNote);
     const charges = opts.charges || [];
-    /* A charge booking carries its charges as invoice lines and nowhere else,
-       so one that reaches here unbilled has nothing left to bill from. Say that
-       rather than raising a bill for zero. */
-    if(fee <= 0 && !charges.length)
-      throw new Error('That booking has no fee and no charges on it — there is nothing to bill.');
+    /* Nothing to charge for: a seat the office takes no fee on, or a charge
+       booking reaching here after the fact with its charges already spent as
+       invoice lines. Nothing is billed and nothing is wrong — so this returns
+       null the way Pending does rather than throwing.
+
+       It threw, and enroll calls this straight after pushing the booking. So a
+       course whose price list says zero — or a form submitted before picking
+       the course filled the fee in — left a booking in the store that no bill
+       and no screen would ever account for. The trainee had been enrolled and
+       the office could not find them anywhere in Billing. */
+    if(fee <= 0 && !charges.length) return null;
 
     /* The day the bill is raised, which is the day it is asked for. At the
        counter that is the day of the booking. A seat billed later is billed on

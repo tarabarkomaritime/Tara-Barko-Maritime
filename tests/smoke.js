@@ -1666,13 +1666,30 @@ console.log('\n- old stores lose their passwords -');
                     /void/);
     });
 
-    check('a seat with nothing on it to charge for is refused', () => {
+    /* A seat the office takes no fee on bills nothing and says so by returning
+       null, the way Pending does. It used to throw — and enroll calls
+       billBooking straight after pushing the booking, so a course priced at
+       zero left a booking in the store that no bill and no screen accounted
+       for. The trainee was enrolled and could not be found in Billing. */
+    check('a seat with nothing to charge for bills nothing, and does not throw', () => {
       run(`(() => { const d = DB.get();
              d.enrollments.push({ id:'bfree', no:'ENR-F', traineeId:'bt1',
                courseId:BC[2].id, status:'Enrolled', fee:0, discount:0,
                date:DB.today(), start:'2026-10-01', end:'2026-10-02' }); })()`);
-      return throws(`APPS.billBooking(DB.get().enrollments.find(e => e.id === 'bfree'))`,
-                    /nothing to bill/);
+      return run(`APPS.billBooking(DB.get().enrollments.find(e => e.id === 'bfree'))`) === null
+        || 'it billed something';
+    });
+
+    check('and enrolling one keeps the booking', () => {
+      const n = run(`(() => {
+        const d = DB.get();
+        const t = d.trainees.find(x => x.id === 'bt1');
+        const before = d.enrollments.length;
+        APPS.enroll(t, { courseId:BC[2].id, start:'2026-10-05', end:'2026-10-06',
+                         fee:0, mode:'Enrolled', by:'K' });
+        return d.enrollments.length - before;
+      })()`);
+      return n === 1 || 'enrollments added: ' + n;
     });
 
     check('the books still balance after a bill raised late', () => {
@@ -2096,6 +2113,84 @@ console.log('\n- old stores lose their passwords -');
     });
 
     check('the books balance through all of it', () => {
+      const diff = run(`(() => { let dr = 0, cr = 0;
+        DB.get().journal.filter(x => !x.voided).forEach(e => (e.lines || []).forEach(l => {
+          dr += ACC.r2(l.debit || 0); cr += ACC.r2(l.credit || 0); }));
+        return ACC.r2(dr - cr); })()`);
+      return Math.abs(diff) < 0.005 || 'out by ' + diff;
+    });
+  }
+
+  /* ---------- where a seat came from ----------
+     A seat somebody was sent to us for is paid for, and paid for out of the
+     rebate on that seat. So the booking remembers which of the three ways it
+     arrived, and a marketing seat earns the office half. */
+  console.log('\n- where a seat came from -');
+  {
+    const book = source => run(`(() => {
+      DB.reset(true);
+      const d = DB.get();
+      const t = { id:'sr1', no:'TRN-S1', last:'MEDALLE', first:'SAM', middle:'',
+                  suffix:'', srn:'SS1', registered:DB.today() };
+      d.trainees.push(t);
+      const c = d.courses.find(x => x.amount > 0 && x.rebate > 0);
+      const o = APPS.enroll(t, { courseId:c.id, start:'2026-09-07', end:'2026-09-08',
+                                 fee:c.amount, mode:'Enrolled',
+                                 source:${JSON.stringify(source)}, by:'K' });
+      return { source:o.enrollment.source, rebate:ACC.r2(o.enrollment.rebate),
+               listed:ACC.r2(c.rebate) };
+    })()`);
+
+    check('a booking with nothing said about it is counter work', () =>
+      book(null).source === 'Walk-in' || book(null).source);
+
+    check('and keeps the whole rebate', () => {
+      const r = book(null);
+      return r.rebate === r.listed || r.rebate + ' vs ' + r.listed;
+    });
+
+    check('the public form is recorded as online', () =>
+      book('Online').source === 'Online' || book('Online').source);
+
+    check('and keeps the whole rebate too', () => {
+      const r = book('Online');
+      return r.rebate === r.listed || r.rebate + ' vs ' + r.listed;
+    });
+
+    check('a marketing seat earns the office half', () => {
+      const r = book('Marketing');
+      return r.rebate === ACC_r2(r.listed / 2) || r.rebate + ' of ' + r.listed;
+    });
+
+    check('and says so on the booking', () =>
+      book('Marketing').source === 'Marketing' || book('Marketing').source);
+
+    check('a source nobody offers falls back to counter work', () =>
+      book('Facebook').source === 'Walk-in' || book('Facebook').source);
+
+    check('the centre is still owed the full fee on a marketing seat', () => {
+      run(`(() => {
+        DB.reset(true);
+        const d = DB.get();
+        const t = { id:'sr2', no:'TRN-S2', last:'MEDALLE', first:'SAM', middle:'',
+                    suffix:'', srn:'SS2', registered:DB.today() };
+        d.trainees.push(t);
+        const c = d.courses.find(x => x.amount > 0 && x.rebate > 0);
+        globalThis.MO = APPS.enroll(t, { courseId:c.id, start:'2026-09-07', end:'2026-09-08',
+          fee:5000, rebate:1000, deduct:false, source:'Marketing', mode:'Enrolled', by:'K' });
+      })()`);
+      const owed = run(`(() => { let n = 0;
+        DB.get().journal.filter(j => !j.voided && j.refType === 'Booking')
+          .forEach(j => (j.lines || []).forEach(l => {
+            if(l.account === '2000') n = ACC.r2(n + ACC.r2(l.credit || 0)); }));
+        return n; })()`);
+      return owed === 5000 || owed;
+    });
+
+    check('and the halved rebate is what is carried on it', () =>
+      run('ACC.r2(MO.enrollment.rebate)') === 500 || run('MO.enrollment.rebate'));
+
+    check('the books balance through a marketing booking', () => {
       const diff = run(`(() => { let dr = 0, cr = 0;
         DB.get().journal.filter(x => !x.voided).forEach(e => (e.lines || []).forEach(l => {
           dr += ACC.r2(l.debit || 0); cr += ACC.r2(l.credit || 0); }));

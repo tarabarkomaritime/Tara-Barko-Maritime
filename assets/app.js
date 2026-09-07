@@ -371,11 +371,25 @@ function bookingPaid(e){
     .filter(p => !p.voided && p.invoiceId === inv.id && !p.enrollmentId)
     .reduce((s, p) => s + ACC.r2(p.amount), 0);
 
+  /* Bills raised before the lines carried their booking have no marks to lay
+     money against, so bookingsOn gives nothing back for them — which is right
+     for the screens that split a bill and wrong here: it made a seat that had
+     been billed and paid in full report as nothing collected, and the voucher
+     then refused to remit for it. Those bills are laid over the bookings that
+     point at them, oldest first, exactly as they always were. */
+  const order = bookingsOn(inv).length ? bookingsOn(inv)
+    : D().enrollments.filter(x => x.invoiceId === inv.id)
+        .sort((a, b) => String(a.start || '').localeCompare(String(b.start || ''))
+                     || String(a.no || '').localeCompare(String(b.no || '')));
+
   let left = ACC.r2(unnamed);
-  for(const b of bookingsOn(inv)){
+  for(const b of order){
     if(left <= 0.004) break;
-    /* Only what that booking still owes after its own named payments. */
-    const owed = ACC.r2(Math.max(0, bookingShare(b) - D().payments
+    /* Only what that booking still owes after its own named payments. On an
+       unmarked bill there is no share to read, so the booking's own agreed fee
+       less its discount stands in — the same figure collectedFor used. */
+    const share = bookingShare(b) || ACC.r2((b.fee || 0) - (b.discount || 0));
+    const owed = ACC.r2(Math.max(0, share - D().payments
       .filter(p => !p.voided && p.enrollmentId === b.id)
       .reduce((s, p) => s + ACC.r2(p.amount), 0)));
     const take = ACC.r2(Math.max(0, Math.min(owed, left)));
@@ -1139,6 +1153,156 @@ VIEWS.courses = () => {
   `;
 };
 
+/* ---------- marketing ----------
+   A seat somebody was sent to us for. The rebate on it was halved when it was
+   booked; this is the other half leaving the office, and it leaves the way
+   every other peso does — on a voucher, charged to an account, posted once.
+
+   The fee is set by the admin and nobody else. The office can see what is owed
+   and what has been paid, which is the point of the tab, but the figure itself
+   is the admin's to write. */
+const MARKETING_ACCOUNT = '5500';
+
+const marketingSeats = () => D().enrollments
+  .filter(e => e.source === 'Marketing' && e.status !== 'Void' && e.status !== 'Cancelled')
+  .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))
+               || String(b.no || '').localeCompare(String(a.no || '')));
+
+/* Where a seat's referral fee has got to. Three states and no more: nobody has
+   said what it is worth, the admin has said and it is waiting to go out, or it
+   has gone out on a voucher. */
+const marketingState = e =>
+  e.marketingVoucher ? 'Paid'
+  : (e.marketingFee != null && ACC.r2(e.marketingFee) > 0) ? 'To pay'
+  : 'Not set';
+
+/* The admin writing the figure. It is the approval as well: nobody else can
+   reach this, so a second signature would be the same signature twice. */
+function marketingFeeForm(e){
+  if(!e) return;
+  if(!canApprove()){ UI.toast('Only an admin can set a referral fee.', 'bad'); return; }
+  if(e.marketingVoucher){
+    UI.toast('That fee has already been paid — void the voucher to change it.', 'bad'); return;
+  }
+  const t = T(e.traineeId), c = CRS(e.courseId);
+  const half = ACC.r2(e.rebate || 0);
+  UI.modal({
+    title:'Referral fee',
+    sub:`${name(t)} · ${(c && c.title) || '—'}`,
+    body:`
+      <div class="note">The rebate on this seat was halved when it was booked, so the office
+        is keeping <b>${UI.peso(half)}</b> of it. What is set here is what the other half
+        pays out — it does not have to match.</div>
+      ${UI.f.num('fee','Referral fee (₱)', e.marketingFee != null ? e.marketingFee : half,
+        { req:true, min:0, step:'0.01' })}
+      ${UI.f.text('note','Note','', { ph:'who brought them in, if it is worth recording' })}`,
+    submitLabel:'Set the fee',
+    onSubmit: fd => {
+      const amt = ACC.r2(fd.fee);
+      if(!(amt >= 0)){ UI.toast('Enter the amount.', 'bad'); return false; }
+      e.marketingFee = amt;
+      e.marketingSetBy = SESSION.name;
+      e.marketingSetOn = DB.today();
+      if(String(fd.note || '').trim())
+        e.remarks = String(e.remarks ? e.remarks + ' · ' : '') + String(fd.note).trim();
+      DB.activity('Set a referral fee', `${e.no} — ${UI.peso(amt)}`);
+      DB.save();
+      UI.toast(`${UI.peso(amt)} set against ${e.no}.`);
+      refresh();
+    }
+  });
+}
+
+/* Paying it. The voucher is the disbursement — raised and posted in one
+   breath, because the admin who would approve it is the one pressing the
+   button, and a voucher that waits for its own author is theatre. */
+function marketingPay(e){
+  if(!e) return;
+  if(!canApprove()){ UI.toast('Only an admin can pay a referral fee.', 'bad'); return; }
+  if(e.marketingVoucher){ UI.toast('That fee has already been paid.', 'bad'); return; }
+  const amt = ACC.r2(e.marketingFee || 0);
+  if(!(amt > 0)){ UI.toast('Set the fee first.', 'bad'); return; }
+  const t = T(e.traineeId), c = CRS(e.courseId);
+
+  UI.modal({
+    title:'Pay the referral fee',
+    sub:`${name(t)} · ${UI.peso(amt)}`,
+    body:`
+      ${UI.f.text('payee','Paid to', '', { req:true, ph:'who is being paid' })}
+      ${UI.row(UI.f.select('method','Paid from', 'Cash', ACC.methodNames()),
+               UI.f.text('ref','Reference no.', '', { ph:'cheque or transaction no.' }))}
+      ${UI.f.date('date','Date paid', DB.today(), { req:true })}
+      <div class="note">A disbursement voucher is raised and posted for
+        ${UI.peso(amt)}, charged to ${UI.esc(MARKETING_ACCOUNT)}
+        ${UI.esc(ACC.acct(MARKETING_ACCOUNT).name)}. It appears in Disbursements
+        like any other, and can be viewed and voided from there.</div>`,
+    submitLabel:'Pay and post the voucher',
+    onSubmit: fd => {
+      const payee = String(fd.payee || '').trim();
+      if(!payee){ UI.toast('Say who is being paid.', 'bad'); return false; }
+      if(fd.date > DB.today()){
+        UI.toast('That date is in the future — the money cannot have left yet.', 'bad');
+        return false;
+      }
+      if(ACC.needsRef(fd.method) && !String(fd.ref || '').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+      const v = {
+        id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), kind:'marketing',
+        date:fd.date, payee, account:MARKETING_ACCOUNT,
+        particulars:`Referral fee — ${name(t)} · ${(c && c.title) || ''} · ${e.no}`.trim(),
+        amount:amt, method:fd.method, ref:String(fd.ref || '').trim(),
+        state:'Approved', raisedBy:SESSION.name,
+        approvedBy:SESSION.name, approvedOn:DB.today(),
+      };
+      D().expenses.push(v);
+      ACC.postExpense(v);
+      e.marketingVoucher = v.no;
+      DB.activity('Paid a referral fee', `${v.no} — ${e.no} — ${UI.peso(amt)}`);
+      DB.save();
+      UI.toast(`${v.no} posted — ${UI.peso(amt)} to ${payee}.`);
+      refresh();
+    }
+  });
+}
+
+/* The tab itself, shown under Enrollments and again under Disbursements. One
+   table, because it is one question asked by two desks: which seats came in
+   through marketing, and what is owed on them. */
+function marketingTable(){
+  const seats = marketingSeats();
+  const owed = ACC.r2(seats.filter(e => marketingState(e) === 'To pay')
+    .reduce((s, e) => s + ACC.r2(e.marketingFee || 0), 0));
+  const paid = ACC.r2(seats.filter(e => marketingState(e) === 'Paid')
+    .reduce((s, e) => s + ACC.r2(e.marketingFee || 0), 0));
+  const admin = canApprove();
+
+  return UI.card('Marketing', UI.table([
+    { h:'Booked', k:e => UI.date(e.date), w:'110px' },
+    { h:'Enrollee', k:e => `<b>${UI.esc(name(T(e.traineeId)))}</b>`
+        + `<br><span class="muted mono" style="font-size:11px">${UI.esc(e.no)}</span>` },
+    { h:'Course', k:e => UI.esc((CRS(e.courseId) || {}).title || '—') },
+    { h:'Training center', k:e => UI.esc(e.center || '—') },
+    { h:'Rebate kept', k:e => UI.num(e.rebate || 0), cls:'num' },
+    { h:'Referral fee', k:e => e.marketingFee != null
+        ? `<b>${UI.num(e.marketingFee)}</b>` : '<span class="muted">not set</span>', cls:'num' },
+    { h:'Status', k:e => UI.statusTag(marketingState(e)) },
+    { h:'', w:'190px', k:e => {
+        if(e.marketingVoucher)
+          return `<span class="muted mono" style="font-size:11.5px">${UI.esc(e.marketingVoucher)}</span>`;
+        if(!admin) return '<span class="muted" style="font-size:11.5px">the admin sets it</span>';
+        return `<button class="btn btn-ghost btn-xs" data-act="mk-fee" data-id="${e.id}">
+                  ${e.marketingFee != null ? 'Change fee' : 'Set fee'}</button>`
+          + (marketingState(e) === 'To pay'
+              ? ` <button class="btn btn-accent btn-xs" data-act="mk-pay" data-id="${e.id}">Mark paid</button>`
+              : '');
+      } },
+  ], seats, { empty:'No booking has come in through marketing yet.' }),
+    { flush:true,
+      sub:`${UI.int(seats.length)} seat(s) · ${UI.peso(owed)} to pay · ${UI.peso(paid)} paid`
+        + ' · the rebate on a marketing seat is halved when it is booked' });
+}
+
 /* ---------- Enrollments ---------- */
 VIEWS.enrollments = () => {
   const q = (state.q.enr || '').toLowerCase(), f = state.q.enrStatus || '';
@@ -1150,8 +1314,12 @@ VIEWS.enrollments = () => {
   const day = state.q.enrDay || '';
   const runsIn = e => !day || (e.date || '') === day;
 
+  const src = state.q.enrSource || '';
   const rows = D().enrollments.filter(e => {
     if(f && e.status !== f) return false;
+    /* Bookings taken before the question was asked have no source on them.
+       They were all counter work, so they answer to Walk-in. */
+    if(src && (e.source || 'Walk-in') !== src) return false;
     if(!runsIn(e)) return false;
     if(!q) return true;
     const t = T(e.traineeId), c = CRS(e.courseId);
@@ -1182,6 +1350,12 @@ VIEWS.enrollments = () => {
       <select data-q="enrStatus" style="min-width:150px">
         ${['','On Process','Enrolled','Open Schedule','Reserved','Completed','Cancelled'].map(s =>
           `<option value="${s}" ${f===s?'selected':''}>${s||'All statuses'}</option>`).join('')}
+      </select>
+      <!-- Where the seat came from. It is asked of every booking now, so it is
+           a question the list can answer. -->
+      <select data-q="enrSource" style="min-width:150px">
+        ${['','Walk-in','Online','Marketing'].map(x =>
+          `<option value="${x}" ${(state.q.enrSource||'')===x?'selected':''}>${x||'Any source'}</option>`).join('')}
       </select>
       <label class="muted" style="font-size:12px">Enrolled on</label>
       <input type="date" data-q="enrDay" value="${day}">
@@ -1234,6 +1408,11 @@ VIEWS.enrollments = () => {
             : '<span class="muted">—</span>'; }, cls:'num' },
     ], rows, { empty:'No enrollments recorded.', rowClass:'clickable',
                rowAttrs:e => `data-act="view-enrollment" data-id="${e.id}"` }), { flush:true })}
+
+    <!-- The seats somebody was sent to us for, and what is owed on them. The
+         same table appears under Disbursements, because it answers one question
+         asked by two desks. -->
+    ${marketingSeats().length ? `<div style="height:18px"></div>${marketingTable()}` : ''}
   `;
 };
 
@@ -1280,7 +1459,10 @@ VIEWS.invoices = () => {
     .filter(e => !e.invoiceId
       && e.status !== 'Void'
       && e.status !== 'Cancelled'
-      && ACC.r2(e.fee || 0) > 0.004
+      /* A seat taken at no fee is still a booking the office made, and leaving
+         it off this page meant a trainee who had plainly been enrolled could
+         not be found anywhere in Billing. It shows with a dash rather than a
+         price, because there is nothing to collect on it. */
       && (!bookingFilter || e.status === f))
     .filter(e => {
       if(!q) return true;
@@ -1342,7 +1524,9 @@ VIEWS.invoices = () => {
          not what anybody has been asked for. */
       { h:'Total', k:r => r.kind === 'inv'
           ? `<b>${UI.peso(r.i.total)}</b>`
-          : `<span class="muted">${UI.peso(wouldBill(r.e))}</span>`, cls:'num' },
+          : wouldBill(r.e) > 0.004
+            ? `<span class="muted">${UI.peso(wouldBill(r.e))}</span>`
+            : '<span class="muted">no fee</span>', cls:'num' },
       { h:'Paid', k:r => r.kind === 'inv' ? UI.num(r.i.paid||0)
                                           : '<span class="muted">—</span>', cls:'num' },
       { h:'Balance', k:r => { if(r.kind !== 'inv') return '<span class="muted">—</span>';
@@ -1888,6 +2072,8 @@ VIEWS.expenses = () => {
     </div>
 
     ${approvalPanel(pendingExpenses())}
+
+    ${marketingSeats().length ? marketingTable() + '<div style="height:18px"></div>' : ''}
 
     <div class="grid g-2-1">
       <div>${UI.card('', UI.table([
@@ -4786,8 +4972,14 @@ function enrollmentForm(existing, presetTrainee, opts){
     <!-- Where the booking stands, and whether it can have dates yet. A seat
          asked for before the centre has said when it runs has no date to give,
          and inventing one puts a trainee on the day's list who is not coming. -->
-    ${UI.f.select('status','Booking', 'Enrolled',
-        ['Enrolled', 'On Process', 'Open Schedule', 'Pending'], { req:true })}
+    ${UI.row(
+      UI.f.select('status','Booking', 'Enrolled',
+        ['Enrolled', 'On Process', 'Open Schedule', 'Pending'], { req:true }),
+      /* Where the seat came from. Marketing halves the rebate on it, because
+         the other half is what the person who brought the trainee is paid. */
+      UI.f.select('source','How it came in', 'Walk-in',
+        ['Walk-in', 'Online', 'Marketing'],
+        { req:true, hint:'Marketing halves the rebate — the other half is the referral fee' }))}
     ${UI.row(UI.f.date('start','Training starts', DB.today(), {}),
              UI.f.date('end','Training ends', '', {
                hint:'filled from the course length — change it if the run is longer' }))}
@@ -4849,7 +5041,7 @@ ${addons().map((a,i) => `
           /* The center comes from the course entry — one course at one center
              is one row on the price list. */
           courseId:fd.courseId, start:fd.start, end:endsOn,
-          fee:fd.fee, mode:fd.status || 'Enrolled', charges:chosen,
+          fee:fd.fee, mode:fd.status || 'Enrolled', source:fd.source, charges:chosen,
           discount:fd.discount, discountNote:fd.discountNote, remarks:fd.remarks,
           by:SESSION.name,
         });
@@ -6467,6 +6659,8 @@ document.addEventListener('click', ev => {
                          { danger:true, reason:true, yes:'Reject',
                            detail:'Nothing is posted. The document stays on file marked rejected.' }); },
     'change-booking':() => { ev.stopPropagation(); bookingChangeForm(ENR(id)); },
+    'mk-fee':        () => { ev.stopPropagation(); marketingFeeForm(ENR(id)); },
+    'mk-pay':        () => { ev.stopPropagation(); marketingPay(ENR(id)); },
     'drop-line':     () => { ev.stopPropagation();
                        const e = ENR(id);
                        dropInvoiceLine(INV(e && e.invoiceId), id); },

@@ -50,6 +50,10 @@ const DB = (() => {
     { code:'5200', name:'Salary / Wages',          type:'Expense',   nature:'debit'  },
     { code:'5300', name:'Government',              type:'Expense',   nature:'debit'  },
     { code:'5400', name:'Food and Drinks',         type:'Expense',   nature:'debit'  },
+    /* What is paid to whoever brought a trainee in. It is charged per seat, so
+       it is posted from the Marketing tab rather than picked on a blank voucher
+       — but it is an ordinary expense once it is out. */
+    { code:'5500', name:'Marketing Referral Fees',  type:'Expense',   nature:'debit'  },
   ];
 
   /* Accounts the system posts to itself. The admin may rename these but not
