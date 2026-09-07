@@ -2377,6 +2377,31 @@ VIEWS.payables = () => {
 
 /* Pay one center. Every outstanding booking is on the voucher by default; the
    office can leave some off when it is settling only part of a statement. */
+/* What a booking is on the voucher for.
+
+   A rescheduling fee, a make-up class or a cancellation is booked against a
+   course at a centre like any seat, and the centre levies it — so the centre is
+   owed it and it belongs on their voucher. It always did. What it did not have
+   was a name: the row showed the course title and nothing else, so a 500-peso
+   rescheduling fee read as a 500-peso training seat and the office could not
+   tell one from the other to tick it.
+
+   The charge is on the bill in the words it was charged under, so those are
+   what is shown. A seat with an ordinary training fee shows its course, as
+   before. */
+function chargeRow(e){
+  const c = CRS(e.courseId);
+  const title = (c && c.title) || '—';
+  const inv = invOf(e.id);
+  const charges = [...new Set(((inv && inv.items) || [])
+    .filter(x => x.enrId === e.id && (x.account || '4000') !== '4000')
+    .map(x => x.desc)
+    .filter(Boolean))];
+  if(!charges.length) return UI.esc(title);
+  return `${UI.esc(title)}<br><span style="color:var(--bad);font-size:11px">${
+    UI.esc(charges.join(' · '))}</span>`;
+}
+
 /* Putting a seat's figures right.
 
    Two numbers on a booking are frozen the day it is taken — what the centre is
@@ -2502,7 +2527,7 @@ function centerVoucherForm(center){
       <td class="vch-name"><label class="vch-pick">
         <input type="checkbox" name="pick${i}" value="${r.e.id}" ${ready(r) ? 'checked' : 'disabled'}>
         <b>${UI.esc(name(T(r.e.traineeId)))}</b></label></td>
-      <td class="vch-course">${UI.esc((CRS(r.e.courseId)||{}).title || '—')}</td>
+      <td class="vch-course">${chargeRow(r.e)}</td>
       <td class="nowrap">${r.e.start
         ? UI.dateRange(r.e.start, r.e.end) : '<span class="muted">—</span>'}</td>
       <td class="num">${r.collected ? UI.num(r.collected) : '<span class="muted">—</span>'}</td>
@@ -2570,7 +2595,12 @@ function centerVoucherForm(center){
         <b>not deducted</b> — ${UI.esc(center.toUpperCase())} owes it back separately, so it is
         left out of this voucher.</div>` : ''}
       <div class="hr"></div>
-      ${UI.row(UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()),
+      <!-- The day the money actually left, which is not always the day
+           somebody had time to type it. A voucher dated when it was encoded
+           puts last week's remittance into this week's report and leaves last
+           week's short — the same fault the receipts had. -->
+      ${UI.row(UI.f.date('date','Date paid', DB.today(), { req:true }),
+               UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()),
                UI.f.text('ref','Reference no.','',{ ph:'cheque or transaction no.' }))}
       ${UI.f.text('particulars','Particulars','', { ph:'e.g. August endorsements' })}
       <div class="hr"></div>
@@ -2591,11 +2621,16 @@ function centerVoucherForm(center){
       if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
         UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
       }
+      const paidOn = String(fd.date || '').trim() || DB.today();
+      if(paidOn > DB.today()){
+        UI.toast('That date is in the future — the money cannot have left yet.', 'bad');
+        return false;
+      }
 
       const v = {
         id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), kind:'remittance',
         state:'Pending', raisedBy:SESSION.name,
-        date:DB.today(), payee:center,
+        date:paidOn, payee:center,
         /* Booked to the payable, not to an expense: the cost was recognised
            when the seat was taken. */
         account:'2000',
@@ -3264,9 +3299,18 @@ function approveDoc(kind, id, ok, note){
     return;
   }
 
-  /* Posting happens here, not when the document was written. The entry carries
-     the approval date, because that is the day the money moved. */
-  rec.date = DB.today();
+  /* Posting happens here, but the entry carries the date the document says the
+     money left — not the day it was approved.
+
+     It used to be stamped with the approval date on the reasoning that approval
+     is when the money moves. At this office it is not: the cash goes out at the
+     centre's counter and the voucher is written up afterwards, so stamping the
+     approval day put a remittance into the wrong week's report and left the
+     right week short. Every document that comes through here now carries a date
+     the office typed, and that is the one the books use.
+
+     A document with no date on it at all can only be dated today. */
+  if(!rec.date) rec.date = DB.today();
   const handler = MONEY_OUT.find(m => m.key === kind);
   if(kind === 'expenses' && rec.kind === 'remittance'){
     ACC.postCenterRemittance({ date:rec.date, memo:`Remittance — ${rec.payee} · ${rec.no}`,
@@ -3578,7 +3622,15 @@ VIEWS.daily = () => {
   const totalIn = ACC.r2(Object.values(inBy).reduce((s,v) => s + v, 0));
 
   /* ---- out, approved only ---- */
-  const approvedOn = x => x.state === 'Approved' && (x.approvedOn || x.date) === on;
+  /* The day the money left, which is the date the office wrote on the document
+     — not the day somebody got round to approving it.
+
+     It read the approval date first, so a remittance handed over on the 1st and
+     signed off on the 7th was paid out on the 7th's report while its journal
+     entry sat on the 1st. The report and the books have to agree, and the books
+     follow the document. Approval only stands in where a document carries no
+     date of its own. */
+  const approvedOn = x => x.state === 'Approved' && (x.date || x.approvedOn) === on;
   const vouchers = d.expenses.filter(v => approvedOn(v) && v.kind !== 'remittance');
   /* Payroll left the account like anything else, so it is in every total on this
      page. Who was paid and what for is on the Payroll screen, which is the

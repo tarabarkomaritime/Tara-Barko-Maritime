@@ -2199,6 +2199,94 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---------- money out counts on the day it left ----------
+     A remittance handed over at the centre's counter on the 1st and written up
+     on the 7th belongs to the 1st. The report and the books have to agree about
+     which, and the books follow the date on the document. */
+  console.log('\n- money out counts on the day it left -');
+  {
+    run('DB.reset(true)');
+    run(`(() => {
+      const v = { id:'ex1', no:'DV-T1', kind:'remittance', date:'2026-09-01',
+                  payee:'NAUTICAL OPTIONS', account:'2000',
+                  particulars:'September endorsements', amount:6000,
+                  method:'Cash', ref:'', state:'Approved' };
+      DB.get().expenses.push(v);
+      ACC.postCenterRemittance({ date:v.date, memo:'Remittance \u2014 ' + v.payee,
+        refNo:v.no, refId:v.id, amount:v.amount, method:v.method });
+      globalThis.EX = v;
+    })()`);
+
+    check('the entry carries the date on the voucher', () => {
+      const dates = run(`DB.get().journal.filter(j => j.refId === 'ex1' && !j.voided).map(j => j.date)`);
+      return (dates.length === 1 && dates[0] === '2026-09-01') || JSON.stringify(dates);
+    });
+
+    check('and that is not the day it was written up', () =>
+      run('DB.today()') !== '2026-09-01' || 'the test date is today \u2014 it proves nothing');
+
+    check('the day it left shows the money going out', () => {
+      const out = run(`(() => { let n = 0;
+        DB.get().journal.filter(j => !j.voided && j.date === '2026-09-01')
+          .forEach(j => (j.lines || []).forEach(l => {
+            if(l.account === '1000') n = ACC.r2(n + ACC.r2(l.credit || 0)); }));
+        return n; })()`);
+      return out === 6000 || out;
+    });
+
+    check('and no other day does', () => {
+      const out = run(`(() => { let n = 0;
+        DB.get().journal.filter(j => !j.voided && j.date !== '2026-09-01')
+          .forEach(j => (j.lines || []).forEach(l => {
+            if(l.account === '1000') n = ACC.r2(n + ACC.r2(l.credit || 0)); }));
+        return n; })()`);
+      return out === 0 || out;
+    });
+  }
+
+  /* ---------- a charge is the centre's too ----------
+     A rescheduling fee, a make-up or a cancellation is levied by the centre, so
+     the centre is owed it and it belongs on their voucher — the same as a seat. */
+  console.log('\n- a charge is owed to the centre -');
+  {
+    run('DB.reset(true)');
+    run(`(() => {
+      const d = DB.get();
+      const t = { id:'ch1', no:'TRN-CH', last:'ROSALDO', first:'NOEL', middle:'',
+                  suffix:'', srn:'CH1', registered:DB.today() };
+      d.trainees.push(t);
+      const c = d.courses.find(x => x.amount > 0);
+      globalThis.CH = APPS.enroll(t, { courseId:c.id, center:'NAUTICAL OPTIONS',
+        start:'2026-09-09', end:'2026-09-09', fee:0, mode:'Enrolled', by:'K',
+        charges:[{ desc:'Rescheduling fee', account:'4100', price:500 }] });
+    })()`);
+
+    check('the charge is billed to the trainee', () =>
+      run('ACC.r2(CH.invoice.total)') === 500 || run('CH.invoice.total'));
+
+    check('and the centre is owed it', () =>
+      run('ACC.r2(CH.enrollment.centerPayable)') === 500 || run('CH.enrollment.centerPayable'));
+
+    check('the line names the charge, not a course', () => {
+      const descs = run('CH.invoice.items.map(i => i.desc)');
+      return (descs.length === 1 && /Rescheduling/.test(descs[0])) || JSON.stringify(descs);
+    });
+
+    check('and it carries the booking, so the voucher can find it', () =>
+      run('CH.invoice.items[0].enrId') === run('CH.enrollment.id') || 'the line names no booking');
+
+    check('a charge seat earns no rebate of its own', () =>
+      run('ACC.r2(CH.enrollment.rebate)') === 0 || run('CH.enrollment.rebate'));
+
+    check('the books balance', () => {
+      const diff = run(`(() => { let dr = 0, cr = 0;
+        DB.get().journal.filter(x => !x.voided).forEach(e => (e.lines || []).forEach(l => {
+          dr += ACC.r2(l.debit || 0); cr += ACC.r2(l.credit || 0); }));
+        return ACC.r2(dr - cr); })()`);
+      return Math.abs(diff) < 0.005 || 'out by ' + diff;
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
