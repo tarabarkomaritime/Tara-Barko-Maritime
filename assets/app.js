@@ -2158,6 +2158,81 @@ function collectedFor(e){
   return 0;
 }
 
+/* Charges the centre is owed and was never recorded as owed.
+
+   A rescheduling fee, a make-up or a cancellation is levied by the centre. We
+   collect it at the counter and it has to reach them, so booking one posts a
+   payable for it — today. Charge bookings taken before that was true billed
+   the trainee, took their money, and owed nobody: centerPayable was never set,
+   so openPayables reads the booking's fee instead, which on a charge booking is
+   zero, and the row is filtered out for owing nothing.
+
+   The result is a fee collected from a seafarer that the centre is never asked
+   for and no screen ever mentions. It cannot be repaired on load — two browsers
+   opening the system would each post the same payable, and the centre would be
+   owed it twice — so it is offered to the admin, once, as a thing to press. */
+function strandedCharges(){
+  return D().enrollments.filter(e => {
+    if(!e.center || e.status === 'Void' || e.status === 'Cancelled') return false;
+    if(e.centerPayable != null) return false;
+    if(ACC.r2(e.fee || 0) > 0.004) return false;      /* a seat, not a charge */
+    /* The books are the test, not the field. A booking that already carries a
+       payable entry has been asked for, whatever the record says about it, and
+       posting a second one would owe the centre the same charge twice. */
+    if(D().journal.some(j => j.refId === e.id && j.refType === 'Booking' && !j.voided))
+      return false;
+    const inv = invOf(e.id);
+    if(!inv || inv.voided) return false;
+    return (inv.items || []).some(x => x.enrId === e.id
+      && (x.account || '4000') !== '4000' && ACC.r2(x.amount) > 0.004);
+  }).map(e => {
+    const inv = invOf(e.id);
+    const owed = ACC.r2((inv.items || [])
+      .filter(x => x.enrId === e.id && (x.account || '4000') !== '4000')
+      .reduce((s, x) => s + ACC.r2(x.amount), 0));
+    return { e, owed, inv };
+  }).filter(r => r.owed > 0.004);
+}
+
+/* Posting them. The entry is dated the day the charge was billed, not today —
+   the centre was owed it from the moment we charged for it, and dating the
+   repair would move a September debt into whatever month it is found in. */
+function postStrandedCharges(){
+  if(!canApprove()){ UI.toast('Only an admin can post what the centres are owed.', 'bad'); return; }
+  const list = strandedCharges();
+  if(!list.length){ UI.toast('Every charge is already recorded against its centre.', 'bad'); return; }
+  const total = ACC.r2(list.reduce((s, r) => s + r.owed, 0));
+
+  UI.confirm(`Record ${UI.peso(total)} owed to the centres on ${UI.int(list.length)} charge(s)?`,
+    () => {
+      let n = 0;
+      list.forEach(({ e, owed, inv }) => {
+        const c = CRS(e.courseId);
+        const charges = (inv.items || [])
+          .filter(x => x.enrId === e.id && (x.account || '4000') !== '4000')
+          .map(x => x.desc).filter(Boolean);
+        const s = ACC.postCenterPayable({
+          date:inv.date || e.date || DB.today(),
+          memo:`${charges.join(' · ') || 'Charge'}${e.center ? ' — ' + e.center : ''}`
+            + ` · ${e.no} · recorded late`,
+          refNo:e.no, refId:e.id, fee:owed, rebate:0, deduct:false,
+        });
+        e.centerPayable = s.payable;
+        e.rebateReceivable = s.receivable;
+        n++;
+      });
+      DB.activity('Recorded charges owed to centres',
+        `${n} booking(s) · ${UI.peso(total)}`);
+      DB.save();
+      UI.toast(`${UI.int(n)} charge(s) recorded — ${UI.peso(total)} now on the centres' payables.`);
+      refresh();
+    },
+    { yes:'Record what is owed',
+      detail:'Each is posted against the centre it was booked at, dated the day the charge was'
+        + ' billed rather than today, so it lands in the month it belongs to. They then appear'
+        + ' on that centre\'s payables and can go out on a voucher like any other.' });
+}
+
 function openPayables(){
   return D().enrollments
     .filter(e => e.center && !e.remitNo && PAY_STATES.includes(e.status))
@@ -2317,6 +2392,23 @@ VIEWS.payables = () => {
       ${UI.kpi('Owed to centers', UI.peso(totalDue), `${centers.length} center(s) to settle`, totalDue > 0 ? 'warn' : 'ok')}
       ${UI.kpi('Bookings unpaid', UI.int(bookings), 'seats already taken', '')}
     </div>
+
+    ${(() => {
+      const s = strandedCharges();
+      if(!s.length) return '';
+      const total = ACC.r2(s.reduce((x, r) => x + r.owed, 0));
+      const centres = [...new Set(s.map(r => String(r.e.center || '').toUpperCase()))];
+      return `<div class="note warn" style="margin-bottom:18px">
+        <b>${UI.int(s.length)} charge(s) worth ${UI.peso(total)} are not on any centre's
+        payables.</b> A rescheduling fee, a make-up or a cancellation is the centre's to
+        levy and ours to pass on, but these were booked before that was recorded — the
+        trainee was billed and the centre was never asked.
+        ${UI.esc(centres.join(', '))}.
+        ${canApprove()
+          ? `<div style="margin-top:8px"><button class="btn btn-accent btn-xs"
+               data-act="post-stranded">Record what is owed</button></div>`
+          : ' The admin can put this right.'}</div>`;
+    })()}
 
     <div class="toolbar">
       <select data-q="payaCenter" style="min-width:210px">
@@ -6839,6 +6931,7 @@ document.addEventListener('click', ev => {
     'pay-center':    () => centerVoucherForm(id),
     'paya-only':     () => { state.q.payaCenter = id; render(); },
     'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },
+    'post-stranded': () => postStrandedCharges(),
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
     'view-expense':  () => expenseVoucherModal(D().expenses.find(v => v.id === id)),
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
