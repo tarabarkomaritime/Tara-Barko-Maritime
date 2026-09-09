@@ -952,9 +952,23 @@ VIEWS.dashboard = () => {
     });
   });
 
+  /* Money that actually left, and nothing else.
+
+     This counted every voucher dated that day whatever had become of it, so a
+     rejected one and a pending one were disbursed alongside the approved. The
+     office reads this against what is actually in each account at the end of
+     the day, and it could not tally: 7,000 rejected and 14,500 still waiting
+     for a signature were both shown as gone from BDO.
+
+     A rejected voucher never posted. A pending one has not posted yet. A voided
+     one posted and was reversed, so it nets to nothing and is left out of both
+     halves rather than shown going out and coming back. What is counted is what
+     the ledger carries: approved, and not since voided. */
   const paidOut = {}; CHANNELS.forEach(m => paidOut[m] = 0);
   let paidTotal = 0, voucherCount = 0;
-  d.expenses.filter(v => v.date === on).forEach(v => {
+  d.expenses.filter(v => v.date === on
+                      && (v.state || 'Approved') === 'Approved'
+                      && !wasVoided(v)).forEach(v => {
     voucherCount++;
     const m = CHANNELS.includes(v.method) ? v.method : CHANNELS[CHANNELS.length-1];
     paidOut[m] = ACC.r2(paidOut[m] + v.amount);
@@ -4738,7 +4752,8 @@ function canVoidBooking(e){
      paid a peso towards, which is precisely the one that needs removing. */
   const inv = invOf(e.id);
   if(inv && !inv.voided && (ACC.recomputeInvoice(inv), bookingPaid(e)) > 0.004)
-    return 'This booking has payments against it. Void the receipts first, then the booking.';
+    return 'This booking has payments against it. Open the bill and void them there \u2014'
+      + ' they are listed under Payments Applied \u2014 then void the booking.';
   return '';
 }
 
@@ -5711,6 +5726,11 @@ function invoiceModal(inv){
           { h:'Mode', k:'method' },
           { h:'Reference', k:p => UI.esc(p.ref||'—') },
           { h:'Amount', k:p => UI.num(p.amount), cls:'num' },
+          /* The way out of "void the receipts first". It was true and it was a
+             dead end: the only place to void one was another module. */
+          { h:'', w:'80px', k:p => !inv.voided && can('payments')
+              ? `<button type="button" class="btn btn-ghost btn-xs"
+                   data-act="void-receipt" data-id="${p.id}">Void</button>` : '' },
         ], pays)}` : ''}
       ${inv.voided ? '<div class="note bad" style="margin-top:14px"><b>This invoice has been voided.</b> A reversing journal entry was posted.</div>' : ''}
       <div class="doc-sign"><div>Prepared By</div><div>Received By / Trainee</div></div>
@@ -5726,7 +5746,11 @@ function invoiceModal(inv){
   on('voidInv', () => UI.confirm(
     directVoid ? 'Void this invoice?' : 'Ask the admin to void this invoice?', fd => {
       const reason = String(fd.reason || '').trim();
-      if((inv.paid||0) > 0){ UI.toast('Void the receipts first — this invoice has payments applied.', 'bad'); return; }
+      if((inv.paid||0) > 0){
+        UI.toast('Void the receipts first — they are listed on this bill under Payments'
+          + ' Applied, each with a Void beside it.', 'bad');
+        return;
+      }
       if(!reason){ UI.toast('Say why it is being voided — it takes a receivable off the books.', 'bad'); return; }
 
       if(!directVoid){
@@ -6370,24 +6394,50 @@ function receiptModal(p){
     </div>`
   });
   const vb = document.getElementById('voidPay');
-  /* The whole document goes, not the row that happened to be open. Voiding one
-     part of a receipt covering three trainings would leave the trainee holding
-     paper for money the books say they still owe. */
-  if(vb) vb.onclick = () => UI.confirm('Void this acknowledgement receipt?', fd => {
-      parts.forEach(x => {
-        x.voided = true;
-        ACC.reverse(x.id, fd.reason || 'Receipt voided');
-        const i = INV(x.invoiceId);
-        if(i) ACC.recomputeInvoice(i);
-      });
-      DB.activity('Voided payment', receiptNo(p) + (fd.reason ? ' — ' + fd.reason : ''));
-      DB.save();
-      UI.toast(parts.length > 1
-        ? `Receipt voided across ${parts.length} trainings; the balances have been restored.`
-        : 'Receipt voided; the balance has been restored.');
-      refresh();
-    }, { danger:true, reason:true, yes:'Void receipt',
-         detail:'A reversing entry is posted and the amount returns to the trainee\'s outstanding balance.' });
+  if(vb) vb.onclick = () => voidReceiptAsk(p);
+}
+
+/* Voiding a receipt, from wherever the office is standing when it needs to.
+
+   Bills and bookings refuse to be voided while money is against them, which is
+   right — a document that no longer exists cannot have been paid for. What was
+   missing was the way out: the refusal said "void the receipts first" and the
+   only place to do that was the Collections list, so the office read the same
+   sentence five times and had nowhere to go from it. This is now reachable from
+   the bill itself.
+
+   The whole document goes, not the row that happened to be open. Voiding one
+   part of a receipt covering three trainings would leave the trainee holding
+   paper for money the books say they still owe. */
+function voidReceiptAsk(p, after){
+  if(!p){ UI.toast('That receipt is no longer on file.', 'bad'); return; }
+  if(p.voided){ UI.toast('That receipt is already void.', 'bad'); return; }
+  if(!can('payments')){ UI.toast('You cannot void a receipt.', 'bad'); return; }
+  const parts = D().payments.filter(x => sameReceipt(x, p) && !x.voided);
+  const total = ACC.r2(parts.reduce((s, x) => s + ACC.r2(x.amount), 0));
+
+  UI.confirm(`Void receipt ${receiptNo(p)} for ${UI.peso(total)}?`, fd => {
+    const reason = String(fd.reason || '').trim();
+    if(!reason){
+      UI.toast('Say why it is being voided — it puts money back on a trainee\'s bill.', 'bad');
+      return;
+    }
+    parts.forEach(x => {
+      x.voided = true;
+      ACC.reverse(x.id, reason);
+      const i = INV(x.invoiceId);
+      if(i) ACC.recomputeInvoice(i);
+    });
+    DB.activity('Voided payment', receiptNo(p) + ' — ' + reason);
+    DB.save();
+    UI.toast(parts.length > 1
+      ? `Receipt voided across ${parts.length} trainings; the balances have been restored.`
+      : 'Receipt voided; the balance has been restored.');
+    render();
+    if(typeof after === 'function') setTimeout(after, 0);
+  }, { danger:true, reason:true, yes:'Void receipt',
+       detail:'A reversing entry is posted and the amount returns to the trainee\'s outstanding'
+         + ' balance. The bill can be voided once nothing is left against it.' });
 }
 
 /* Capitalises each word and leaves the rest of it alone, so an acronym already
@@ -6932,6 +6982,10 @@ document.addEventListener('click', ev => {
     'paya-only':     () => { state.q.payaCenter = id; render(); },
     'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },
     'post-stranded': () => postStrandedCharges(),
+    'void-receipt':  () => { ev.stopPropagation();
+                       const p = D().payments.find(x => x.id === id);
+                       const inv = p && INV(p.invoiceId);
+                       voidReceiptAsk(p, () => { if(inv) invoiceModal(inv); }); },
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
     'view-expense':  () => expenseVoucherModal(D().expenses.find(v => v.id === id)),
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
