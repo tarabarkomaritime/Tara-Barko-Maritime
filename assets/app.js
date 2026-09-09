@@ -2096,14 +2096,21 @@ VIEWS.expenses = () => {
         { h:'Payee', k:'payee' },
         { h:'Particulars', k:'particulars' },
         { h:'Account', k:v => `<span class="mono">${UI.esc(v.account)}</span> ${UI.esc(ACC.acct(v.account).name)}` },
-        { h:'Mode', k:v => UI.tag(v.method, v.method==='Cash'?'ok':'sea') },
+        { h:'Mode', k:v => v.method
+            ? UI.tag(v.method, v.method==='Cash'?'ok':'sea')
+            : '<span class="muted">—</span>' },
         { h:'Status', k:v => UI.statusTag(voucherState(v)) },
         { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
         /* Every voucher, not only the ones that settle a training centre. A
            disbursement is a piece of paper somebody signs for — the payee signs
            it, the office files it — and it had no document at all. */
         { h:'', k:v => `<button class="btn btn-ghost btn-xs"
-              data-act="view-expense" data-id="${v.id}">View</button>`, w:'80px' },
+              data-act="view-expense" data-id="${v.id}">View</button>`
+            + (isDraft(v) && can('payables')
+                ? ` <button class="btn btn-accent btn-xs" data-act="pay-voucher" data-id="${v.id}">Paid</button>`
+                /* A fixed width: `v` is the row, and the column's width is
+                   settled once for the table rather than per row. */
+                : ''), w:'150px' },
       ], rows, { empty:'No disbursements in this period.' }), { flush:true })}</div>
       <div>${UI.card('Expenses By Account',
         UI.barChart(Object.entries(byAcct).map(([c,v]) => ({ label:ACC.acct(c).name, value:v }))
@@ -2468,18 +2475,34 @@ VIEWS.payables = () => {
       { h:'Date', k:v => UI.date(v.date), w:'115px' },
       { h:'Training center', k:v => UI.esc(String(v.payee).toUpperCase()) },
       { h:'Bookings', k:v => UI.int((v.bookings||[]).length), cls:'num' },
-      { h:'Mode', k:v => UI.tag(v.method, v.method === 'Cash' ? 'ok' : 'sea') },
+      /* Blank until it has been paid. A draft has not gone out of any account
+         yet, and naming one would be the screen answering a question nobody
+         has asked. */
+      { h:'Mode', k:v => v.method
+          ? UI.tag(v.method, v.method === 'Cash' ? 'ok' : 'sea')
+          : '<span class="muted">—</span>' },
       { h:'Reference', k:v => UI.esc(v.ref || '—') },
+      { h:'Status', k:v => UI.statusTag(voucherState(v)) },
       { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
       /* Voiding is the admin's. Registration raises remittances and reads them
          back; unwinding one puts money back on the payables list and takes an
          entry off the books, which is not a button to leave on the counter. */
-      { h:'', k:v => wasVoided(v)
-          ? UI.tag('Void','muted')
-          : `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`
-            + (canApprove()
-                ? ` <button class="btn btn-ghost btn-xs" data-act="void-voucher" data-id="${v.id}">Void</button>`
-                : ''), w:canApprove() ? '150px' : '80px' },
+      /* View is always there. What sits beside it depends on where the voucher
+         has got to: a draft is checked and then marked paid — or thrown away,
+         since nothing on it has moved — and one already paid can only be voided,
+         which is the admin's. */
+      { h:'', k:v => {
+          if(wasVoided(v)) return UI.tag('Void','muted');
+          let out = `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`;
+          if(isDraft(v)){
+            if(can('payables'))
+              out += ` <button class="btn btn-accent btn-xs" data-act="pay-voucher" data-id="${v.id}">Paid</button>`
+                   + ` <button class="btn btn-ghost btn-xs" data-act="drop-voucher" data-id="${v.id}">Discard</button>`;
+          }else if(canApprove()){
+            out += ` <button class="btn btn-ghost btn-xs" data-act="void-voucher" data-id="${v.id}">Void</button>`;
+          }
+          return out;
+        }, w:'210px' },
     ], paid, { empty:filtered
         ? 'No voucher was issued in this window.'
         : 'No remittance voucher has been issued yet.' }),
@@ -2707,17 +2730,18 @@ function centerVoucherForm(center){
         <b>not deducted</b> — ${UI.esc(center.toUpperCase())} owes it back separately, so it is
         left out of this voucher.</div>` : ''}
       <div class="hr"></div>
-      <!-- The day the money actually left, which is not always the day
-           somebody had time to type it. A voucher dated when it was encoded
-           puts last week's remittance into this week's report and leaves last
-           week's short — the same fault the receipts had. -->
-      ${UI.row(UI.f.date('date','Date paid', DB.today(), { req:true }),
-               UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()),
-               UI.f.text('ref','Reference no.','',{ ph:'cheque or transaction no.' }))}
+      <!-- How the money went and what reference it carries are asked when it
+           actually goes, not here. This step fixes which seats are being
+           settled and for how much, so the office can read it against the
+           centre's own statement before anything is committed. -->
       ${UI.f.text('particulars','Particulars','', { ph:'e.g. August endorsements' })}
+      <div class="note">Generating this fixes the seats and the amounts and nothing else —
+        no money is recorded as having moved. Check it against the centre's statement, then
+        mark it paid, which is when how it was paid is asked for and when it goes to the
+        admin for approval.</div>
       <div class="hr"></div>
       <div id="voucherTotal"></div>`,
-    submitLabel:'Post voucher',
+    submitLabel:'Generate voucher',
     onSubmit: fd => {
       /* A booking hidden by the date filter is one nobody looked at, so it is
          not on the voucher whatever its box happens to say. Ticks are only
@@ -2730,24 +2754,17 @@ function centerVoucherForm(center){
       });
       if(!picked.length){ UI.toast('Choose at least one booking with money collected against it.', 'bad'); return false; }
       const amount = ACC.r2(picked.reduce((s,r) => s + r.remittable, 0));
-      if(ACC.needsRef(fd.method) && !String(fd.ref||'').trim()){
-        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
-      }
-      const paidOn = String(fd.date || '').trim() || DB.today();
-      if(paidOn > DB.today()){
-        UI.toast('That date is in the future — the money cannot have left yet.', 'bad');
-        return false;
-      }
-
       const v = {
         id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), kind:'remittance',
-        state:'Pending', raisedBy:SESSION.name,
-        date:paidOn, payee:center,
+        /* Drafted. Nothing has been paid and nothing has been posted; the
+           method and the date come when it is marked paid. */
+        state:'Draft', raisedBy:SESSION.name,
+        date:DB.today(), payee:center,
         /* Booked to the payable, not to an expense: the cost was recognised
            when the seat was taken. */
         account:'2000',
         particulars:(fd.particulars || `Remittance To ${center}`).trim(),
-        method:fd.method, ref:String(fd.ref||'').trim(),
+        method:'', ref:'',
         amount, bookings:picked.map(r => r.e.id),
         /* What each booking is being paid on this voucher. A seat the trainee
            has only part-paid contributes only that part, so the document prints
@@ -2764,9 +2781,9 @@ function centerVoucherForm(center){
         if(r.e.centerPaid >= r.fee - 0.004){ r.e.remitNo = v.no; r.e.remitDate = v.date; }
       });
 
-      DB.activity('Raised remittance', `${v.no} · ${center} · ${UI.peso(amount)}`);
+      DB.activity('Generated remittance', `${v.no} · ${center} · ${UI.peso(amount)}`);
       DB.save();
-      UI.toast(`Voucher ${v.no} raised — waiting for approval.`);
+      UI.toast(`Voucher ${v.no} generated — check it, then mark it paid.`);
       render();
       voucherModal(v);
       return false;   // voucherModal has replaced the dialog
@@ -2876,6 +2893,95 @@ const wasVoided = v => !!v && v.state === 'Rejected'
   && (String(v.decisionNote || '').indexOf(VOID_NOTE) === 0
       || D().journal.some(j => j.refId === v.id));
 const voucherState = v => !v ? '\u2014' : wasVoided(v) ? 'Void' : (v.state || 'Approved');
+
+/* A voucher that has been drafted and not yet paid. Nothing on it has moved, so
+   it is the one state that can be thrown away outright. */
+const isDraft = v => !!v && v.state === 'Draft';
+
+/* Marking a drafted voucher paid.
+
+   This is where how the money went is asked for, because this is where it
+   went. Up to now the voucher was a list of seats and an amount; from here it
+   is a payment waiting for the admin's signature.
+
+   Discarding is offered in the same breath. A draft has posted nothing and
+   nobody has signed it, so it can simply go — and the seats it was holding go
+   back on the payables list, which is the whole reason it cannot just be
+   deleted quietly. */
+function markVoucherPaid(v){
+  if(!v){ UI.toast('That voucher is gone.', 'bad'); return; }
+  if(!isDraft(v)){ UI.toast('That voucher has already been paid.', 'bad'); return; }
+  if(!can('payables')){ UI.toast('You cannot pay a voucher.', 'bad'); return; }
+
+  UI.modal({
+    title:`Mark ${v.no} paid`,
+    sub:`${UI.esc(v.payee)} · ${UI.peso(v.amount)}`,
+    body:`
+      ${UI.row(UI.f.date('date','Date paid', DB.today(), { req:true }),
+               UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()),
+               UI.f.text('ref','Reference no.','',{ ph:'cheque or transaction no.' }))}
+      <div class="note">Nothing is posted yet. Marking it paid sends it to Disbursements for
+        the admin to approve, and the entry is made then — dated the day above, not the day
+        it is signed.</div>`,
+    submitLabel:'Mark it paid',
+    onSubmit: fd => {
+      const paidOn = String(fd.date || '').trim() || DB.today();
+      if(paidOn > DB.today()){
+        UI.toast('That date is in the future — the money cannot have left yet.', 'bad');
+        return false;
+      }
+      if(ACC.needsRef(fd.method) && !String(fd.ref || '').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+      v.date = paidOn;
+      v.method = fd.method;
+      v.ref = String(fd.ref || '').trim();
+      v.state = 'Pending';
+      /* The seats were marked as covered when it was generated, so the date
+         they were remitted follows the date it was actually paid. */
+      (v.bookings || []).forEach(id => {
+        const e = ENR(id);
+        if(e && e.remitNo === v.no) e.remitDate = paidOn;
+      });
+      DB.activity('Marked a voucher paid', `${v.no} · ${v.payee} · ${UI.peso(v.amount)}`);
+      DB.save();
+      UI.toast(`${v.no} marked paid — waiting for the admin to approve it.`);
+      render();
+    }
+  });
+}
+
+/* Throwing a draft away. Nothing was posted, so nothing is reversed — but the
+   seats it was holding have to go back, or the centre is never paid for them
+   again and no screen says why. */
+function discardVoucher(v){
+  if(!v){ UI.toast('That voucher is gone.', 'bad'); return; }
+  if(!isDraft(v)){
+    UI.toast('Only a draft can be discarded — this one has been paid.', 'bad'); return;
+  }
+  if(!can('payables')){ UI.toast('You cannot discard a voucher.', 'bad'); return; }
+
+  UI.confirm(`Discard ${v.no}?`, fd => {
+    const reason = String(fd.reason || '').trim();
+    (v.bookings || []).forEach(id => {
+      const e = ENR(id);
+      if(!e) return;
+      const l = (v.lines || []).find(x => x.id === id);
+      const back = l ? l.amount : (e.centerPayable != null ? e.centerPayable : e.fee);
+      e.centerPaid = ACC.r2(Math.max(0, (e.centerPaid || 0) - back));
+      if(e.remitNo === v.no){ delete e.remitNo; delete e.remitDate; }
+    });
+    v.state = 'Rejected';
+    v.decidedBy = SESSION.name; v.decidedOn = DB.today();
+    v.decisionNote = 'Draft discarded' + (reason ? ' — ' + reason : '');
+    DB.activity('Discarded a draft voucher', `${v.no}${reason ? ' — ' + reason : ''}`);
+    DB.save();
+    UI.toast(`${v.no} discarded — those seats are back on ${v.payee}'s payables.`);
+    refresh();
+  }, { danger:true, reason:true, yes:'Discard the draft',
+       detail:'Nothing was posted, so nothing is reversed. The seats it was holding go back'
+         + ' on the payables list to be settled another way.' });
+}
 
 function voidVoucher(v, reason){
   if(!v){ UI.toast('That voucher is gone.', 'bad'); return false; }
@@ -3021,6 +3127,8 @@ function voucherModal(v){
      <div class="dv">
       ${dvHead('DISBURSEMENT VOUCHER', v.no, v.date, [
         wasVoided(v) ? UI.tag('VOID','bad') : '',
+        isDraft(v) ? UI.tag('DRAFT','warn') : '',
+        v.state === 'Pending' ? UI.tag('Awaiting approval','warn') : '',
       ], v.ref)}
 
       <div class="dv-fields"><table>
@@ -3048,13 +3156,20 @@ function voucherModal(v){
         </tbody>
       </table></div>
 
+      <!-- How it was paid appears once it has been. A draft is a list of seats
+           and an amount, checked against the centre's statement before anybody
+           says where the money came from. -->
+      ${isDraft(v) ? '' : `
       <div class="dv-fields" style="margin-top:12px"><table>
         <tr><td class="k">Mode Of Payment</td><td>${UI.esc(v.method || '—')}</td></tr>
         <tr><td class="k">Reference No.</td>
             <td>${v.ref ? `<span class="mono">${UI.esc(v.ref)}</span>` : '—'}</td></tr>
       </table></div>
+      `}
 
       <div class="dv-foot">
+        ${isDraft(v) ? `<p class="dv-note"><b>Draft — not yet paid.</b> Check the seats and the
+          amounts against the centre's statement, then mark it paid.</p>` : ''}
         <p class="dv-note">Received the sum stated above in full settlement of the seats
           listed. This serves as the office's record of the remittance.</p>
         <div class="dv-sign">Received By ${UI.esc(String(v.payee).toUpperCase())}</div>
@@ -3072,6 +3187,9 @@ function voucherModal(v){
     hideSubmit:true,
     footExtra:`${!wasVoided(v) && v.state === 'Approved' && canApprove()
         ? `<button type="button" class="btn btn-danger" id="voidVoucher">Void voucher</button>` : ''}
+      ${isDraft(v) && can('payables')
+        ? `<button type="button" class="btn btn-ghost" id="dropVoucher">Discard</button>
+           <button type="button" class="btn btn-accent" id="payVoucher">Mark it paid</button>` : ''}
       <button type="button" class="btn btn-primary" id="printVoucher">Print / PDF</button>`,
     body: twoUp(sheet),
   });
@@ -3079,6 +3197,10 @@ function voucherModal(v){
     UI.printDoc(`${v.no} — Disbursement Voucher`);
   const vv = document.getElementById('voidVoucher');
   if(vv) vv.onclick = () => { UI.close(); voidVoucherAsk(v.id); };
+  const pv = document.getElementById('payVoucher');
+  if(pv) pv.onclick = () => setTimeout(() => markVoucherPaid(v), 0);
+  const dv = document.getElementById('dropVoucher');
+  if(dv) dv.onclick = () => setTimeout(() => discardVoucher(v), 0);
 }
 
 /* ---------- payroll ----------
@@ -4544,6 +4666,54 @@ function traineeProfile(t){
   document.getElementById('chargeHere').onclick = () => enrollmentForm(null, t.id, { chargeOnly:true });
 }
 
+/* Seats booked on a course whose price has just been corrected.
+
+   A booking freezes what the centre is owed and what the rebate is worth, taken
+   from the price list as it read that morning. That is right for a seat already
+   settled — restating a remittance that has gone out would make the books
+   disagree with the money — and wrong for one still sitting on the payables
+   list, where the office corrected the price precisely because the figure it is
+   about to remit is wrong.
+
+   So the ones that can still be put right are offered: not remitted, no rebate
+   banked, not void. Everything else keeps the figures it was settled under. */
+function seatsOnOldPrice(course, fee, rebate, deduct){
+  return D().enrollments.filter(e => {
+    if(e.courseId !== course.id) return false;
+    if(e.status === 'Void' || e.status === 'Cancelled') return false;
+    if(e.remitNo || ACC.r2(e.centerPaid || 0) > 0.004) return false;
+    if(e.rebateReceivedOn) return false;
+    if(ACC.r2(e.fee || 0) <= 0.004) return false;          /* a charge, not a seat */
+    const owed = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
+    /* A marketing seat carries half the rebate, and half of the new one is what
+       it should carry — not the whole. */
+    const want = e.source === 'Marketing' ? ACC.r2(rebate / 2) : ACC.r2(rebate);
+    return owed !== ACC.r2(fee) || ACC.r2(e.rebate || 0) !== want || !!e.deduct !== !!deduct;
+  });
+}
+
+/* Applying it. The same reverse-and-repost the seat figures dialog uses, so a
+   correction reads on the books as a correction rather than a number that
+   quietly changed. */
+function repriceSeats(course, fee, rebate, deduct, reason){
+  let n = 0;
+  seatsOnOldPrice(course, fee, rebate, deduct).forEach(e => {
+    const want = e.source === 'Marketing' ? ACC.r2(rebate / 2) : ACC.r2(rebate);
+    ACC.reverse(e.id, reason, 'Booking');
+    const s = ACC.postCenterPayable({
+      date:DB.today(),
+      memo:`${course.title}${e.center ? ' — ' + e.center : ''} · ${e.no} · repriced (${reason})`,
+      refNo:e.no, refId:e.id, fee:ACC.r2(fee), rebate:want, deduct:!!deduct,
+    });
+    e.centerPayable = s.payable;
+    e.rebateReceivable = s.receivable;
+    e.rebate = want;
+    e.deduct = !!deduct;
+    n++;
+  });
+  return n;
+}
+
 function courseForm(c){
   const isNew = !c;
   c = c || { code:'', title:'', duration:'', days:null, center:'', amount:0, rebate:0,
@@ -4602,9 +4772,56 @@ function courseForm(c){
         UI.toast('The rebate cannot exceed the fee — we would be remitting a negative amount.', 'bad');
         return false;
       }
-      if(isNew){ D().courses.push({ id:DB.uid('crs'), ...rec }); DB.activity('Added course', rec.code); UI.toast('Course added.'); }
-      else { Object.assign(c, rec); DB.activity('Updated course', c.code); UI.toast('Course updated.'); }
-      refresh();
+      if(isNew){
+        D().courses.push({ id:DB.uid('crs'), ...rec });
+        DB.activity('Added course', rec.code);
+        UI.toast('Course added.');
+        refresh();
+        return;
+      }
+
+      /* The seats already booked on it. A price is usually corrected because
+         the one about to be remitted is wrong, so the office is asked rather
+         than left to find out at the voucher — but it is asked, because a
+         booking is a price agreed on a day and not every one of them should
+         move. */
+      const moved = ACC.r2(c.amount) !== rec.amount
+        || ACC.r2(c.rebate) !== rec.rebate
+        || !!c.deduct !== !!rec.deduct;
+      const affected = moved ? seatsOnOldPrice(c, rec.amount, rec.rebate, rec.deduct) : [];
+
+      Object.assign(c, rec);
+      DB.activity('Updated course', c.code);
+
+      if(!affected.length){
+        UI.toast('Course updated.');
+        refresh();
+        return;
+      }
+
+      const owed = ACC.r2(affected.reduce((s, e) =>
+        s + ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee), 0));
+      DB.save();
+      UI.toast('Course updated.');
+      /* A tick late: this form closes itself after the handler returns. */
+      setTimeout(() => UI.confirm(
+        `${UI.int(affected.length)} booking(s) on ${c.code} have not been remitted yet.`
+        + ' Put them on the new figures?',
+        fd => {
+          const why = String(fd.reason || '').trim() || `${c.code} repriced`;
+          const n = repriceSeats(c, rec.amount, rec.rebate, rec.deduct, why);
+          DB.activity('Repriced bookings', `${c.code} · ${UI.int(n)} booking(s) — ${why}`);
+          DB.save();
+          UI.toast(`${UI.int(n)} booking(s) put on the new figures.`);
+          refresh();
+        },
+        { reason:true, yes:'Update the bookings',
+          detail:`They are owed ${UI.peso(owed)} between them on the old figures. Each is`
+            + ' reversed and reposted, so the books show the correction; a seat already'
+            + ' remitted, or whose rebate has been banked, is left exactly as it was'
+            + ' settled. What the trainee was billed does not change — that is their'
+            + ' invoice, and it is corrected on the bill.' }), 0);
+      return false;
     }
   });
 
@@ -6982,6 +7199,10 @@ document.addEventListener('click', ev => {
     'paya-only':     () => { state.q.payaCenter = id; render(); },
     'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },
     'post-stranded': () => postStrandedCharges(),
+    'pay-voucher':   () => { ev.stopPropagation();
+                       markVoucherPaid(D().expenses.find(x => x.id === id)); },
+    'drop-voucher':  () => { ev.stopPropagation();
+                       discardVoucher(D().expenses.find(x => x.id === id)); },
     'void-receipt':  () => { ev.stopPropagation();
                        const p = D().payments.find(x => x.id === id);
                        const inv = p && INV(p.invoiceId);
