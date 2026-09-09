@@ -2056,27 +2056,45 @@ console.log('\n- old stores lose their passwords -');
       return r.fee === 2600 || r.fee;
     });
 
+    /* What the payables screen works out, kept in one place so these check the
+       rule rather than restating it. The discount is ours to fund and it is the
+       last thing to go: until the trainee has paid the bill they were handed,
+       we remit what has come in. */
+    const remitting = () => run(`(() => {
+      const e = DB.get().enrollments[0];
+      const inv = DB.get().invoices[0];
+      const collected = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
+      const discount = ACC.r2(e.discount || 0);
+      const fee = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
+      const asked = ACC.r2(Math.max(0, ACC.r2((e.fee || 0) - discount)));
+      const settled = asked > 0.004 && collected + 0.004 >= asked;
+      const funded = settled ? ACC.r2(collected + discount) : collected;
+      return ACC.r2(Math.min(funded, fee) - ACC.r2(e.centerPaid || 0));
+    })()`);
+
     check('a fully paid discounted seat remits in full', () => {
       seat(2600, 2500, 600, 100);
-      /* collected 100 + discount 2500 = the fee. */
-      const funded = run(`(() => { const e = DB.get().enrollments[0];
-        const inv = DB.get().invoices[0];
-        const paid = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
-        return ACC.r2(Math.min(ACC.r2(paid + ACC.r2(e.discount || 0)),
-                               ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee)));
-      })()`);
-      return funded === 2600 || funded;
+      /* Billed 100 after the discount, and 100 has come in. */
+      return remitting() === 2600 || remitting();
     });
 
-    check('a part-paid one remits what is funded so far, not the lot', () => {
-      seat(5500, 500, 800, 3000);
-      const funded = run(`(() => { const e = DB.get().enrollments[0];
-        const inv = DB.get().invoices[0];
-        const paid = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
-        return ACC.r2(Math.min(ACC.r2(paid + ACC.r2(e.discount || 0)),
-                               ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee)));
-      })()`);
-      return funded === 3500 || funded;
+    /* This one had the rule the wrong way round. A seat billed 5,000 after a
+       500 discount and half paid at 2,500 was remitting 3,000 — the office
+       sending 500 of its own money to the centre while the trainee was still
+       2,500 short. The discount is the last thing to go, not the first. */
+    check('a part-paid one remits only what has come in', () => {
+      seat(5500, 500, 800, 2500);
+      return remitting() === 2500 || remitting();
+    });
+
+    check('and the discount lands the moment the bill is settled', () => {
+      seat(5500, 500, 800, 5000);
+      return remitting() === 5500 || remitting();
+    });
+
+    check('a seat with no discount is unaffected either way', () => {
+      seat(5500, 0, 800, 3000);
+      return remitting() === 3000 || remitting();
     });
 
     check('and it never remits more than the seat is owed', () => {
@@ -2087,13 +2105,7 @@ console.log('\n- old stores lose their passwords -');
           enrollmentId:d.enrollments[0].id, traineeId:'dt1', date:DB.today(),
           tenders:[{ method:'Cash', ref:'', amount:5000 }] });
         d.payments.push(p); ACC.postPayment(p, inv); })()`);
-      const funded = run(`(() => { const e = DB.get().enrollments[0];
-        const inv = DB.get().invoices[0];
-        const paid = ACC.r2(ACC.recomputeInvoice(inv).paid || 0);
-        return ACC.r2(Math.min(ACC.r2(paid + ACC.r2(e.discount || 0)),
-                               ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee)));
-      })()`);
-      return funded === 2600 || funded;
+      return remitting() === 2600 || remitting();
     });
 
     check('what we earn on the seat is the rebate less the discount', () => {

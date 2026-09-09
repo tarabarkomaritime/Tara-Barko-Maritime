@@ -2286,7 +2286,24 @@ function openPayables(){
          full. Where the money comes from is our rebate, which is exactly what
          it is for — Sales reports the rebate net of it. */
       const discount = ACC.r2(e.discount || 0);
-      const funded = ACC.r2(collected + discount);
+
+      /* The discount is released only once the trainee has settled.
+
+         It used to be added to whatever had come in, so a seat billed 5,000
+         after a 500 discount and half paid at 2,500 remitted 3,000 — the office
+         sending 500 of its own money to the centre before the trainee had
+         finished paying, on a seat still 2,500 short. The discount is ours to
+         fund, but it is the last thing to go, not the first.
+
+         So: what the trainee was actually asked for is the bill on this
+         booking. Until that is paid, we remit what has come in. Once it is,
+         the seat is settled from our side and the centre gets the whole fee,
+         the discount included. A seat with no discount behaves exactly as it
+         always did. */
+      const asked = ACC.r2(bookingShare(e)
+        || Math.max(0, ACC.r2((e.fee || 0) - discount)));
+      const settled = asked > 0.004 && collected + 0.004 >= asked;
+      const funded = settled ? ACC.r2(collected + discount) : collected;
       return {
         e,
         center:e.center,
