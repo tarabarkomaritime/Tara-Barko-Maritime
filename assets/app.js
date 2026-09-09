@@ -2067,7 +2067,10 @@ VIEWS.sales = () => {
 /* ---------- Expenses ---------- */
 VIEWS.expenses = () => {
   const from = state.q.expFrom || startOfYear(), to = state.q.expTo || DB.today();
-  const rows = D().expenses.filter(v => v.date >= from && v.date <= to)
+  /* A draft is not a disbursement. Nothing on it has been paid and nothing has
+     been posted; it is a list of seats being checked over on the Payables
+     screen, and it belongs there until somebody says the money went. */
+  const rows = D().expenses.filter(v => v.date >= from && v.date <= to && !isDraft(v))
     .sort((a,b) => b.date.localeCompare(a.date));
   /* Only approved vouchers have moved money, so only they are totalled — a
      pending one in the sum would overstate what has been spent. */
@@ -2492,17 +2495,22 @@ VIEWS.payables = () => {
          since nothing on it has moved — and one already paid can only be voided,
          which is the admin's. */
       { h:'', k:v => {
-          if(wasVoided(v)) return UI.tag('Void','muted');
           let out = `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`;
+          if(wasVoided(v)) return UI.tag('Void','muted') + ' ' + out;
           if(isDraft(v)){
             if(can('payables'))
               out += ` <button class="btn btn-accent btn-xs" data-act="pay-voucher" data-id="${v.id}">Paid</button>`
                    + ` <button class="btn btn-ghost btn-xs" data-act="drop-voucher" data-id="${v.id}">Discard</button>`;
+          }else if(neverPosted(v)){
+            /* Rejected before it ever posted. Nothing to reverse, nothing on
+               the books, and nobody holding the paper. */
+            if(canApprove())
+              out += ` <button class="btn btn-danger btn-xs" data-act="kill-voucher" data-id="${v.id}">Remove</button>`;
           }else if(canApprove()){
             out += ` <button class="btn btn-ghost btn-xs" data-act="void-voucher" data-id="${v.id}">Void</button>`;
           }
           return out;
-        }, w:'210px' },
+        }, w:'230px' },
     ], paid, { empty:filtered
         ? 'No voucher was issued in this window.'
         : 'No remittance voucher has been issued yet.' }),
@@ -2981,6 +2989,57 @@ function discardVoucher(v){
   }, { danger:true, reason:true, yes:'Discard the draft',
        detail:'Nothing was posted, so nothing is reversed. The seats it was holding go back'
          + ' on the payables list to be settled another way.' });
+}
+
+/* A voucher that never became anything.
+
+   Rejected before approval, or a draft thrown away: no journal entry was ever
+   written against it, no money moved, and nobody outside this office is holding
+   a copy. Those are aborted attempts rather than documents, and leaving them on
+   the list buries the ones that matter.
+
+   A voucher voided *after* approval is a different thing entirely and stays.
+   It has a posting and a reversal on the books, the centre may well be holding
+   the paper, and deleting the row would leave two entries in the ledger
+   referring to a document that no longer exists. The books are what decide it,
+   not the state: the presence of an entry is the test. */
+const neverPosted = v => !!v
+  && ['Draft', 'Rejected'].includes(v.state)
+  && !D().journal.some(j => j.refId === v.id);
+
+function removeVoucher(v){
+  if(!v){ UI.toast('That voucher is gone.', 'bad'); return; }
+  if(!canApprove()){ UI.toast('Only an admin can remove a voucher.', 'bad'); return; }
+  if(!neverPosted(v)){
+    UI.toast(wasVoided(v)
+      ? 'That voucher was approved and then voided — the posting and its reversal are on'
+        + ' the books, so the document stays on file.'
+      : 'Only a voucher that never posted can be removed.', 'bad');
+    return;
+  }
+  /* Whatever it was holding goes back, the same as rejecting it does. A row
+     removed while it still covered a seat would take that seat off the payables
+     list for good. */
+  UI.confirm(`Remove ${UI.esc(v.no || 'this draft')} for good?`, () => {
+    (v.bookings || []).forEach(id => {
+      const e = ENR(id);
+      if(!e) return;
+      const l = (v.lines || []).find(x => x.id === id);
+      const back = l ? l.amount : (e.centerPayable != null ? e.centerPayable : e.fee);
+      e.centerPaid = ACC.r2(Math.max(0, (e.centerPaid || 0) - back));
+      if(e.remitNo === v.no){ delete e.remitNo; delete e.remitDate; }
+    });
+    const i = D().expenses.findIndex(x => x.id === v.id);
+    if(i >= 0) D().expenses.splice(i, 1);
+    DB.activity('Removed a voucher that never posted', v.no || '(draft)');
+    DB.save();
+    UI.toast(`${v.no || 'The draft'} removed.`);
+    refresh();
+  }, { danger:true, yes:'Remove it',
+       detail:'Nothing was posted against it, so nothing is reversed. Any seats it was'
+         + ' holding go back on the payables list. The number it used is not handed out'
+         + ' again — two documents sharing one number is what stops the office saving at'
+         + ' all.' });
 }
 
 function voidVoucher(v, reason){
@@ -7203,6 +7262,8 @@ document.addEventListener('click', ev => {
                        markVoucherPaid(D().expenses.find(x => x.id === id)); },
     'drop-voucher':  () => { ev.stopPropagation();
                        discardVoucher(D().expenses.find(x => x.id === id)); },
+    'kill-voucher':  () => { ev.stopPropagation();
+                       removeVoucher(D().expenses.find(x => x.id === id)); },
     'void-receipt':  () => { ev.stopPropagation();
                        const p = D().payments.find(x => x.id === id);
                        const inv = p && INV(p.invoiceId);

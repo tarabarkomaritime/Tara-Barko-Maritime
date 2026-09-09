@@ -420,9 +420,26 @@ const SYNC = (() => {
       /* Only the catalogue may lose rows. Nothing else in this system deletes:
          a receipt is voided, an entry is reversed, a booking is cancelled —
          all of which are rows that still exist and still say what happened. */
-      if(gone.length && m.table === 'courses'){
-        await CLOUD.remove(m.table, gone, m.key);
-        done.deletes += gone.length;
+      /* Rows the server is allowed to lose. Courses come and go from the
+         price list; a voucher that never posted is an aborted attempt rather
+         than a document, and its policy on the server refuses any that carries
+         a journal entry whatever this browser thinks.
+
+         Everything else stays where it is: a deletion here is far more often a
+         store that has not finished loading than an intention. */
+      const DELETABLE = ['courses', 'expenses'];
+      if(gone.length && DELETABLE.includes(m.table)){
+        try{
+          await CLOUD.remove(m.table, gone, m.key);
+          done.deletes += gone.length;
+        }catch(e){
+          /* A delete the policy refuses must not take the whole save down with
+             it — the office would lose a day's work over a row it wanted gone
+             and can live with. */
+          if(!notThere(e) && !notAllowed(e)) throw e;
+          done.missing = done.missing || [];
+          done.missing.push(m.table + ' (delete)');
+        }
       }
     }
 
