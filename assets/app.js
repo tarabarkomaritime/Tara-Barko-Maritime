@@ -2719,7 +2719,22 @@ function centerVoucherForm(center){
      A seat nobody has paid for cannot go on a voucher at all — there is no money
      to send — so it is shown and locked rather than hidden, because the debt is
      still real and the office should see why it cannot pay it yet. */
-  const ready = r => r.remittable > 0.004;
+  /* A seat already on a draft is not offered again.
+
+     The arithmetic never double-counted: a seat with 3,000 on a draft and
+     2,000 newly collected offered exactly the 2,000. What that produced was two
+     vouchers against one seat, the first still unpaid and provisional — and
+     two documents to pay is two chances to pay the wrong one twice, or to pay
+     one and discard the other. A draft is meant to be checked and redone if it
+     is wrong, so the seat waits for it: pay it or discard it, and generate
+     again for whatever is left.
+
+     Once the earlier voucher has been marked paid the money has actually gone,
+     and only new money since then is offered — which is what the figure has
+     always been. */
+  const onDraft = r => heldOn(r.e).some(h => isDraft(h.v));
+  const ready = r => r.remittable > 0.004 && !onDraft(r);
+  const whyNot = r => onDraft(r) ? 'on a draft — pay or discard it first' : 'nothing collected';
   /* Every cell was padded 4px 0 — no space between columns at all — so a
      discount and the amount owed beside it ran together as "500.005,500.00",
      and a dash for no discount read as a minus sign on the number after it.
@@ -2741,7 +2756,7 @@ function centerVoucherForm(center){
       <td class="num">${UI.num(r.payable)}</td>
       <td class="num">${ready(r)
         ? `<b>${UI.num(r.remittable)}</b>`
-        : '<span class="muted nowrap">nothing collected</span>'}</td>
+        : `<span class="muted nowrap">${whyNot(r)}</span>`}</td>
       <!-- What a seat owes the centre and what it earns us are both frozen at
            booking time, from the price list as it read that day. A price typed
            wrong is found here, against the centre's own statement, and there
@@ -2831,7 +2846,9 @@ function centerVoucherForm(center){
         const box = document.getElementsByName('pick' + i)[0];
         const tr = box && box.closest('tr');
         if(tr && tr.style.display === 'none') return false;
-        return fd['pick'+i] && r.remittable > 0.004;
+        /* ready(), not just the box: a locked row's box is disabled, but this
+           is the one place the rule has to hold whatever the screen did. */
+        return fd['pick'+i] && ready(r);
       });
       if(!picked.length){ UI.toast('Choose at least one booking with money collected against it.', 'bad'); return false; }
       const amount = ACC.r2(picked.reduce((s,r) => s + r.remittable, 0));
