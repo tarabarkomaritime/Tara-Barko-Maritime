@@ -1875,6 +1875,24 @@ VIEWS.payments = () => {
    Everything here reads from the same rebate rows as the payables screen, so
    pressing Receive there moves these figures without anything having to be
    entered twice. */
+/* The office's own spending in a window: approved, not since voided, and on
+   an expense account that is actually ours.
+
+   Two things a voucher can be charged to are not expenses of the office.
+   Remittances go to 2000 — that is the trainee's money passing through to the
+   centre, and calling it spending would make every busy month look like a loss.
+   And 5050 is the cost of a seat, charged when the seat is booked; Sales counts
+   what the office earns on that seat as the rebate, which already has the cost
+   inside it, so charging it again here would take it off twice. */
+function officeExpenses(from, to){
+  return D().expenses.filter(v =>
+    (v.state || 'Approved') === 'Approved'
+    && !wasVoided(v)
+    && (!from || v.date >= from) && (!to || v.date <= to)
+    && String(v.account || '').startsWith('5')
+    && v.account !== '5050');
+}
+
 VIEWS.sales = () => {
   const from = state.q.salFrom || '', to = state.q.salTo || '';
   const all = rebatesAll().filter(r => {
@@ -1988,6 +2006,40 @@ VIEWS.sales = () => {
                toCollect > 0 ? 'sea' : '')}
       ${UI.kpi('Already received', UI.peso(banked), 'collected and banked', 'ok')}
     </div>
+
+    ${(() => {
+      /* Gross, less what it cost to earn it, is the figure the office actually
+         runs on. It was four tiles about the rebate and nothing about the
+         spending, so what was left at the end of the month was worked out on a
+         calculator from two screens. */
+      const spent = officeExpenses(from, to);
+      const byAcct = {};
+      spent.forEach(v => { byAcct[v.account] = ACC.r2((byAcct[v.account] || 0) + v.amount); });
+      const expenses = ACC.r2(spent.reduce((s, v) => s + v.amount, 0));
+      const net = ACC.r2(earned - expenses);
+      const line = (label, amount, opts = {}) => `
+        <tr${opts.strong ? ' style="font-weight:700"' : ''}${opts.sub ? ' class="muted"' : ''}>
+          <td style="padding:6px 0${opts.sub ? ' 6px 22px' : ''}">${UI.esc(label)}</td>
+          <td class="num" style="padding:6px 0${opts.strong ? ';font-size:14px' : ''}">${
+            opts.neg ? '(' + UI.num(amount) + ')' : UI.num(amount)}</td>
+        </tr>`;
+      return UI.card('Sales Summary', `
+        <table style="width:100%;font-size:13px;max-width:560px">
+          <tbody>
+            ${line('Gross rebate earned', gross)}
+            ${discounts > 0.004 ? line('Less: discounts given', discounts, { neg:true }) : ''}
+            ${line('Net rebate earned', earned, { strong:true })}
+            ${line('Less: operating expenses', expenses, { neg:true })}
+            ${Object.entries(byAcct).sort((a, b) => b[1] - a[1]).map(([c, v]) =>
+              line(ACC.acct(c).name, v, { sub:true })).join('')}
+            <tr><td colspan="2" style="border-top:2px solid var(--navy-800);padding:0"></td></tr>
+            ${line(net >= 0 ? 'Net income' : 'Net loss', Math.abs(net), { strong:true })}
+          </tbody>
+        </table>`,
+        { sub:`${span} · ${UI.int(spent.length)} expense voucher(s)`
+            + ' · remittances to centres and the cost of seats are not expenses here' });
+    })()}
+    <div style="height:18px"></div>
 
     ${centres.length ? UI.card('Earnings By Training Center', UI.table([
       { h:'Training center', k:c => `<b>${UI.esc(c.center)}</b>` },
@@ -2121,7 +2173,47 @@ VIEWS.expenses = () => {
       <div>${UI.card('Expenses By Account',
         UI.barChart(Object.entries(byAcct).map(([c,v]) => ({ label:ACC.acct(c).name, value:v }))
           .sort((a,b) => b.value - a.value), { money:true }))}</div>
-    </div>`;
+    </div>
+
+    ${(() => {
+      /* How much went where, on which day. One row per day the office spent
+         anything, one column per account it spent on, so a month can be read
+         down for the days and across for the categories. Filtered by the same
+         dates as the list above, and narrowed to one account when that is the
+         question. */
+      const pick = state.q.expAcct || '';
+      const spent = posted.filter(v => !pick || v.account === pick);
+      const accts = [...new Set(spent.map(v => v.account))]
+        .sort((a, b) => String(ACC.acct(a).name).localeCompare(String(ACC.acct(b).name)));
+      const days = {};
+      spent.forEach(v => {
+        const d = days[v.date] || (days[v.date] = { date:v.date, total:0 });
+        d[v.account] = ACC.r2((d[v.account] || 0) + v.amount);
+        d.total = ACC.r2(d.total + v.amount);
+      });
+      const rows = Object.values(days).sort((a, b) => b.date.localeCompare(a.date));
+      const colTotal = a => ACC.r2(rows.reduce((s, r) => s + (r[a] || 0), 0));
+      const grand = ACC.r2(rows.reduce((s, r) => s + r.total, 0));
+      const every = [...new Set(posted.map(v => v.account))]
+        .sort((a, b) => String(ACC.acct(a).name).localeCompare(String(ACC.acct(b).name)));
+
+      return `<div style="height:18px"></div>` + UI.card('Spend By Day', UI.table([
+          { h:'Date', k:r => UI.date(r.date), w:'120px' },
+          ...accts.map(a => ({ h:ACC.acct(a).name, cls:'num',
+            k:r => r[a] ? UI.num(r[a]) : '<span class="muted">—</span>' })),
+          { h:'Total', k:r => `<b>${UI.num(r.total)}</b>`, cls:'num' },
+        ], rows, { empty:'Nothing was spent in this period.',
+                   foot:['TOTAL', ...accts.map(a => UI.num(colTotal(a))), UI.num(grand)] }),
+        { flush:true,
+          sub:`${UI.int(rows.length)} day(s) · ${UI.peso(grand)}`
+            + (pick ? ` on ${UI.esc(ACC.acct(pick).name)}` : ' across every account')
+            + ` · ${UI.date(from)} to ${UI.date(to)}`,
+          actions:`<select data-q="expAcct" style="min-width:200px">
+            <option value="">Every account</option>
+            ${every.map(a => `<option value="${UI.esc(a)}" ${a === pick ? 'selected' : ''}>${
+              UI.esc(ACC.acct(a).name)}</option>`).join('')}
+          </select>` });
+    })()}`;
 };
 
 /* ---------- Payables to training centers ----------
