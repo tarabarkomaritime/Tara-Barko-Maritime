@@ -969,8 +969,15 @@ VIEWS.dashboard = () => {
   d.expenses.filter(v => v.date === on
                       && (v.state || 'Approved') === 'Approved'
                       && !wasVoided(v)).forEach(v => {
-    voucherCount++;
     const m = CHANNELS.includes(v.method) ? v.method : CHANNELS[CHANNELS.length-1];
+    /* A refund from a centre is on this table but it came in, not out. Counting
+       it as spending would show the money leaving the account it arrived in. */
+    if(isCenterRefund(v)){
+      received[m] = ACC.r2(received[m] + v.amount);
+      receivedTotal = ACC.r2(receivedTotal + v.amount);
+      return;
+    }
+    voucherCount++;
     paidOut[m] = ACC.r2(paidOut[m] + v.amount);
     paidTotal = ACC.r2(paidTotal + v.amount);
   });
@@ -2122,7 +2129,13 @@ VIEWS.expenses = () => {
   /* A draft is not a disbursement. Nothing on it has been paid and nothing has
      been posted; it is a list of seats being checked over on the Payables
      screen, and it belongs there until somebody says the money went. */
-  const rows = D().expenses.filter(v => v.date >= from && v.date <= to && !isDraft(v))
+  /* Refunds from centres are money in. They have their own card below rather
+     than sitting in a list of what the office spent. */
+  const rows = D().expenses.filter(v => v.date >= from && v.date <= to && !isDraft(v)
+      && !isCenterRefund(v))
+    .sort((a,b) => b.date.localeCompare(a.date));
+  const refunds = D().expenses.filter(v => isCenterRefund(v) && v.date >= from && v.date <= to
+      && (v.state || 'Approved') === 'Approved' && !wasVoided(v))
     .sort((a,b) => b.date.localeCompare(a.date));
   /* Only approved vouchers have moved money, so only they are totalled — a
      pending one in the sum would overstate what has been spent. */
@@ -2137,6 +2150,7 @@ VIEWS.expenses = () => {
       <label class="muted" style="font-size:12px">To</label><input type="date" data-q="expTo" value="${to}">
       <span class="muted">${rows.length} voucher(s) · ${UI.peso(total)} posted${rows.length - posted.length ? ` · ${rows.length - posted.length} awaiting approval` : ''}</span>
       <span class="spacer"></span>
+      ${can('payables') ? `<button class="btn btn-ghost btn-sm" data-act="center-refund">+ Refund from a centre</button>` : ''}
       <button class="btn btn-primary btn-sm" data-act="new-expense">+ New disbursement</button>
     </div>
 
@@ -2166,13 +2180,34 @@ VIEWS.expenses = () => {
               data-act="view-expense" data-id="${v.id}">View</button>`
             + (isDraft(v) && can('payables')
                 ? ` <button class="btn btn-accent btn-xs" data-act="pay-voucher" data-id="${v.id}">Paid</button>`
+                : '')
+            /* Correcting a mode or an amount rather than voiding the whole
+               document and writing it again. A voided one has nothing to
+               correct; a rejected one never posted. */
+            + (!wasVoided(v) && v.state !== 'Rejected'
+               && ((v.state || 'Approved') === 'Approved' ? canApprove() : can('payables'))
+                ? ` <button class="btn btn-ghost btn-xs" data-act="edit-expense" data-id="${v.id}">Edit</button>`
                 /* A fixed width: `v` is the row, and the column's width is
                    settled once for the table rather than per row. */
-                : ''), w:'150px' },
+                : ''), w:'190px' },
       ], rows, { empty:'No disbursements in this period.' }), { flush:true })}</div>
       <div>${UI.card('Expenses By Account',
         UI.barChart(Object.entries(byAcct).map(([c,v]) => ({ label:ACC.acct(c).name, value:v }))
-          .sort((a,b) => b.value - a.value), { money:true }))}</div>
+          .sort((a,b) => b.value - a.value), { money:true }))}
+        ${refunds.length ? '<div style="height:18px"></div>' + UI.card('Refunds From Centres',
+          UI.table([
+            { h:'Voucher No.', k:v => `<b class="mono">${UI.esc(v.no)}</b>` },
+            { h:'Date', k:v => UI.date(v.date) },
+            { h:'Centre', k:v => UI.esc(v.payee) },
+            { h:'Received in', k:v => UI.tag(v.method, v.method === 'Cash' ? 'ok' : 'sea') },
+            { h:'Amount', k:v => `<b style="color:var(--ok)">${UI.num(v.amount)}</b>`, cls:'num' },
+            { h:'', k:v => canApprove()
+                ? `<button class="btn btn-ghost btn-xs" data-act="edit-expense" data-id="${v.id}">Edit</button>`
+                : '', w:'70px' },
+          ], refunds, { foot:['TOTAL','','','',
+            UI.num(ACC.r2(refunds.reduce((s,v) => s + v.amount, 0))), ''] }),
+          { flush:true, sub:'Overpayments sent back — counted as money in on the day they arrived' })
+          : ''}</div>
     </div>
 
     ${(() => {
@@ -3101,6 +3136,12 @@ const isDraft = v => !!v && v.state === 'Draft';
    allocated when the voucher is marked paid. */
 const voucherLabel = v => (v && v.no) || 'Draft';
 
+/* Money coming back from a training centre, recorded on the same table as the
+   money going out because that is where the office's dealings with a centre
+   live. Every screen that totals spending leaves it out; the day's takings pick
+   it up. Its own kind is what makes that possible. */
+const isCenterRefund = v => !!v && v.kind === 'center-refund';
+
 /* Marking a drafted voucher paid.
 
    This is where how the money went is asked for, because this is where it
@@ -3241,6 +3282,184 @@ function removeVoucher(v){
          + ' holding go back on the payables list. The number it used is not handed out'
          + ' again — two documents sharing one number is what stops the office saving at'
          + ' all.' });
+}
+
+/* Recording money a centre sent back.
+
+   We overpay a remittance — a seat cancelled after the voucher went out, a
+   price corrected afterwards, a figure typed wrong — and the centre returns the
+   difference. Until now there was nowhere to put it: the cash arrived, the
+   drawer disagreed with the day's report, and the centre's payable still read
+   as settled.
+
+   It is a remittance run backwards, so it posts as one: the cash comes in and
+   the centre's payable goes back up, which is right, because an overpayment
+   means a debt was settled that was never that large. It carries a date and a
+   mode like every other movement, so the day it arrived is the day it counts. */
+function centerRefundForm(center){
+  if(!can('payables')){ UI.toast('You cannot record a refund from a centre.', 'bad'); return; }
+  /* Every centre the office has dealt with, not only those with a booking on
+     file. A refund usually follows a remittance, and the centre that sent it
+     back has to be on the list even if its seats have since been archived. */
+  const centres = [...new Set([
+    ...D().enrollments.map(e => e.center),
+    ...D().expenses.filter(v => v.kind === 'remittance' || v.kind === 'center-refund')
+      .map(v => v.payee),
+  ].map(x => String(x || '').trim().toUpperCase()).filter(Boolean))].sort();
+
+  UI.modal({
+    title:'Refund from a training centre',
+    sub:'Money coming back on an overpayment',
+    body:`
+      ${UI.row(
+        UI.f.select('payee','Training centre', String(center || '').toUpperCase(),
+          centres.map(c => ({ v:c, l:c })), { req:true, blank:'— which centre —' }),
+        UI.f.num('amount','Amount (₱)', '', { req:true, min:0, step:'0.01' }))}
+      ${UI.row(
+        UI.f.date('date','Date received', DB.today(), { req:true }),
+        UI.f.select('method','Received in', ACC.methodNames()[0], ACC.methodNames()),
+        UI.f.text('ref','Reference no.', '', { ph:'cheque or transaction no.' }))}
+      ${UI.f.text('particulars','What it is for', '',
+        { ph:'e.g. overpaid on DV-2026-0141 — seat cancelled' })}
+      <div class="note">It is posted straight away, dated the day above, and counts in that
+        day's money in — the same as a trainee's payment. What the centre is owed goes back
+        up by this much, because the overpayment settled a debt that was never that large.</div>`,
+    submitLabel:'Record the refund',
+    onSubmit: fd => {
+      const amount = ACC.r2(fd.amount);
+      if(!(amount > 0)){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
+      const payee = String(fd.payee || '').trim().toUpperCase();
+      if(!payee){ UI.toast('Say which centre it came from.', 'bad'); return false; }
+      const on = String(fd.date || '').trim() || DB.today();
+      if(on > DB.today()){
+        UI.toast('That date is in the future — the money cannot have arrived yet.', 'bad');
+        return false;
+      }
+      if(ACC.needsRef(fd.method) && !String(fd.ref || '').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+      const v = {
+        id:DB.uid('exp'), no:DB.nextNo('voucher','DV'), kind:'center-refund',
+        date:on, payee, account:'2000',
+        particulars:String(fd.particulars || '').trim() || `Refund from ${payee}`,
+        amount, method:fd.method, ref:String(fd.ref || '').trim(),
+        state:'Approved', raisedBy:SESSION.name,
+        approvedBy:SESSION.name, approvedOn:DB.today(),
+      };
+      D().expenses.push(v);
+      ACC.postCenterRefund({ date:on, memo:`${v.particulars} · ${v.no}`,
+        refNo:v.no, refId:v.id, amount, method:fd.method });
+      DB.activity('Recorded a refund from a centre', `${v.no} · ${payee} · ${UI.peso(amount)}`);
+      DB.save();
+      UI.toast(`${UI.peso(amount)} from ${payee} recorded — it counts on ${UI.date(on)}.`);
+      refresh();
+    }
+  });
+}
+
+/* Putting a voucher's figures right.
+
+   A mode typed wrong puts the money in the wrong column of the day's report,
+   and the office finds it when the bank does not match. Correcting it meant
+   voiding the voucher and writing it again, which leaves a void on the books
+   for a payment that plainly happened.
+
+   What can be changed depends on what the voucher is. A remittance's amount is
+   the sum of the seats on it, so only the mode, the reference and the date move
+   — changing the figure would leave the seats holding one number and the
+   document another. Anything else can have its amount corrected too.
+
+   A voucher that has posted is reversed and reposted, so the books show the
+   correction rather than a figure that quietly changed. One that has not posted
+   is simply edited: there is nothing on the ledger yet to disagree with. */
+function expenseEditForm(v){
+  if(!v){ UI.toast('That voucher is gone.', 'bad'); return; }
+  if(wasVoided(v)){ UI.toast('That voucher is void — there is nothing to correct.', 'bad'); return; }
+  if(v.state === 'Rejected'){ UI.toast('That voucher was rejected — nothing was posted on it.', 'bad'); return; }
+  const posted = (v.state || 'Approved') === 'Approved';
+  if(posted && !canApprove()){
+    UI.toast('Only an admin can correct a voucher that has already posted.', 'bad'); return;
+  }
+  if(!posted && !can('payables')){ UI.toast('You cannot correct a voucher.', 'bad'); return; }
+  /* The amount on a remittance belongs to the seats, not to this form. */
+  const fixedAmount = v.kind === 'remittance';
+
+  UI.modal({
+    title:`Correct ${voucherLabel(v)}`,
+    sub:`${UI.esc(v.payee || '')} · ${UI.peso(v.amount)}${posted ? ' · already posted' : ''}`,
+    wide:true,
+    body:`
+      ${UI.row(
+        UI.f.date('date','Date', v.date, { req:true }),
+        UI.f.select('method','Mode of payment', v.method || ACC.methodNames()[0], ACC.methodNames()),
+        UI.f.text('ref','Reference no.', v.ref || '', { ph:'cheque or transaction no.' }))}
+      ${fixedAmount
+        ? `<div class="note">The amount on a remittance is the sum of the seats it settles, so it
+             is not edited here — correcting a seat's figure is done from the voucher's own
+             Open button on Center Payables.</div>
+           <input type="hidden" name="amount" value="${ACC.r2(v.amount)}">`
+        : UI.f.num('amount','Amount (₱)', ACC.r2(v.amount), { req:true, min:0, step:'0.01' })}
+      ${UI.f.area('reason','Why is it changing?', '',
+        { req:posted, ph:'e.g. paid from BDO, not Cash' })}
+      <div class="note">${posted
+        ? 'The entry made when this was approved is reversed and a new one posted in its place,'
+          + ' dated the date above — so the day\'s report and the channel it came out of both'
+          + ' follow the correction.'
+        : 'Nothing has posted yet, so this is simply written down differently. The entry is made'
+          + ' when the admin approves it.'}</div>`,
+    submitLabel:'Post the correction',
+    onSubmit: fd => {
+      const reason = String(fd.reason || '').trim();
+      if(posted && !reason){
+        UI.toast('Say why it is changing — a correction with no reason is a gap in the file.', 'bad');
+        return false;
+      }
+      const on = String(fd.date || '').trim() || v.date;
+      if(on > DB.today()){
+        UI.toast('That date is in the future — the money cannot have moved yet.', 'bad');
+        return false;
+      }
+      const amount = fixedAmount ? ACC.r2(v.amount) : ACC.r2(fd.amount);
+      if(!(amount > 0)){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
+      if(ACC.needsRef(fd.method) && !String(fd.ref || '').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+      if(on === v.date && fd.method === v.method
+         && String(fd.ref || '').trim() === (v.ref || '') && amount === ACC.r2(v.amount)){
+        UI.toast('Nothing on it is different — there is nothing to correct.', 'bad');
+        return false;
+      }
+
+      if(posted){
+        /* Only this document's own entry. A remittance's id also sits on
+           nothing else, but naming the type keeps it that way. */
+        ACC.reverse(v.id, reason, isCenterRefund(v) ? 'Refund from centre'
+          : v.kind === 'remittance' ? 'Remittance' : 'Voucher');
+      }
+      const was = `${v.method || '—'} ${UI.peso(v.amount)} on ${UI.date(v.date)}`;
+      v.date = on;
+      v.method = fd.method;
+      v.ref = String(fd.ref || '').trim();
+      v.amount = amount;
+      if(posted){
+        if(isCenterRefund(v)){
+          ACC.postCenterRefund({ date:on, memo:`${v.particulars} · ${v.no} · corrected (${reason})`,
+            refNo:v.no, refId:v.id, amount, method:v.method });
+        }else if(v.kind === 'remittance'){
+          ACC.postCenterRemittance({ date:on, memo:`Remittance — ${v.payee} · ${v.no} · corrected (${reason})`,
+            refNo:v.no, refId:v.id, amount, method:v.method });
+        }else{
+          ACC.postExpense(v);
+        }
+      }
+      DB.activity('Corrected a voucher',
+        `${v.no} — was ${was}, now ${v.method} ${UI.peso(amount)} on ${UI.date(on)}`
+        + (reason ? ' — ' + reason : ''));
+      DB.save();
+      UI.toast(`${v.no} corrected — ${v.method} ${UI.peso(amount)} on ${UI.date(on)}.`);
+      render();
+    }
+  });
 }
 
 function voidVoucher(v, reason){
@@ -4116,6 +4335,12 @@ VIEWS.daily = () => {
      with the report. */
   const rebatesIn = d.enrollments.filter(e => e.rebateReceivedOn === on && (e.rebateReceivable || 0) > 0);
   rebatesIn.forEach(e => put(inBy, e.rebateMethod, ACC.r2(e.rebateReceivable)));
+  /* Money a centre sent back on an overpayment. It arrived through a window
+     like anything else, so the drawer and the day's report both have to know
+     about it. */
+  const refundsIn = d.expenses.filter(v => isCenterRefund(v) && v.date === on
+    && (v.state || 'Approved') === 'Approved' && !wasVoided(v));
+  refundsIn.forEach(v => put(inBy, v.method, ACC.r2(v.amount)));
   const totalIn = ACC.r2(Object.values(inBy).reduce((s,v) => s + v, 0));
 
   /* ---- out, approved only ---- */
@@ -4127,7 +4352,10 @@ VIEWS.daily = () => {
      entry sat on the 1st. The report and the books have to agree, and the books
      follow the document. Approval only stands in where a document carries no
      date of its own. */
-  const approvedOn = x => x.state === 'Approved' && (x.date || x.approvedOn) === on;
+  const approvedOn = x => x.state === 'Approved' && (x.date || x.approvedOn) === on
+    /* A refund from a centre sits on the expenses table and is not one. It is
+       counted above, with the money that came in. */
+    && !isCenterRefund(x);
   const vouchers = d.expenses.filter(v => approvedOn(v) && v.kind !== 'remittance');
   /* Payroll left the account like anything else, so it is in every total on this
      page. Who was paid and what for is on the Payroll screen, which is the
@@ -4181,7 +4409,8 @@ VIEWS.daily = () => {
 
     <div class="grid g4" style="margin-bottom:18px">
       ${UI.kpi('Received', UI.peso(totalIn),
-               `${receipts.length} payment(s)${rebatesIn.length ? ` · ${rebatesIn.length} rebate(s)` : ''}`, 'ok')}
+               `${receipts.length} payment(s)${rebatesIn.length ? ` · ${rebatesIn.length} rebate(s)` : ''}`
+               + (refundsIn.length ? ` · ${refundsIn.length} refund(s) from centres` : ''), 'ok')}
       ${UI.kpi('Paid out', UI.peso(totalOut),
                `${vouchers.length + remits.length + refunds.length} approved document(s)`, totalOut ? 'warn' : '')}
       ${UI.kpi('Net movement', UI.peso(ACC.r2(totalIn - totalOut)),
@@ -7462,6 +7691,9 @@ document.addEventListener('click', ev => {
     'paya-only':     () => { state.q.payaCenter = id; render(); },
     'payables-all':  () => { state.q.payaCenter = state.q.payaFrom = ''; render(); },
     'post-stranded': () => postStrandedCharges(),
+    'center-refund': () => centerRefundForm(id),
+    'edit-expense':  () => { ev.stopPropagation();
+                       expenseEditForm(D().expenses.find(x => x.id === id)); },
     'pay-voucher':   () => { ev.stopPropagation();
                        markVoucherPaid(D().expenses.find(x => x.id === id)); },
     'drop-voucher':  () => { ev.stopPropagation();

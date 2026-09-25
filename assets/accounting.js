@@ -255,6 +255,23 @@ const ACC = (() => {
     });
   }
 
+  /* A centre sending money back.
+
+     The office overpays a remittance and the centre returns the difference. It
+     is postCenterRemittance with the two lines the other way up: the cash comes
+     in, and the centre's payable goes back up by what came back — which is
+     right, because an overpayment means we had settled a debt that was never
+     that large. */
+  function postCenterRefund({ date, memo, refNo, refId, amount, method }){
+    return post({
+      date, memo, refType:'Refund from centre', refNo, refId,
+      lines:[
+        { account:cashAccount(method), debit:r2(amount), credit:0 },
+        { account:'2000', debit:0, credit:r2(amount) },
+      ],
+    });
+  }
+
   /* Modes of payment are configurable — the admin maintains the list in
      Settings — but each one has to say where its money lands, or the cash
      accounts stop meaning anything. GCash gets its own account rather than
@@ -594,7 +611,7 @@ const ACC = (() => {
     buildInvoice, addToInvoice, removeFromInvoice, postInvoice, buildPayment, drawTenders, postPayment, postExpense,
     postRefund, creditBalance, refundable, splitRefund,
     recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
-    centerSettlement, postCenterPayable, postCenterRemittance, postRebateReceipt,
+    centerSettlement, postCenterPayable, postCenterRemittance, postCenterRefund, postRebateReceipt,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
   };
 })();
