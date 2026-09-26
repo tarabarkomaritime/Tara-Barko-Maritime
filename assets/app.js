@@ -2459,12 +2459,44 @@ function movedNote(e){
   return `<span style="color:var(--warn);font-size:11px">${bits.join(' · ')}</span>`;
 }
 
+/* What a seat already has on a voucher that stands.
+
+   A seat was marked as covered by writing centerPaid on the booking when the
+   voucher was generated. That field is a note about the vouchers rather than
+   the vouchers themselves, and a note can drift: a rejection subtracts what it
+   thinks it put on, a voucher edited or discarded adjusts it again, and any one
+   of those going astray leaves a seat reading as unsent while its name is
+   plainly on a document. PERUCHO was on DV-2026-0140 for both his seats and
+   offered for both of them again — which is how the same money gets sent twice.
+
+   The vouchers are the record. Draft, awaiting approval, or approved and not
+   since voided: if a seat is named on one, that much of it has been committed.
+   A rejected or discarded voucher commits nothing, which is exactly why those
+   hand their seats back. */
+function coveredByVouchers(e){
+  if(!e) return 0;
+  return ACC.r2(D().expenses
+    .filter(v => v.kind === 'remittance'
+      && ['Draft', 'Pending', 'Approved'].includes(v.state)
+      && !wasVoided(v)
+      && (v.bookings || []).includes(e.id))
+    .reduce((s, v) => {
+      const l = (v.lines || []).find(x => x.id === e.id);
+      /* Vouchers raised before the lines carried an amount settled the seat in
+         full — that is what a voucher meant then. */
+      return s + ACC.r2(l ? l.amount : (e.centerPayable != null ? e.centerPayable : e.fee));
+    }, 0));
+}
+
 function openPayables(){
   return D().enrollments
-    .filter(e => e.center && !e.remitNo && PAY_STATES.includes(e.status))
+    .filter(e => e.center && PAY_STATES.includes(e.status))
     .map(e => {
       const fee  = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
-      const sent = ACC.r2(e.centerPaid || 0);
+      /* Whichever says more has been sent. The field is kept because every
+         other screen still reads it, but it cannot make a seat look unsent when
+         a voucher says otherwise. */
+      const sent = ACC.r2(Math.max(ACC.r2(e.centerPaid || 0), coveredByVouchers(e)));
       /* What has actually been received against this one seat. collectedFor
          laid the bill's payments over its bookings in order, which is what the
          system had to do before a payment could name the training it was for.
