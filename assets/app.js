@@ -2425,6 +2425,40 @@ function heldNote(e){
         : 'a draft').join(', ') + '</span>';
 }
 
+/* What has been changed on a booking since it was taken.
+
+   The centre or the training dates move often enough — a seat rescheduled, a
+   course moved to another centre — and when they do the seat leaves the card it
+   was on and appears on another, or slides out of the date window the office
+   was looking at. It looks like the trainee vanished.
+
+   Every approved change is on file with what it was and what it became, so the
+   row can say so: moved from where, and from which dates. Only the changes that
+   matter here — a course moving to another centre, and the schedule — and only
+   the ones that actually took effect. */
+function bookingMoves(e){
+  if(!e) return [];
+  return D().changes
+    .filter(c => c.enrollmentId === e.id && c.state === 'Approved' && c.kind === 'edit')
+    .filter(c => !same((c.was || {}).center, (c.to || {}).center)
+              || !same((c.was || {}).start,  (c.to || {}).start))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+}
+
+/* Said in a few words, for a table cell. */
+function movedNote(e){
+  const m = bookingMoves(e);
+  if(!m.length) return '';
+  const first = m[0].was || {}, last = m[m.length - 1].to || {};
+  const bits = [];
+  if(!same(first.center, last.center) && first.center)
+    bits.push(`moved from ${UI.esc(String(first.center).toUpperCase())}`);
+  if(!same(first.start, last.start) && first.start)
+    bits.push(`rescheduled from ${UI.date(first.start)}`);
+  if(!bits.length) return '';
+  return `<span style="color:var(--warn);font-size:11px">${bits.join(' · ')}</span>`;
+}
+
 function openPayables(){
   return D().enrollments
     .filter(e => e.center && !e.remitNo && PAY_STATES.includes(e.status))
@@ -2497,9 +2531,15 @@ function openPayables(){
 function payablesByCenter(from, to){
   const map = {};
   openPayables().forEach(r => {
+    /* A rescheduled seat answers to either date. Filtering on the new one alone
+       dropped it out of the window the office was working in — they narrow to
+       the week they are settling, the centre moved the run, and the trainee is
+       simply gone from the screen with money still owed on him. */
     const when = r.e.start || r.e.date || '';
-    if(from && when < from) return;
-    if(to && when > to) return;
+    const moves = bookingMoves(r.e);
+    const everyWhen = [when, ...moves.map(c => (c.was || {}).start).filter(Boolean)];
+    if(from && everyWhen.every(w => w < from)) return;
+    if(to && everyWhen.every(w => w > to)) return;
     /* Keyed on the name in capitals: "Fareast" and "FAREAST" are one center
        that owes one amount, however the row happened to be typed. */
     const key = r.center.toUpperCase();
@@ -2556,6 +2596,7 @@ VIEWS.payables = () => {
      exactly what is being paid for. */
   const section = c => UI.card(c.key, UI.table([
       { h:'Trainee', k:r => `<b>${UI.esc(name(T(r.e.traineeId)))}</b>`
+          + (movedNote(r.e) ? '<br>' + movedNote(r.e) : '')
           + (heldNote(r.e) ? '<br>' + heldNote(r.e) : '') },
       /* Named the same way as on the voucher this screen raises. A booking for
          a rescheduling fee, a make-up or a cancellation is a course title and a
@@ -3381,8 +3422,12 @@ function expenseEditForm(v){
     UI.toast('Only an admin can correct a voucher that has already posted.', 'bad'); return;
   }
   if(!posted && !can('payables')){ UI.toast('You cannot correct a voucher.', 'bad'); return; }
-  /* The amount on a remittance belongs to the seats, not to this form. */
-  const fixedAmount = v.kind === 'remittance';
+  /* A remittance's amount is the sum of the seats it settles, so changing it
+     has to change them too — otherwise the document says one figure and the
+     payables list another, and the difference never surfaces anywhere. The
+     seats move with it, each by its own share. */
+  const seats = v.kind === 'remittance' ? (v.lines || []) : [];
+  const seatTotal = ACC.r2(seats.reduce((s, l) => s + ACC.r2(l.amount), 0));
 
   UI.modal({
     title:`Correct ${voucherLabel(v)}`,
@@ -3393,12 +3438,13 @@ function expenseEditForm(v){
         UI.f.date('date','Date', v.date, { req:true }),
         UI.f.select('method','Mode of payment', v.method || ACC.methodNames()[0], ACC.methodNames()),
         UI.f.text('ref','Reference no.', v.ref || '', { ph:'cheque or transaction no.' }))}
-      ${fixedAmount
-        ? `<div class="note">The amount on a remittance is the sum of the seats it settles, so it
-             is not edited here — correcting a seat's figure is done from the voucher's own
-             Open button on Center Payables.</div>
-           <input type="hidden" name="amount" value="${ACC.r2(v.amount)}">`
-        : UI.f.num('amount','Amount (₱)', ACC.r2(v.amount), { req:true, min:0, step:'0.01' })}
+      ${UI.f.num('amount','Amount (₱)', ACC.r2(v.amount), { req:true, min:0, step:'0.01',
+        hint:seats.length
+          ? `spread across the ${UI.int(seats.length)} seat(s) on this voucher, each by its share`
+          : '' })}
+      ${seats.length ? `<div class="note">Changing this moves what each seat on the voucher counts
+        as remitted, in proportion to what it carries now. Lower it and the difference goes back
+        on the centre's payables; raise it and those seats are covered by that much more.</div>` : ''}
       ${UI.f.area('reason','Why is it changing?', '',
         { req:posted, ph:'e.g. paid from BDO, not Cash' })}
       <div class="note">${posted
@@ -3419,8 +3465,14 @@ function expenseEditForm(v){
         UI.toast('That date is in the future — the money cannot have moved yet.', 'bad');
         return false;
       }
-      const amount = fixedAmount ? ACC.r2(v.amount) : ACC.r2(fd.amount);
+      const amount = ACC.r2(fd.amount);
       if(!(amount > 0)){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
+      /* A voucher built from seats cannot be scaled off a total of nothing —
+         there would be no shares to spread the new figure across. */
+      if(seats.length && seatTotal <= 0.004 && amount !== ACC.r2(v.amount)){
+        UI.toast('This voucher carries no seat amounts to spread a new total across.', 'bad');
+        return false;
+      }
       if(ACC.needsRef(fd.method) && !String(fd.ref || '').trim()){
         UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
       }
@@ -3437,6 +3489,39 @@ function expenseEditForm(v){
           : v.kind === 'remittance' ? 'Remittance' : 'Voucher');
       }
       const was = `${v.method || '—'} ${UI.peso(v.amount)} on ${UI.date(v.date)}`;
+
+      /* Each seat's share moves with the total, and what it counts as remitted
+         moves by the difference. The largest line absorbs the rounding so the
+         shares always add back to the figure on the document. */
+      if(seats.length && amount !== ACC.r2(v.amount)){
+        const ratio = amount / seatTotal;
+        let running = 0;
+        const scaled = seats.map(l => {
+          const next = ACC.r2(ACC.r2(l.amount) * ratio);
+          running = ACC.r2(running + next);
+          return { id:l.id, amount:next, was:ACC.r2(l.amount) };
+        });
+        const drift = ACC.r2(amount - running);
+        if(Math.abs(drift) > 0.004 && scaled.length){
+          const big = scaled.reduce((a, b) => (b.amount > a.amount ? b : a), scaled[0]);
+          big.amount = ACC.r2(big.amount + drift);
+        }
+        scaled.forEach(l => {
+          const e = ENR(l.id);
+          if(!e) return;
+          e.centerPaid = ACC.r2(Math.max(0, ACC.r2(e.centerPaid || 0) - l.was + l.amount));
+          const owed = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
+          /* A seat no longer fully covered comes back on the payables list; one
+             that now is stops being asked for again. */
+          if(e.centerPaid >= owed - 0.004){
+            if(!e.remitNo){ e.remitNo = v.no || v.id; e.remitDate = on; }
+          }else if(e.remitNo === v.no || e.remitNo === v.id){
+            delete e.remitNo; delete e.remitDate;
+          }
+        });
+        v.lines = scaled.map(l => ({ id:l.id, amount:l.amount }));
+      }
+
       v.date = on;
       v.method = fd.method;
       v.ref = String(fd.ref || '').trim();
