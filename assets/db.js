@@ -277,6 +277,10 @@ const DB = (() => {
       company:{ ...DEFAULT_COMPANY },
       users:USERS.map(u => ({...u})),
       accounts:COA.map(a => ({...a})),
+      /* Rows the office deliberately deleted, waiting to be deleted on the
+         server too. A deletion has to be asked for; it can never be inferred
+         from a row being absent here. */
+      removed:[],
       seq:{ trainee:0, course:0, enrollment:0, invoice:0, receipt:0, voucher:0, refund:0, journal:0,
             application:0, change:0 },
       applications:[], cashCounts:[], changes:[],
@@ -576,6 +580,15 @@ const DB = (() => {
      backwards — without that, saving from here would walk the counter back
      over registrations taken in the meantime, which is what broke the public
      form. */
+  /* Deleting a row and saying so. Nothing else may remove anything from the
+     server: absence is not an instruction. */
+  function forget(table, id){
+    if(!table || !id) return;
+    data.removed = data.removed || [];
+    if(!data.removed.some(x => x.table === table && x.id === id))
+      data.removed.push({ table, id });
+  }
+
   function nextNo(kind, prefix){
     let high = 0;
     (data[NUMBERED[kind]] || []).forEach(r => {
@@ -1029,6 +1042,7 @@ const DB = (() => {
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
            salvaged, snapshots, pruneSnapshots, downloadSalvaged,
            connect, disconnect, flush, refreshFromCloud, onCloud, cloudStatus,
+           forget,
            PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS,
            list, listWith, LIST_DEFS, LIST_DEFAULTS };
 })();

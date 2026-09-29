@@ -427,11 +427,29 @@ const SYNC = (() => {
 
          Everything else stays where it is: a deletion here is far more often a
          store that has not finished loading than an intention. */
-      const DELETABLE = ['courses', 'expenses'];
-      if(gone.length && DELETABLE.includes(m.table)){
+      /* Only what the office asked to delete.
+
+         This used to delete anything present at the last pull and missing
+         now — which is a deletion inferred from absence, and absence has a
+         dozen innocent causes: a second tab with an older store, a save that
+         raced a pull, a browser that dropped a row. With vouchers in the list
+         that meant a remittance generated on one screen could be wiped from the
+         server by a save from another, the seats fell back onto Center
+         Payables, and the document could not be found anywhere. It destroyed
+         real records.
+
+         A deletion is now an instruction, recorded when somebody presses the
+         button, and nothing else removes a row. */
+      const asked = (store.removed || [])
+        .filter(x => x.table === m.table)
+        .map(x => x.id)
+        .filter(id => !(id in now));
+      if(asked.length){
         try{
-          await CLOUD.remove(m.table, gone, m.key);
-          done.deletes += gone.length;
+          await CLOUD.remove(m.table, asked, m.key);
+          done.deletes += asked.length;
+          store.removed = (store.removed || [])
+            .filter(x => !(x.table === m.table && asked.includes(x.id)));
         }catch(e){
           /* A delete the policy refuses must not take the whole save down with
              it — the office would lose a day's work over a row it wanted gone

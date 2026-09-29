@@ -3346,6 +3346,7 @@ function removeVoucher(v){
     });
     const i = D().expenses.findIndex(x => x.id === v.id);
     if(i >= 0) D().expenses.splice(i, 1);
+    DB.forget('expenses', v.id);
     DB.activity('Removed a voucher that never posted', v.no || '(draft)');
     DB.save();
     UI.toast(`${v.no || 'The draft'} removed.`);
@@ -5462,6 +5463,7 @@ function courseForm(c){
     }
     UI.confirm(`Delete ${c.code} — ${c.title}?`, () => {
       D().courses = D().courses.filter(x => x.id !== c.id);
+      DB.forget('courses', c.id);
       DB.activity('Deleted course', c.code);
       UI.close(); UI.toast('Course deleted.'); refresh();
     }, { danger:true, yes:'Delete course', detail:'Nothing is booked against it, so nothing else changes.' });
