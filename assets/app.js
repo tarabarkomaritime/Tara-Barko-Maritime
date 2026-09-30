@@ -2291,8 +2291,13 @@ VIEWS.expenses = () => {
             { h:'Trainee', k:r => { const t = T(r.traineeId); return t ? UI.esc(name(t)) : '—'; } },
             { h:'Paid from', k:r => UI.tag(r.method, r.method === 'Cash' ? 'ok' : 'sea') },
             { h:'Amount', k:r => `<b style="color:var(--bad)">${UI.num(r.amount)}</b>`, cls:'num' },
+            /* A mode or an amount typed wrong here lands in the day's report
+               and in the channel the drawer is counted against. */
+            { h:'', k:r => canApprove()
+                ? `<button class="btn btn-ghost btn-xs" data-act="edit-refund" data-id="${r.id}">Edit</button>`
+                : '', w:'70px' },
           ], given, { foot:['TOTAL','','','',
-            UI.num(ACC.r2(given.reduce((s,r) => s + r.amount, 0)))] }),
+            UI.num(ACC.r2(given.reduce((s,r) => s + r.amount, 0))), ''] }),
           { flush:true, sub:'Handed back to the trainee — out of the channel it was paid from,'
               + ' on the day it went. Not spending, so it is not in the totals above' })
           : ''}</div>
@@ -2576,6 +2581,56 @@ function coveredByVouchers(e){
     }, 0));
 }
 
+/* Seats marked as remitted with no voucher behind them.
+
+   centerPaid is only ever written by a voucher: raising one adds to it,
+   discarding, rejecting, voiding or removing one takes it back off. So a seat
+   carrying an amount that no standing voucher accounts for means the document
+   it was written against is not there any more — which is exactly what the
+   deletion bug did before a deletion had to be asked for. The office is left
+   holding a printed voucher it cannot find on any screen, and the seat is off
+   the payables list because it reads as settled, so it cannot be raised again
+   either. The centre has not been paid and nothing says so.
+
+   Found by comparing the note against the documents, and put right by believing
+   the documents. */
+function unbackedHolds(){
+  return D().enrollments
+    .filter(e => e.center && e.status !== 'Void' && ACC.r2(e.centerPaid || 0) > 0.004)
+    .map(e => {
+      const held = ACC.r2(e.centerPaid || 0), backed = coveredByVouchers(e);
+      return { e, held, backed, loose:ACC.r2(held - backed) };
+    })
+    .filter(r => r.loose > 0.004);
+}
+
+/* Giving them back. What a voucher says stands; the rest of the note goes, and
+   the seat reappears on its centre's list for the amount nobody has a document
+   for. Nothing is posted — no entry was ever made against a voucher that is not
+   there, so there is nothing to reverse. */
+function releaseUnbackedHolds(){
+  const rows = unbackedHolds();
+  if(!rows.length){ UI.toast('Every seat marked as sent has a voucher behind it.', 'bad'); return; }
+  const total = ACC.r2(rows.reduce((s, r) => s + r.loose, 0));
+  UI.confirm(`Put ${UI.int(rows.length)} seat(s) back on the payables list?`, fd => {
+    const reason = String(fd.reason || '').trim();
+    rows.forEach(r => {
+      r.e.centerPaid = r.backed;
+      /* The number it was held under names a document that is not on file. */
+      if(r.backed <= 0.004){ delete r.e.remitNo; delete r.e.remitDate; }
+    });
+    DB.activity('Released holds with no voucher behind them',
+      `${rows.length} seat(s) · ${UI.peso(total)}${reason ? ' — ' + reason : ''}`);
+    DB.save();
+    UI.toast(`${UI.peso(total)} back on the payables list — raise a voucher for it as usual.`);
+    refresh();
+  }, { reason:true, yes:'Put them back',
+       detail:`${UI.peso(total)} is marked as sent against documents that are not on file.`
+         + ' Nothing is posted and nothing is reversed — no entry was ever made against a'
+         + ' voucher that is not there. Check first that the centre really has not been paid:'
+         + ' if it has, record it with a voucher rather than leaving the note.' });
+}
+
 function openPayables(){
   return D().enrollments
     .filter(e => e.center && PAY_STATES.includes(e.status))
@@ -2721,9 +2776,20 @@ VIEWS.payables = () => {
   const { from, center:pick } = payablesFilter();
   const inWindow = d => !from || d >= from;
 
-  /* The picker lists every center with something outstanding whatever the
-     dates say. A filter that empties its own control cannot be undone. */
-  const everyCenter = payablesByCenter().map(c => c.key).sort();
+  /* Every centre with something outstanding, whatever the dates say — and
+     every centre we have ever raised a voucher for.
+
+     It used to be only the first of those, which meant a centre disappeared
+     from its own picker the moment its last seat went onto a voucher. PNTC was
+     settled in full and so was not on the list at all; the office had the paper
+     voucher in its hand and no way to select the centre to find it and mark it
+     paid. A centre that is fully settled is exactly the one somebody comes
+     looking for, because settling it is what they are trying to record. */
+  const everyCenter = [...new Set([
+    ...payablesByCenter().map(c => c.key),
+    ...D().expenses.filter(v => v.kind === 'remittance' && v.payee)
+        .map(v => String(v.payee).toUpperCase()),
+  ])].sort();
 
   const centers = payablesByCenter(from).filter(c => !pick || c.key === pick);
   const totalDue  = ACC.r2(centers.reduce((s,c) => s + c.payable, 0));
@@ -2744,9 +2810,32 @@ VIEWS.payables = () => {
      worse than a long list. Only settled vouchers are filtered by date, which
      is what filtering by date is for. */
   const needsAction = v => ['Draft', 'Pending'].includes(v.state);
+
+  /* Searching the vouchers by whose seat is on them.
+
+     "Has this man been vouchered already?" is the question the office asks
+     before raising anything, and the only way to answer it was to open each
+     document and read down it. A voucher names its centre and its number, not
+     its trainees, so the names have to be looked up from the bookings it
+     carries — which is what makes this worth doing here rather than leaving it
+     to the browser's own find.
+
+     A search ignores the centre picker and the dates. Somebody typing a name is
+     asking whether it is anywhere, and a filter that answers "no" because of a
+     date the searcher forgot they had set is worse than no search at all. */
+  const q = String(state.q.vchQ || '').trim().toLowerCase();
+  const seatNames = v => (v.bookings || [])
+    .map(id => { const e = ENR(id); const t = e && T(e.traineeId); return t ? name(t) : ''; })
+    .filter(Boolean);
+  const hits = v => q ? seatNames(v).filter(n => n.toLowerCase().includes(q)) : [];
+  const matches = v => !q || [v.no, v.payee, v.particulars, v.ref]
+      .some(x => String(x || '').toLowerCase().includes(q))
+    || hits(v).length > 0;
+
   const paid = D().expenses.filter(v => v.kind === 'remittance')
-    .filter(v => !pick || String(v.payee).toUpperCase() === pick)
-    .filter(v => needsAction(v) || inWindow(v.date))
+    .filter(v => q || !pick || String(v.payee).toUpperCase() === pick)
+    .filter(v => q || needsAction(v) || inWindow(v.date))
+    .filter(matches)
     .sort((a,b) => b.date.localeCompare(a.date));
   const waiting = paid.filter(needsAction);
 
@@ -2805,6 +2894,22 @@ VIEWS.payables = () => {
       ${UI.kpi('Owed to centers', UI.peso(totalDue), `${centers.length} center(s) to settle`, totalDue > 0 ? 'warn' : 'ok')}
       ${UI.kpi('Bookings unpaid', UI.int(bookings), 'seats already taken', '')}
     </div>
+
+    ${(() => {
+      const u = unbackedHolds();
+      if(!u.length) return '';
+      const total = ACC.r2(u.reduce((s, r) => s + r.loose, 0));
+      const who = u.slice(0, 6).map(r => name(T(r.e.traineeId))).filter(Boolean);
+      return `<div class="note warn" style="margin-bottom:18px">
+        <b>${UI.int(u.length)} seat(s) worth ${UI.peso(total)} are marked as sent with no voucher
+        on file.</b> Only a voucher writes that mark, so the document behind them has gone — which
+        leaves the seat off this list as though it were settled, and no way to raise it again.
+        ${UI.esc(who.join(', '))}${u.length > who.length ? ', and others' : ''}.
+        ${canApprove()
+          ? `<div style="margin-top:8px"><button class="btn btn-accent btn-xs"
+               data-act="release-holds">Put them back on the list</button></div>`
+          : ' The admin can put this right.'}</div>`;
+    })()}
 
     ${(() => {
       const s = strandedCharges();
@@ -2868,7 +2973,13 @@ VIEWS.payables = () => {
           /* Numbered when it is paid, so a draft has none yet. */
           : '<span class="muted">not numbered yet</span>', w:'135px' },
       { h:'Date', k:v => UI.date(v.date), w:'115px' },
-      { h:'Training center', k:v => UI.esc(String(v.payee).toUpperCase()) },
+      { h:'Training center', k:v => UI.esc(String(v.payee).toUpperCase())
+          /* Which of its seats the search matched, so the answer to "is he on a
+             voucher?" is on the row rather than behind another click. */
+          + (hits(v).length
+              ? `<br><span style="color:var(--ok);font-size:11px">${
+                  UI.esc(hits(v).join(' · '))}</span>`
+              : '') },
       { h:'Bookings', k:v => UI.int((v.bookings||[]).length), cls:'num' },
       /* Blank until it has been paid. A draft has not gone out of any account
          yet, and naming one would be the screen answering a question nobody
@@ -2910,13 +3021,22 @@ VIEWS.payables = () => {
           }
           return out;
         }, w:'230px' },
-    ], paid, { empty:filtered
+    ], paid, { empty:q
+        ? `Nothing matches “${q}” — no trainee of that name is on a voucher, and no voucher`
+          + ' carries it as a number or a reference.'
+        : filtered
         ? 'No voucher was issued in this window.'
         : 'No remittance voucher has been issued yet.' }),
-      { flush:true, sub:`${UI.int(paid.length)} voucher(s) · by date issued · ${span}`
-          + (waiting.length
-              ? ` · ${UI.int(waiting.length)} still to be paid or approved, shown whatever the dates say`
-              : '') })}
+      { flush:true,
+        sub:q
+          ? `${UI.int(paid.length)} voucher(s) matching “${q}” · every centre, every date`
+          : `${UI.int(paid.length)} voucher(s) · by date issued · ${span}`
+            + (waiting.length
+                ? ` · ${UI.int(waiting.length)} still to be paid or approved, shown whatever the dates say`
+                : ''),
+        actions:`<input type="search" data-q="vchQ" value="${UI.esc(state.q.vchQ || '')}"
+            placeholder="Search a trainee, a voucher no. or a reference"
+            style="min-width:280px;margin:0">` })}
   `;
 };
 
@@ -4400,6 +4520,10 @@ VIEWS.refunds = () => {
       { h:'Mode', k:r => UI.tag(r.method, r.method === 'Cash' ? 'ok' : 'sea') },
       { h:'Status', k:r => UI.statusTag(r.state) },
       { h:'Amount', k:r => `<b>${UI.num(r.amount)}</b>`, cls:'num' },
+      { h:'', k:r => r.state !== 'Rejected'
+            && (r.state === 'Approved' ? canApprove() : can('refunds'))
+          ? `<button class="btn btn-ghost btn-xs" data-act="edit-refund" data-id="${r.id}">Edit</button>`
+          : '', w:'70px' },
     ], rows, { empty:'No refund has been raised.' }), { flush:true })}
   `;
 };
@@ -4487,6 +4611,105 @@ function refundForm(traineeId){
   };
   form.addEventListener('change', showCredit);
   showCredit();
+}
+
+/* Putting a refund right.
+
+   The same need as on a disbursement: a mode typed wrong or an amount short by
+   a hundred goes straight into the day's report and the channel it came out of,
+   and the office reconciles a drawer against it. Voiding and re-raising would
+   work, except a refund cannot be voided — and it would leave the trainee's
+   record reading as two refunds where there was one.
+
+   So the entry is reversed and a new one posted in its place, dated the date on
+   the corrected document. Which pocket it comes out of is worked out again from
+   scratch, because changing the amount changes how much of it is an overpayment
+   coming back and how much is a decision. */
+function refundEditForm(r){
+  if(!r){ UI.toast('That refund is gone.', 'bad'); return; }
+  if(r.state === 'Rejected'){
+    UI.toast('That refund was rejected — nothing was posted on it.', 'bad'); return;
+  }
+  const posted = r.state === 'Approved';
+  if(posted && !canApprove()){
+    UI.toast('Only an admin can correct a refund that has already been paid.', 'bad'); return;
+  }
+  if(!posted && !can('refunds')){ UI.toast('You cannot correct a refund.', 'bad'); return; }
+  const t = T(r.traineeId);
+
+  UI.modal({
+    title:`Correct ${UI.esc(r.no || 'this refund')}`,
+    sub:`${UI.esc(t ? name(t) : '')} · ${UI.peso(r.amount)}${posted ? ' · already paid' : ''}`,
+    wide:true,
+    body:`
+      ${UI.row(
+        UI.f.date('date','Date paid', r.date, { req:true }),
+        UI.f.select('method','Refunded by', r.method || ACC.methodNames()[0], ACC.methodNames()),
+        UI.f.text('ref','Reference no.', r.ref || '', { ph:'transaction no. where the mode has one' }))}
+      ${UI.f.num('amount','Amount (₱)', ACC.r2(r.amount), { req:true, min:0.01, step:'0.01' })}
+      ${UI.f.text('reason','Reason', r.reason || '', { req:true })}
+      ${UI.f.area('why','Why is it changing?', '',
+        { req:posted, ph:'e.g. handed over in cash, not through BDO' })}
+      <div class="note">${posted
+        ? 'The entry made when this was approved is reversed and a new one posted in its place,'
+          + ' dated the date above — so the day\'s report and the channel it came out of both'
+          + ' follow the correction.'
+        : 'Nothing has posted yet, so this is simply written down differently. The entry is made'
+          + ' when the admin approves it.'}</div>`,
+    submitLabel:'Post the correction',
+    onSubmit: fd => {
+      const why = String(fd.why || '').trim();
+      if(posted && !why){
+        UI.toast('Say why it is changing — a correction with no reason is a gap in the file.', 'bad');
+        return false;
+      }
+      const on = String(fd.date || '').trim() || r.date;
+      if(on > DB.today()){
+        UI.toast('That date is in the future — the money cannot have gone yet.', 'bad');
+        return false;
+      }
+      const amount = ACC.r2(fd.amount);
+      if(!(amount > 0)){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
+      const reason = String(fd.reason || '').trim();
+      if(!reason){ UI.toast('A refund has to say what it is for.', 'bad'); return false; }
+      if(ACC.needsRef(fd.method) && !String(fd.ref || '').trim()){
+        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      }
+      if(on === r.date && fd.method === r.method && amount === ACC.r2(r.amount)
+         && String(fd.ref || '').trim() === (r.ref || '') && reason === (r.reason || '')){
+        UI.toast('Nothing on it is different — there is nothing to correct.', 'bad');
+        return false;
+      }
+
+      const was = `${r.method || '—'} ${UI.peso(r.amount)} on ${UI.date(r.date)}`;
+      if(posted) ACC.reverse(r.id, why, 'Refund');
+
+      /* What is refundable already has this refund taken off it, so asking the
+         question with the refund still standing would tell us there is nothing
+         left and send the whole of the new amount to goodwill. It is set aside
+         for the length of the question and put back. */
+      const held = r.state;
+      r.state = 'Superseded';
+      const split = ACC.splitRefund(r.traineeId, amount);
+      r.state = held;
+
+      r.date = on;
+      r.method = fd.method;
+      r.ref = String(fd.ref || '').trim();
+      r.amount = amount;
+      r.reason = reason;
+      r.fromCredit = split.fromCredit;
+      r.fromOver = split.fromOver;
+
+      if(posted) ACC.postRefund(r);
+      DB.activity('Corrected a refund',
+        `${r.no} · was ${was} · now ${r.method} ${UI.peso(r.amount)} on ${UI.date(r.date)}`
+        + (why ? ' · ' + why : ''));
+      DB.save();
+      UI.toast(`${r.no || 'The refund'} corrected.`);
+      refresh();
+    }
+  });
 }
 
 /* ---------- Daily report ----------
@@ -7993,6 +8216,9 @@ document.addEventListener('click', ev => {
                        voidReceiptAsk(p, () => { if(inv) invoiceModal(inv); }); },
     'view-voucher':  () => voucherModal(D().expenses.find(v => v.id === id)),
     'view-expense':  () => expenseVoucherModal(D().expenses.find(v => v.id === id)),
+    'edit-refund':   () => { ev.stopPropagation();
+                       refundEditForm(D().refunds.find(r => r.id === id)); },
+    'release-holds': () => releaseUnbackedHolds(),
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
