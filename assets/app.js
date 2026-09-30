@@ -982,6 +982,27 @@ VIEWS.dashboard = () => {
     paidTotal = ACC.r2(paidTotal + v.amount);
   });
 
+  /* Money handed back to a trainee leaves the drawer like anything else.
+
+     A refund is not an expense — nothing was bought — so it is kept off the
+     expenses table and out of the spending reports, which is right. But it went
+     out of an account, and this table is the office reading each channel against
+     what is actually in it. Refunds were missing from it: 2,000 given back in
+     cash and the drawer counted 2,000 short of what the screen said, with nothing
+     on the page to explain the difference. The day's record already counted them;
+     this did not, so the two disagreed.
+
+     Approved only, and dated the day the money went, the same rule as a
+     voucher. */
+  let refundCount = 0;
+  d.refunds.filter(r => r.state === 'Approved' && (r.date || r.approvedOn) === on)
+    .forEach(r => {
+      const m = CHANNELS.includes(r.method) ? r.method : CHANNELS[CHANNELS.length-1];
+      refundCount++;
+      paidOut[m] = ACC.r2(paidOut[m] + r.amount);
+      paidTotal = ACC.r2(paidTotal + r.amount);
+    });
+
   /* --- what is in the drawer, as of the day being viewed --- */
   const tb = ACC.trialBalance(on);
   const bal = code => { const r = tb.rows.find(x => x.code === code); return r ? r.balance : 0; };
@@ -1028,7 +1049,8 @@ VIEWS.dashboard = () => {
         { h:'Net', k:r => UI.num(r.net), cls:'num' },
       ], channelRows, { empty:'No movement.',
           foot:['TOTAL', UI.num(receivedTotal), UI.num(paidTotal), UI.num(ACC.r2(receivedTotal - paidTotal))] }),
-        { flush:true, sub:`${receiptCount} receipt(s) in · ${voucherCount} voucher(s) out` })}
+        { flush:true, sub:`${receiptCount} receipt(s) in · ${voucherCount} voucher(s) out`
+            + (refundCount ? ` · ${refundCount} refund(s) handed back` : '') })}
 
       ${UI.card('Training Starting Tomorrow', UI.table([
         { h:'Trainee', k:e => { const t = T(e.traineeId); return t
@@ -2141,6 +2163,34 @@ VIEWS.expenses = () => {
      pending one in the sum would overstate what has been spent. */
   const posted = rows.filter(v => (v.state || 'Approved') === 'Approved');
   const total = ACC.r2(posted.reduce((s,v) => s + v.amount, 0));
+  /* Every draft, whatever the dates say and wherever it was raised.
+
+     A draft is kept out of the list above and out of every total, because
+     nothing on it has been paid and nothing posted — that is right, and it is
+     what the office asked for. What it left was a voucher generated on Monday
+     that appeared on no screen the office looks at on Thursday: not in
+     Disbursements because it is a draft, and off the bottom of the payables list
+     because that only showed the newest two dozen. The office concluded the
+     documents were being deleted, which is the worst thing a records system can
+     be wrong about.
+
+     So they are listed here, by themselves, above the disbursements and outside
+     the arithmetic. Dates do not filter them: an old draft is precisely the one
+     that needs finding. */
+  const drafts = D().expenses.filter(v => isDraft(v))
+    .sort((a,b) => b.date.localeCompare(a.date));
+  /* Money given back to a trainee — an overpayment returned, a cancelled seat.
+
+     It is not spending and it is not on the expenses table, so it is not in the
+     list or the totals or the by-account chart. It did leave an account though,
+     and the office comes to this screen to ask what went out, so leaving it off
+     the screen entirely meant the only place to find it was a module of its own
+     that nobody opens when reconciling a channel. Listed, named, and totalled
+     separately. */
+  const given = D().refunds
+    .filter(r => r.state === 'Approved' && (r.date || r.approvedOn) >= from
+              && (r.date || r.approvedOn) <= to)
+    .sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')));
   const byAcct = {};
   posted.forEach(v => byAcct[v.account] = ACC.r2((byAcct[v.account]||0) + v.amount));
 
@@ -2155,6 +2205,32 @@ VIEWS.expenses = () => {
     </div>
 
     ${approvalPanel(pendingExpenses())}
+
+    ${drafts.length ? UI.card('Drafts — Not Paid Yet', UI.table([
+      { h:'Raised', k:v => UI.date(v.date), w:'115px' },
+      { h:'Payee', k:v => `<b>${UI.esc(String(v.payee).toUpperCase())}</b>` },
+      { h:'Particulars', k:'particulars' },
+      { h:'Bookings', k:v => (v.bookings || []).length
+          ? UI.int(v.bookings.length) : '<span class="muted">—</span>', cls:'num' },
+      { h:'By', k:v => UI.esc(v.raisedBy || '—') },
+      { h:'Amount', k:v => `<b>${UI.peso(v.amount)}</b>`, cls:'num' },
+      /* The remittance voucher, with its seats on it — which is what there is
+         to check before saying the money went. */
+      { h:'', k:v => `<button class="btn btn-ghost btn-xs" data-act="view-voucher" data-id="${v.id}">View</button>`
+          + (can('payables')
+              ? ` <button class="btn btn-accent btn-xs" data-act="pay-voucher" data-id="${v.id}">Paid</button>`
+              : '')
+          /* Removing is the admin's, and it is the only thing that takes a
+             draft off this screen. */
+          + (canApprove()
+              ? ` <button class="btn btn-danger btn-xs" data-act="kill-voucher" data-id="${v.id}">Remove</button>`
+              : ''), w:'200px' },
+    ], drafts, { foot:['TOTAL','','','','',
+        UI.num(ACC.r2(drafts.reduce((s,v) => s + v.amount, 0))), ''] }), {
+      flush:true,
+      sub:`${UI.int(drafts.length)} voucher(s) generated and not yet paid · no money has moved`
+          + ' and none of this is in the totals below · shown whatever the dates say',
+    }) + '<div style="height:18px"></div>' : ''}
 
     ${marketingSeats().length ? marketingTable() + '<div style="height:18px"></div>' : ''}
 
@@ -2207,6 +2283,18 @@ VIEWS.expenses = () => {
           ], refunds, { foot:['TOTAL','','','',
             UI.num(ACC.r2(refunds.reduce((s,v) => s + v.amount, 0))), ''] }),
           { flush:true, sub:'Overpayments sent back — counted as money in on the day they arrived' })
+          : ''}
+        ${given.length ? '<div style="height:18px"></div>' + UI.card('Refunds To Trainees',
+          UI.table([
+            { h:'Refund No.', k:r => `<b class="mono">${UI.esc(r.no || '—')}</b>` },
+            { h:'Date', k:r => UI.date(r.date) },
+            { h:'Trainee', k:r => { const t = T(r.traineeId); return t ? UI.esc(name(t)) : '—'; } },
+            { h:'Paid from', k:r => UI.tag(r.method, r.method === 'Cash' ? 'ok' : 'sea') },
+            { h:'Amount', k:r => `<b style="color:var(--bad)">${UI.num(r.amount)}</b>`, cls:'num' },
+          ], given, { foot:['TOTAL','','','',
+            UI.num(ACC.r2(given.reduce((s,r) => s + r.amount, 0)))] }),
+          { flush:true, sub:'Handed back to the trainee — out of the channel it was paid from,'
+              + ' on the day it went. Not spending, so it is not in the totals above' })
           : ''}</div>
     </div>
 
@@ -2538,6 +2626,28 @@ function openPayables(){
         || Math.max(0, ACC.r2((e.fee || 0) - discount)));
       const settled = asked > 0.004 && collected + 0.004 >= asked;
       const funded = settled ? ACC.r2(collected + discount) : collected;
+
+      /* Where the rebate is kept back, it comes out of the first money in.
+
+         The fee already has the rebate off it — a 1,100 seat with 550 kept back
+         owes the centre 550, and that subtraction happens once, on the books, the
+         day the seat is billed. What the payables screen then did was send the
+         centre everything collected up to that 550: a trainee who had paid 500 of
+         their 1,100 had 500 of it remitted, so the office passed on almost the
+         whole of the centre's fee out of half a payment and kept nothing of its
+         own until the last peso came in.
+
+         Our half of what a seafarer pays is not the tail end of it. So the rebate
+         is held back off the top: the first 550 collected is ours, and what comes
+         in after that is the centre's. A seat paid in full remits exactly what it
+         always did — 1,100 in, 550 held, 550 out — because the rebate is taken
+         off once either way; it is only the order that changes, and the order is
+         what decides whether the office is out of pocket while it waits.
+
+         Seats where the centre owes the rebate back separately hold nothing: the
+         payable is the whole fee and there is nothing to keep. */
+      const held = e.deduct ? ACC.r2(e.rebate || 0) : 0;
+      const sendable = Math.max(0, ACC.r2(funded - held));
       return {
         e,
         center:e.center,
@@ -2546,7 +2656,11 @@ function openPayables(){
         collected,
         discount,
         payable:ACC.r2(fee - sent),
-        remittable:ACC.r2(Math.min(funded, fee) - sent),
+        remittable:ACC.r2(Math.min(sendable, fee) - sent),
+        /* What is collected but not being sent, because the rebate has it. Said
+           on the row rather than left as a gap between two columns the office
+           has to subtract in its head. */
+        heldBack:ACC.r2(Math.max(0, Math.min(held, collected))),
         rebate:ACC.r2(e.rebate || 0),
         receivable:ACC.r2(e.rebateReceivable || 0),
         deduct:!!e.deduct,
@@ -2615,10 +2729,26 @@ VIEWS.payables = () => {
   const totalDue  = ACC.r2(centers.reduce((s,c) => s + c.payable, 0));
   const bookings  = centers.reduce((s,c) => s + c.rows.length, 0);
 
+  /* Every voucher this centre has, in date order, with nothing trimmed.
+
+     Two things were hiding documents the office had made. The list stopped at
+     the newest 24, so on a busy fortnight a voucher raised three days ago had
+     already fallen off the bottom; and the date filter applied to it as well as
+     to the bookings, so narrowing to this week's trainings hid every voucher
+     dated before it. Between them a voucher could be nowhere on the screen that
+     raised it, which reads exactly like the document having been deleted.
+
+     So: the cap is gone, and a voucher still waiting for something — a draft to
+     be paid, a payment to be approved — ignores the date filter altogether.
+     Those are the ones somebody has to act on, and a filter that hides work is
+     worse than a long list. Only settled vouchers are filtered by date, which
+     is what filtering by date is for. */
+  const needsAction = v => ['Draft', 'Pending'].includes(v.state);
   const paid = D().expenses.filter(v => v.kind === 'remittance')
     .filter(v => !pick || String(v.payee).toUpperCase() === pick)
-    .filter(v => inWindow(v.date))
-    .sort((a,b) => b.date.localeCompare(a.date)).slice(0, 24);
+    .filter(v => needsAction(v) || inWindow(v.date))
+    .sort((a,b) => b.date.localeCompare(a.date));
+  const waiting = paid.filter(needsAction);
 
   const filtered = !!(from || pick);
   const span = from ? `from ${UI.date(from)}` : 'all dates';
@@ -2763,6 +2893,13 @@ VIEWS.payables = () => {
             if(can('payables'))
               out += ` <button class="btn btn-accent btn-xs" data-act="pay-voucher" data-id="${v.id}">Paid</button>`
                    + ` <button class="btn btn-ghost btn-xs" data-act="drop-voucher" data-id="${v.id}">Discard</button>`;
+            /* Discard keeps the paper: the draft becomes a rejected voucher, on
+               file, with the reason on it. Nothing is taken off this screen
+               until somebody presses Remove and says yes — a draft that
+               disappeared the moment it was set aside is a draft the office
+               cannot go back and look at. */
+            if(canApprove())
+              out += ` <button class="btn btn-danger btn-xs" data-act="kill-voucher" data-id="${v.id}">Remove</button>`;
           }else if(neverPosted(v)){
             /* Rejected before it ever posted. Nothing to reverse, nothing on
                the books, and nobody holding the paper. */
@@ -2776,7 +2913,10 @@ VIEWS.payables = () => {
     ], paid, { empty:filtered
         ? 'No voucher was issued in this window.'
         : 'No remittance voucher has been issued yet.' }),
-      { flush:true, sub:`By date issued · ${span}` })}
+      { flush:true, sub:`${UI.int(paid.length)} voucher(s) · by date issued · ${span}`
+          + (waiting.length
+              ? ` · ${UI.int(waiting.length)} still to be paid or approved, shown whatever the dates say`
+              : '') })}
   `;
 };
 
@@ -2934,7 +3074,9 @@ function centerVoucherForm(center){
      always been. */
   const onDraft = r => heldOn(r.e).some(h => isDraft(h.v));
   const ready = r => r.remittable > 0.004 && !onDraft(r);
-  const whyNot = r => onDraft(r) ? 'on a draft — pay or discard it first' : 'nothing collected';
+  const whyNot = r => onDraft(r) ? 'on a draft — pay or discard it first'
+    : r.collected > 0.004 ? `our ${UI.peso(r.heldBack)} rebate first`
+    : 'nothing collected';
   /* Every cell was padded 4px 0 — no space between columns at all — so a
      discount and the amount owed beside it ran together as "500.005,500.00",
      and a dash for no discount read as a minus sign on the number after it.
@@ -2956,6 +3098,12 @@ function centerVoucherForm(center){
       <td class="num">${UI.num(r.payable)}</td>
       <td class="num">${ready(r)
         ? `<b>${UI.num(r.remittable)}</b>`
+          /* The gap between what came in and what is going out, named. Without
+             it the office reads 1,100 paid against 550 remitting and checks the
+             arithmetic twice before remembering the rebate. */
+          + (r.heldBack > 0.004
+              ? `<br><span class="muted" style="font-size:11px">less ${UI.num(r.heldBack)} rebate</span>`
+              : '')
         : `<span class="muted nowrap">${whyNot(r)}</span>`}</td>
       <!-- What a seat owes the centre and what it earns us are both frozen at
            booking time, from the price list as it read that day. A price typed
@@ -3022,6 +3170,11 @@ function centerVoucherForm(center){
       ${group.discount > 0.004 ? `<div class="note">${UI.peso(group.discount)} of discount is
         <b>not taken off</b> what we remit — the centre is owed the full fee, and it comes out
         of our rebate.</div>` : ''}
+      ${group.rebateDeducted > 0.004 ? `<div class="note">${UI.peso(group.rebateDeducted)} of
+        rebate is <b>kept back</b> on these seats, and it comes out of the first money each
+        trainee pays — not the last. A seat part-paid remits what is left after ours, which is
+        why a partial payment can remit nothing yet. Taken off once, whether it is paid in one
+        go or five.</div>` : ''}
       ${group.receivable ? `<div class="note warn">${UI.peso(group.receivable)} of rebate is
         <b>not deducted</b> — ${UI.esc(center.toUpperCase())} owes it back separately, so it is
         left out of this voucher.</div>` : ''}
@@ -4274,9 +4427,22 @@ function refundForm(traineeId){
       if(!t){ UI.toast('Select a trainee.', 'bad'); return false; }
       const amount = ACC.r2(fd.amount);
       if(amount <= 0){ UI.toast('Enter an amount greater than zero.', 'bad'); return false; }
+      /* The books know what a trainee has overpaid or had cancelled. They do
+         not know that a seafarer was sent home, that a centre closed the run, or
+         that the office simply decided to give money back — and the office was
+         being stopped from recording those at all.
+
+         So the figure is a guide rather than a gate. Refunding more than the
+         books account for is a real decision somebody may need to take, and it
+         goes to an admin for approval like every refund does; what it must not
+         be is silent, so it is said plainly and written into the reason. */
       const f = ACC.refundable(t.id);
-      if(amount - f.total > 0.004){
-        UI.toast(`Only ${UI.peso(f.total)} can be refunded to ${name(t)}.`, 'bad'); return false;
+      const over = ACC.r2(amount - f.total);
+      if(over > 0.004 && !form.dataset.overOk){
+        form.dataset.overOk = '1';
+        UI.toast(`The books account for ${UI.peso(f.total)} refundable to ${name(t)}.`
+          + ` This is ${UI.peso(over)} more — press again to raise it anyway.`, 'warn');
+        return false;
       }
       if(!String(fd.reason||'').trim()){
         UI.toast('Say what the refund is for — an admin has to approve it on that.', 'bad'); return false;
@@ -4313,7 +4479,9 @@ function refundForm(traineeId){
     box.innerHTML = f.total > 0
       ? `${UI.peso(f.total)} can go back to ${UI.esc(name(t))}: ${parts.join(', and ')}.
          ${f.overpaid ? 'The overpayment was booked as income, so refunding it takes that income off again — an admin approves before anything moves.' : ''}`
-      : `<b>Nothing can be refunded to ${UI.esc(name(t))}.</b> They have not paid over the odds,
+      : `<b>The books account for nothing refundable to ${UI.esc(name(t))}.</b>
+          A refund can still be raised — say what it is for and the admin decides.
+          They have not paid over the odds,
          and nothing they paid for has been cancelled — cancelling a booking reverses the bill
          and leaves what they paid refundable.`;
   };

@@ -643,6 +643,41 @@ check('what has been given back cannot be given back again', () => {
 });
 check('ledger balances after refunding an overpayment', balanced);
 
+/* A refund the books never owed.
+
+   The office gives money back for reasons no ledger can know: a seafarer sent
+   home, a run the centre closed, a decision taken at the counter. The screen
+   used to refuse those outright. Now it raises them, and the arithmetic has to
+   put the part nobody was holding somewhere honest — not against an income
+   account that was never credited, which would report the month as having
+   un-earned something. 200 of overpayment is left on this trainee, so a refund
+   of 1,000 is 200 from the books and 800 from a decision. */
+check('there is an account for money given back that was not owed', () =>
+  run(`DB.get().accounts.some(a => a.code === '5600' && a.type === 'Expense')`) === true
+  || 'no 5600 in the chart');
+check('a refund past what is held does not overdraw Overpayments', () => {
+  const sp = run('ACC.splitRefund(OVER.t.id, 1000)');
+  return (sp.fromCredit === 0 && sp.fromOver === 200) || JSON.stringify(sp);
+});
+check('the part nobody was holding is charged to Refunds & Goodwill', () => {
+  run(`globalThis.RG = { id:'ref-gw', no:'RF-GW', date:DB.today(), traineeId:OVER.t.id,
+    amount:1000, ...ACC.splitRefund(OVER.t.id, 1000), method:'Cash', reason:'sent home' }`);
+  const je = run('ACC.postRefund(RG)');
+  const over = je.lines.find(l => l.account === '4300');
+  const gw   = je.lines.find(l => l.account === '5600');
+  const cash = je.lines.find(l => l.account === '1000');
+  return (over && over.debit === 200 && gw && gw.debit === 800
+    && cash && cash.credit === 1000) || JSON.stringify(je.lines);
+});
+check('ledger balances after a refund nobody was holding', balanced);
+/* And it must not quietly become refundable again: the 200 it drew on is spent,
+   the 800 was never a claim in the first place. */
+check('a goodwill refund does not leave a fresh claim behind', () => {
+  run(`DB.get().refunds.push({ ...RG, state:'Approved' })`);
+  const f = run('ACC.refundable(OVER.t.id)');
+  return (f.overpaid === 0 && f.total === 0) || JSON.stringify(f);
+});
+
 console.log('\n- money out waits for approval -');
 /* A refund hands back money taken on a booking that was cancelled. The invoice
    was reversed, so that payment sits in receivables as a credit balance and the

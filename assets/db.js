@@ -54,12 +54,19 @@ const DB = (() => {
        it is posted from the Marketing tab rather than picked on a blank voucher
        — but it is an ordinary expense once it is out. */
     { code:'5500', name:'Marketing Referral Fees',  type:'Expense',   nature:'debit'  },
+    /* Money handed back that the books did not say was owed — a seafarer sent
+       home, a run the centre closed, a decision taken at the counter. An
+       overpayment returned comes out of 4300 and a cancelled booking out of
+       1200, because that is where those sums were sitting; this is for the rest,
+       which was never sitting anywhere. It is an expense: money out, for no
+       goods and no service. */
+    { code:'5600', name:'Refunds & Goodwill',        type:'Expense',   nature:'debit'  },
   ];
 
   /* Accounts the system posts to itself. The admin may rename these but not
      delete them: remove one and a booking, a remittance or a refund would have
      nowhere to land. */
-  const SYSTEM_ACCOUNTS = ['1000','1010','1020','1200','1250','2000','4000','4100','4200','4300','4900','5050'];
+  const SYSTEM_ACCOUNTS = ['1000','1010','1020','1200','1250','2000','4000','4100','4200','4300','4900','5050','5600'];
 
 
   /* Accounts are maintained by the admin in Settings. `code` is the sign-in
@@ -539,7 +546,9 @@ const DB = (() => {
     /* Endorsing a trainee creates a debt to the training center, and a rebate
        the center either nets off that debt or settles separately. Older stores
        have nowhere to post either. */
-    COA.filter(a => ['1250','2000','4200','5050'].includes(a.code)).forEach(a => {
+    /* 5600 joins them: a refund raised beyond what the books held had nowhere to
+       post before it existed. */
+    COA.filter(a => ['1250','2000','4200','5050','5600'].includes(a.code)).forEach(a => {
       if(!d.accounts.some(x => x.code === a.code)) d.accounts.push({ ...a });
     });
     d.accounts.sort((a,b) => a.code.localeCompare(b.code));

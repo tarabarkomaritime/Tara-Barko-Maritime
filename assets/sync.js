@@ -104,7 +104,11 @@ const SYNC = (() => {
     refunds:{
       table:'refunds', key:'id',
       cols:['id','no','date','trainee_id','amount','from_credit','from_over','method','ref','reason',
-            'state','raised_by','approved_by','approved_on','decided_by','decided_on','decision_note'],
+            'state','raised_by','approved_by','approved_on','decided_by','decided_on','decision_note',
+            /* Stamped by the same approval code that stamps a voucher. Without
+               the column here the whole save was refused the moment an admin
+               approved a refund they had raised themselves. */
+            'self_approved'],
       blankToNull:['approved_by','approved_on','decided_by','decided_on'],
       blankToDefault:['date'],
     },

@@ -440,13 +440,19 @@ const ACC = (() => {
     const total = r2(r.amount);
     const fromOver = r2(r.fromOver || 0);
     const fromCredit = r2(r.fromCredit != null ? r.fromCredit : total - fromOver);
+    /* Whatever the two pockets do not cover. The office decided to give it
+       back and there was nothing held against it, so it is an expense rather
+       than a reversal of income that was never earned. */
+    const goodwill = r2(total - fromCredit - fromOver);
     const lines = [];
     if(fromCredit) lines.push({ account:'1200', debit:fromCredit, credit:0 });
     if(fromOver)   lines.push({ account:'4300', debit:fromOver, credit:0 });
+    if(goodwill > 0) lines.push({ account:'5600', debit:goodwill, credit:0 });
     lines.push({ account:cashAccount(r.method), debit:0, credit:total });
     return post({
       date:r.date, memo:`Refund — ${r.no}${r.reason ? ' · ' + r.reason : ''}`
-        + (fromOver ? ` · ${fromOver.toFixed(2)} of overpayment` : ''),
+        + (fromOver ? ` · ${fromOver.toFixed(2)} of overpayment` : '')
+        + (goodwill > 0 ? ` · ${goodwill.toFixed(2)} not held against the trainee` : ''),
       refType:'Refund', refNo:r.no, refId:r.id, lines,
     });
   }
@@ -488,10 +494,19 @@ const ACC = (() => {
 
   /* Splitting a refund across the two. The unambiguous money goes first: if only
      part is given back, it should be the part that was never ours. */
+  /* Which pocket a refund comes out of.
+
+     Cancelled-booking money first, then an overpayment, and each capped at what
+     is actually there. The cap is the part that was missing: fromOver took the
+     whole remainder, so a refund of 2,000 to a trainee who had overpaid nothing
+     debited 2,000 to 4300 Overpayments and drove an income line negative for
+     money the office had never taken. What is left over after both pockets is
+     neither — it is a decision, and postRefund charges it to 5600. */
   function splitRefund(traineeId, amount){
     const f = refundable(traineeId);
     const fromCredit = r2(Math.min(amount, f.credit));
-    return { fromCredit, fromOver:r2(amount - fromCredit) };
+    const fromOver   = r2(Math.min(r2(amount - fromCredit), f.overpaid));
+    return { fromCredit, fromOver };
   }
 
   function recomputeInvoice(inv){
