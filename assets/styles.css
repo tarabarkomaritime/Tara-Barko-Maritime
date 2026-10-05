@@ -36,6 +36,7 @@
   --muted:#7a85a3;
 
   --ok:#12805c;      --ok-bg:#e3f5ee;
+  /* see .rowlink at the foot of this file */
   --warn:#b26a00;    --warn-bg:#fdf0dc;
   --bad:#b3261e;     --bad-bg:#fde8e6;
   --info:var(--tb-blue);  --info-bg:var(--tb-blue-soft);
@@ -836,3 +837,16 @@ tfoot td{font-weight:700;background:var(--surface-2);border-top:2px solid var(--
   font:600 13px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;
   padding:10px 16px; box-shadow:0 6px 22px rgba(0,0,0,.3);
 }
+
+/* A name inside a table that opens the record it belongs to.
+
+   A row that is clickable end to end can only go to one place, and the office
+   wants two: the booking, which is what the row is about, and the seafarer, who
+   is who they are looking at. So the name is its own target and the rest of the
+   row keeps the booking. It is marked as a link because an underline is the
+   only thing that tells somebody a word can be pressed. */
+.rowlink{
+  color:var(--sea); cursor:pointer; text-decoration:none;
+  border-bottom:1px dotted currentColor;
+}
+.rowlink:hover{ color:var(--navy-700); border-bottom-style:solid; }

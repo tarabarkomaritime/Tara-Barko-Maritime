@@ -927,17 +927,35 @@ const VIEWS = {};
 VIEWS.dashboard = () => {
   const d = D();
   const on = state.q.day || DB.today();
-  const tomorrow = (() => { const x = new Date(on); x.setDate(x.getDate() + 1); return x.toISOString().slice(0,10); })();
+  /* The days this screen has to carry.
+
+     Normally tomorrow. On a Saturday it is Sunday and Monday both: the office is
+     not open on Sunday, so a Saturday report that only looks one day ahead is
+     the last look anybody gets before a Monday intake walks in unconfirmed.
+     Sunday is kept in rather than skipped, because a centre running a Sunday
+     course is unusual and not impossible, and a screen whose job is "who have we
+     still to confirm" must not be the thing that drops them. */
+  const dayAfter = (base, n) => {
+    const x = new Date(base + 'T00:00:00Z');
+    x.setUTCDate(x.getUTCDate() + n);
+    return x.toISOString().slice(0,10);
+  };
+  const aheadDays = new Date(on + 'T00:00:00Z').getUTCDay() === 6
+    ? [dayAfter(on, 1), dayAfter(on, 2)]
+    : [dayAfter(on, 1)];
+  const tomorrow = aheadDays[0];
+  const overWeekend = aheadDays.length > 1;
   const isToday = on === DB.today();
 
   /* --- enrollments encoded on the day --- */
   const enrolledToday = d.enrollments.filter(e => e.date === on);
   const billedToday = ACC.r2(enrolledToday.reduce((s,e) => { const i = invOf(e.id); return s + (i ? i.total : 0); }, 0));
 
-  /* --- who is due to start training the next day --- */
+  /* --- who is due to start training before we are back --- */
   const startingTomorrow = d.enrollments
-    .filter(e => e.start === tomorrow && ['Enrolled','Reserved'].includes(e.status))
-    .sort((x,y) => String(x.center||'').localeCompare(String(y.center||'')));
+    .filter(e => aheadDays.includes(e.start) && ['Enrolled','Reserved'].includes(e.status))
+    .sort((x,y) => String(x.start||'').localeCompare(String(y.start||''))
+                || String(x.center||'').localeCompare(String(y.center||'')));
 
   /* --- money in and money out, by the channel it moved through --- */
   const CHANNELS = ACC.methodNames();
@@ -1031,8 +1049,11 @@ VIEWS.dashboard = () => {
     <div class="grid g4" style="margin-bottom:18px">
       ${UI.kpi('Enrollments ' + (isToday ? 'Today' : 'That Day'), UI.int(enrolledToday.length),
                billedToday ? UI.peso(billedToday) + ' billed' : 'nothing billed yet', 'sea')}
-      ${UI.kpi('Training Starts Tomorrow', UI.int(startingTomorrow.length),
-               startingTomorrow.length ? 'confirm attendance today' : 'nobody starting',
+      ${UI.kpi(overWeekend ? 'Training Starts Over The Weekend' : 'Training Starts Tomorrow',
+               UI.int(startingTomorrow.length),
+               startingTomorrow.length
+                 ? (overWeekend ? 'confirm before we close' : 'confirm attendance today')
+                 : 'nobody starting',
                startingTomorrow.length ? 'warn' : '')}
       ${UI.kpi('Amount Received', UI.peso(receivedTotal),
                `${receiptCount} payment(s)`, 'ok')}
@@ -1052,18 +1073,33 @@ VIEWS.dashboard = () => {
         { flush:true, sub:`${receiptCount} receipt(s) in · ${voucherCount} voucher(s) out`
             + (refundCount ? ` · ${refundCount} refund(s) handed back` : '') })}
 
-      ${UI.card('Training Starting Tomorrow', UI.table([
+      ${UI.card(overWeekend ? 'Training Starting Before Monday Is Out' : 'Training Starting Tomorrow',
+        UI.table([
+        /* The name opens the seafarer, not the booking. It is who the desk is
+           ringing, and the number underneath is what they ring — both on the
+           same record, one click away. The rest of the row still opens the
+           booking, which is what the row is about. */
         { h:'Trainee', k:e => { const t = T(e.traineeId); return t
-            ? `<b>${UI.esc(name(t))}</b><br><span class="muted" style="font-size:11.5px">${UI.esc(t.mobile||'')}</span>`
+            ? `<b class="rowlink" data-act="view-trainee" data-id="${t.id}">${UI.esc(name(t))}</b>`
+              + `<br><span class="muted" style="font-size:11.5px">${UI.esc(t.mobile||'')}</span>`
             : '—'; } },
         { h:'Course', k:e => { const c = CRS(e.courseId); return c ? UI.esc(c.title) : '—'; } },
         { h:'Center', k:e => UI.esc(e.center || '—') },
+        /* Which of the two days, when there are two. A Monday intake and a
+           Sunday one are different phone calls. */
+        ...(overWeekend
+          ? [{ h:'Starts', k:e => UI.dateShort(e.start), w:'100px' }]
+          : []),
         { h:'Balance', k:e => { const due = bookingBalance(e);
             if(due == null) return '<span class="muted">not billed</span>';
             return due > 0.004 ? UI.num(due) : 'settled'; }, cls:'num' },
-      ], startingTomorrow, { empty:'Nobody starts tomorrow.', rowClass:'clickable',
+      ], startingTomorrow, {
+          empty:overWeekend ? 'Nobody starts before Monday is out.' : 'Nobody starts tomorrow.',
+          rowClass:'clickable',
           rowAttr:e => `data-act="view-enrollment" data-id="${e.id}"` }),
-        { flush:true, sub:UI.date(tomorrow) })}
+        { flush:true, sub:overWeekend
+            ? `${UI.date(aheadDays[0])} and ${UI.date(aheadDays[1])} · the office is shut tomorrow`
+            : UI.date(tomorrow) })}
     </div>
 
     ${UI.card('Recent Activity', UI.table([
@@ -3524,25 +3560,31 @@ function markVoucherPaid(v){
         UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
       }
       const held = v.id;
-      /* The number is spent here, on a document that exists. */
-      if(!v.no) v.no = DB.nextNo('voucher','DV');
-      v.date = paidOn;
-      v.method = fd.method;
-      v.ref = String(fd.ref || '').trim();
-      v.state = 'Pending';
-      /* The seats were held against the voucher's id while it had no number;
-         they carry the number now, and the date it was actually paid. */
-      (v.bookings || []).forEach(id => {
-        const e = ENR(id);
-        if(e && (e.remitNo === held || e.remitNo === v.no)){
-          e.remitNo = v.no;
-          e.remitDate = paidOn;
-        }
-      });
-      DB.activity('Marked a voucher paid', `${v.no} · ${v.payee} · ${UI.peso(v.amount)}`);
-      DB.save();
-      UI.toast(`${v.no} marked paid — waiting for the admin to approve it.`);
-      render();
+      /* The number is spent here, on a document that exists — and it is asked
+         for from the server, because two counters minting from one sequence is
+         how DV-2026-0157 was handed out twice and the office's whole save was
+         refused behind it. Everything above this line has already been checked,
+         so the dialog can close while the number is fetched. */
+      (async () => {
+        if(!v.no) v.no = await DB.reserveNo('voucher','DV');
+        v.date = paidOn;
+        v.method = fd.method;
+        v.ref = String(fd.ref || '').trim();
+        v.state = 'Pending';
+        /* The seats were held against the voucher's id while it had no number;
+           they carry the number now, and the date it was actually paid. */
+        (v.bookings || []).forEach(id => {
+          const e = ENR(id);
+          if(e && (e.remitNo === held || e.remitNo === v.no)){
+            e.remitNo = v.no;
+            e.remitDate = paidOn;
+          }
+        });
+        DB.activity('Marked a voucher paid', `${v.no} · ${v.payee} · ${UI.peso(v.amount)}`);
+        DB.save();
+        UI.toast(`${v.no} marked paid — waiting for the admin to approve it.`);
+        render();
+      })();
     }
   });
 }

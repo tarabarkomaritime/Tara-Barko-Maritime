@@ -403,6 +403,72 @@ const DB = (() => {
       d.users.forEach(u => { delete u.code; });
     }
 
+    /* Two documents carrying one number.
+
+       The server will not take the second of them, and it refuses the whole
+       save with it — every receipt, every booking, everything the office has
+       typed since, held behind one voucher number. Jocelyn's screen went red on
+       expenses_no_key and stayed red, because nothing the office could do from
+       the counter would change the number on the document.
+
+       It happens when two browsers mint from one counter: a tab open since the
+       morning has a snapshot of the sequence taken when somebody signed in, and
+       the other desk has moved it on since. reserveNo below is what stops it
+       happening again; this is what gets the office working when it already
+       has.
+
+       The document issued first keeps the number it was issued under — that is
+       the one on paper, in somebody's hand, and quite possibly already on the
+       server. The later one is renumbered above everything on file, and
+       anything that referred to it by number is brought along: the seats a
+       voucher settles carry its number, and so does its entry in the journal. */
+    (() => {
+      const renamed = [];
+      Object.keys(NUMBERED).forEach(kind => {
+        const rows = d[NUMBERED[kind]];
+        if(!Array.isArray(rows)) return;
+        const seen = new Set();
+        /* Oldest first, so first issued is first served. */
+        const order = rows.slice().sort((a, b) =>
+          String(a.date || '').localeCompare(String(b.date || ''))
+          || String(a.id || '').localeCompare(String(b.id || '')));
+        order.forEach(r => {
+          const no = String(r.no || '');
+          if(!no) return;
+          if(!seen.has(no)){ seen.add(no); return; }
+          let high = (d.seq && d.seq[kind]) || 0;
+          rows.forEach(x => {
+            const n = parseInt(String(x.no || '').split('-')[2], 10);
+            if(n > high) high = n;
+          });
+          const next = high + 1;
+          d.seq = d.seq || {};
+          d.seq[kind] = next;
+          const was = r.no;
+          r.no = `${no.split('-')[0]}-${new Date().getFullYear()}-${String(next).padStart(4, '0')}`;
+          seen.add(r.no);
+          renamed.push({ was, now:r.no });
+          /* A voucher's number is written onto every seat it settles — and the
+             seats on the voucher that kept the number say the same thing, which
+             is the whole trouble. Only this document's own bookings move. */
+          if(kind === 'voucher'){
+            const mine = new Set(r.bookings || []);
+            (d.enrollments || []).forEach(e => {
+              if(mine.has(e.id) && e.remitNo === was) e.remitNo = r.no;
+            });
+          }
+          /* And onto its own entry in the ledger. */
+          (d.journal || []).forEach(j => { if(j.refId === r.id && j.refNo === was) j.refNo = r.no; });
+        });
+      });
+      if(renamed.length){
+        d.log = d.log || [];
+        renamed.forEach(x => d.log.unshift({ ts:new Date().toISOString(), user:'system',
+          action:'Renumbered a document that shared its number', ref:`${x.was} \u2192 ${x.now}` }));
+        d.log = d.log.slice(0, 300);
+      }
+    })();
+
     /* Overpayment used to land in receivables; the account it belongs in may
        not exist in an older store. */
     if(d.accounts && !d.accounts.some(a => a.code === '4300')){
@@ -607,6 +673,40 @@ const DB = (() => {
     const next = Math.max(data.seq[kind] || 0, high) + 1;
     data.seq[kind] = next;
     return `${prefix}-${new Date().getFullYear()}-${String(next).padStart(4,'0')}`;
+  }
+
+  /* A number from the server, which is the only place that can promise nobody
+     else is being handed it.
+
+     nextNo below works from this browser's own copy of the counter and the rows
+     this browser happens to hold, and that is the best a browser can do alone.
+     It is not enough when two desks are working: Kyla marks a voucher paid at
+     one counter and Jocelyn marks one paid at the other, and both are handed
+     DV-2026-0157. The second save is refused — and not just that voucher, the
+     whole push, so the office cannot save anything at all until somebody
+     notices.
+
+     tbm.next_no has been on the server since the schema was written, doing the
+     increment inside the database where it is atomic. The browser simply never
+     asked it. It does now, for the documents two people really do raise at
+     once, and the counter here is moved up to match so an offline mint later
+     cannot walk back over it.
+
+     Offline, or signed out, it falls back to counting locally — which is what
+     it has always done, and is still right when there is only one of you. */
+  async function reserveNo(kind, prefix){
+    try{
+      if(typeof CLOUD !== 'undefined' && CLOUD && CLOUD.rpc){
+        const no = await CLOUD.rpc('next_no', { p_kind:kind, p_prefix:prefix });
+        const n = parseInt(String(no || '').split('-')[2], 10);
+        if(no && n > 0){
+          data.seq = data.seq || {};
+          data.seq[kind] = Math.max(data.seq[kind] || 0, n);
+          return no;
+        }
+      }
+    }catch(e){ /* no connection, no session, no matter — count locally */ }
+    return nextNo(kind, prefix);
   }
 
   /* Reading and parsing used to share one try block, so a store that would not
@@ -1051,7 +1151,7 @@ const DB = (() => {
   return { load, reload, save, get, reset, nextNo, exportJSON, importJSON, activity, uid, r2, today,
            salvaged, snapshots, pruneSnapshots, downloadSalvaged,
            connect, disconnect, flush, refreshFromCloud, onCloud, cloudStatus,
-           forget,
+           forget, reserveNo,
            PERMS, ROLE_LABEL, roleName, blank, DELIVERY, normalizeDelivery, SYSTEM_ACCOUNTS,
            list, listWith, LIST_DEFS, LIST_DEFAULTS };
 })();

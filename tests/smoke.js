@@ -2334,6 +2334,73 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---- two documents carrying one number ----
+
+     Two desks minting from one counter hand out DV-2026-0157 twice, the server
+     refuses the second, and it refuses the whole push with it — so the office
+     cannot save anything at all until the number is changed. Loading the store
+     puts it right: the one issued first keeps what it was given, and everything
+     that referred to the other by number follows it. */
+  console.log('\n- one number, one document -');
+  {
+    const KEY = 'tbm_is_v1';
+    Object.keys(store).forEach(k => delete store[k]);
+    store[KEY] = JSON.stringify({
+      meta:{ version:1, created:'2026-08-01' },
+      company:{}, users:[], accounts:[], courses:[], trainees:[],
+      enrollments:[
+        { id:'e_a', no:'ENR-1', center:'MARIANA', remitNo:'DV-2026-0157' },
+        { id:'e_b', no:'ENR-2', center:'JVV',     remitNo:'DV-2026-0157' },
+      ],
+      invoices:[], payments:[],
+      expenses:[
+        { id:'v_first',  no:'DV-2026-0157', date:'2026-09-28', kind:'remittance',
+          payee:'MARIANA', amount:100, bookings:['e_a'], state:'Approved' },
+        { id:'v_second', no:'DV-2026-0157', date:'2026-09-30', kind:'remittance',
+          payee:'JVV', amount:200, bookings:['e_b'], state:'Approved' },
+      ],
+      refunds:[],
+      journal:[{ id:'j_b', no:'JV-1', date:'2026-09-30', refId:'v_second',
+                 refNo:'DV-2026-0157', lines:[], debit:200, credit:200, voided:false }],
+      log:[], applications:[], seq:{ voucher:157 },
+    });
+    run('DB.reload()');
+
+    check('the number is not shared once the store has loaded', () => {
+      const a = run(`DB.get().expenses.find(v => v.id === 'v_first').no`);
+      const b = run(`DB.get().expenses.find(v => v.id === 'v_second').no`);
+      return a !== b || `both are still ${a}`;
+    });
+    check('the one issued first keeps the number it went out under', () =>
+      run(`DB.get().expenses.find(v => v.id === 'v_first').no`) === 'DV-2026-0157'
+      || 'the earlier voucher was renumbered');
+    check('the new number is above everything on file', () => {
+      const b = run(`DB.get().expenses.find(v => v.id === 'v_second').no`);
+      return parseInt(b.split('-')[2], 10) > 157 || 'it was given ' + b;
+    });
+    check('the seats the renumbered voucher settles follow it', () => {
+      const b = run(`DB.get().expenses.find(v => v.id === 'v_second').no`);
+      const seat = run(`DB.get().enrollments.find(e => e.id === 'e_b').remitNo`);
+      return seat === b || `the seat still says ${seat}`;
+    });
+    check('and the seat on the other voucher is left alone', () =>
+      run(`DB.get().enrollments.find(e => e.id === 'e_a').remitNo`) === 'DV-2026-0157'
+      || 'the wrong seat was moved');
+    check('its entry in the ledger follows it too', () => {
+      const b = run(`DB.get().expenses.find(v => v.id === 'v_second').no`);
+      const j = run(`DB.get().journal.find(x => x.id === 'j_b').refNo`);
+      return j === b || `the entry still names ${j}`;
+    });
+    check('the counter is moved up so the number cannot come round again', () =>
+      run('DB.get().seq.voucher') > 157 || 'seq.voucher is ' + run('DB.get().seq.voucher'));
+    check('and a clean store is left exactly as it is', () => {
+      const before = run(`DB.get().expenses.map(v => v.no).join(',')`);
+      run('DB.reload()');
+      return run(`DB.get().expenses.map(v => v.no).join(',')`) === before
+        || 'loading it again renumbered something';
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
