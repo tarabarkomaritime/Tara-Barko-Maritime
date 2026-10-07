@@ -7340,27 +7340,45 @@ function paymentForm(inv, opts = {}){
         }
       }
 
-      const no = DB.nextNo('receipt','OR');
-      const queue = tenders.map(t => ({ ...t, left:t.amount }));
-      const made = bills.map((b, n) => {
-        const p = ACC.buildPayment({ no:n ? `${no}/${n + 1}` : no,
-                                     invoiceId:b.inv.id,
-                                     enrollmentId:b.line && b.line.e ? b.line.e.id : '',
-                                     traineeId:tid,
-                                     date:paidOn, tenders:ACC.drawTenders(queue, b.amount),
-                                     note });
-        D().payments.push(p);
-        ACC.postPayment(p, b.inv);
-        return p;
-      });
-      DB.activity('Recorded payment',
-        `${no} vs ${[...new Set(bills.map(b => b.inv.no))].join(', ')}`);
-      DB.save();
-      UI.toast(`OR ${no} issued for ${UI.peso(amt)}`
-        + (bills.length > 1 ? ` across ${bills.length} trainings` : ''));
-      render();
-      receiptModal(made[0]);
-      return false; // receiptModal already replaced the dialog
+      /* The receipt number comes from the server, which is the only place that
+         can promise the other desk is not being handed it at the same moment.
+         Two cashiers both given OR-2026-0042 is what the schema's own comment
+         warned about when it put the counter there; the browser had never asked
+         for it, and the second save went down with the whole day's work behind
+         it. Everything above has already been checked, so the fetch can happen
+         while the dialog stands. */
+      /* The number now comes over the wire, so there is a moment between the
+         press and the receipt appearing. A second press in that moment would
+         take the same money twice — two receipts, two postings, a drawer that
+         does not count. The dialog is still on screen because it is replaced by
+         the receipt rather than closed, so the guard has to be here. */
+      if(takingPayment){ UI.toast('That payment is being recorded — one moment.', 'warn'); return false; }
+      takingPayment = true;
+      (async () => {
+        try{
+        const no = await DB.reserveNo('receipt','OR');
+        const queue = tenders.map(t => ({ ...t, left:t.amount }));
+        const made = bills.map((b, n) => {
+          const p = ACC.buildPayment({ no:n ? `${no}/${n + 1}` : no,
+                                       invoiceId:b.inv.id,
+                                       enrollmentId:b.line && b.line.e ? b.line.e.id : '',
+                                       traineeId:tid,
+                                       date:paidOn, tenders:ACC.drawTenders(queue, b.amount),
+                                       note });
+          D().payments.push(p);
+          ACC.postPayment(p, b.inv);
+          return p;
+        });
+        DB.activity('Recorded payment',
+          `${no} vs ${[...new Set(bills.map(b => b.inv.no))].join(', ')}`);
+        DB.save();
+        UI.toast(`OR ${no} issued for ${UI.peso(amt)}`
+          + (bills.length > 1 ? ` across ${bills.length} trainings` : ''));
+        render();
+        receiptModal(made[0]);
+        }finally{ takingPayment = false; }
+      })();
+      return false; // receiptModal replaces the dialog when the number arrives
     }
   });
 
@@ -8182,6 +8200,9 @@ function globalSearch(term){
     || '<div class="empty">Nothing matched that search.</div>';
   UI.modal({ title:`Search results for "${term}"`, body, hideSubmit:true });
 }
+
+/* A receipt is being written. See the guard in the payment form. */
+let takingPayment = false;
 
 /* ================= EVENT WIRING ================= */
 document.addEventListener('click', ev => {

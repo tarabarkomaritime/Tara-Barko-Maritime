@@ -349,15 +349,25 @@ const DB = (() => {
       });
     }
 
-    if(Array.isArray(d.payments)){
-      const seen = {};
-      d.payments.forEach(p => {
-        const base = String(p.no || '').split('/')[0];
-        if(!base) return;
-        seen[base] = (seen[base] || 0) + 1;
-        p.no = seen[base] === 1 ? base : base + '/' + seen[base];
-      });
-    }
+    /* Receipt part-numbers used to be handed out here, by position in the
+       array, on every single load.
+
+       It was written to give the rows of one receipt their /2 and /3 — a
+       trainee who hands over one sum against three trainings gets one receipt
+       stored as three rows — and it did that by walking d.payments in order and
+       renumbering everything it passed. Array order is not the same in two
+       browsers: the same row is the /2 in one and the base in the other, each
+       pushes what it believes, and the server ends up asked to put two rows on
+       one number:
+
+         NOT SAVED — duplicate key value violates unique constraint "payments_no_key"
+
+       It also meant a receipt already printed and handed over could be
+       renumbered by a page refresh, which is worse than the error.
+
+       The repair below does the same job without any of that: it works on one
+       receipt at a time, leaves a receipt alone when its rows are already
+       distinct, and never depends on what order the rows happen to be in. */
     /* Staff added since a store was written. A code the office has already
        changed is left alone — this fills gaps, it does not reset anybody: an
        upgrade that quietly restored a temporary password would be a way in that
@@ -424,7 +434,81 @@ const DB = (() => {
        voucher settles carry its number, and so does its entry in the journal. */
     (() => {
       const renamed = [];
+
+      /* A number above everything on file and above the counter. */
+      const freshNo = (kind, prefix) => {
+        let high = (d.seq && d.seq[kind]) || 0;
+        (d[NUMBERED[kind]] || []).forEach(x => {
+          const n = parseInt(String(x.no || '').split('-')[2], 10);
+          if(n > high) high = n;
+        });
+        const next = high + 1;
+        d.seq = d.seq || {};
+        d.seq[kind] = next;
+        return `${prefix}-${new Date().getFullYear()}-${String(next).padStart(4, '0')}`;
+      };
+
+      const follow = (row, was) => {
+        renamed.push({ was, now:row.no });
+        (d.journal || []).forEach(j => { if(j.refId === row.id && j.refNo === was) j.refNo = row.no; });
+      };
+
+      /* Receipts first, because a receipt is not one row.
+
+         A trainee who hands over one sum against three trainings is given one
+         receipt, and it is stored as three rows numbered OR-2026-0042,
+         OR-2026-0042/2 and /3 — one number, three bills settled. Renumbering
+         row by row would move the first of those and leave /2 and /3 behind,
+         splitting one receipt across two numbers and leaving the trainee's copy
+         agreeing with neither.
+
+         So they are handled as sets. Two receipts sharing a number are told
+         apart by who paid and when; the earlier keeps the number the trainee
+         was handed, and the later one moves with all of its rows, suffixes and
+         all. */
+      (() => {
+        const rows = d.payments;
+        if(!Array.isArray(rows)) return;
+        const byBase = new Map();
+        rows.forEach(p => {
+          if(!p.no) return;
+          const b = String(p.no).split('/')[0];
+          if(!byBase.has(b)) byBase.set(b, []);
+          byBase.get(b).push(p);
+        });
+        /* Putting one receipt onto one number. Rows that already differ keep
+           the parts they were given — that is what is printed on the copy in
+           the trainee's hand — and are only moved across to a new base. Rows
+           that do not differ are the ones that need parts, and they are handed
+           them here. Either way, running it twice changes nothing. */
+        const distinct = g => new Set(g.map(p => p.no)).size === g.length;
+        const move = (g, base) => g.forEach((p, i) => {
+          const was = p.no;
+          const part = distinct(g) ? String(p.no).split('/')[1] : (i ? String(i + 1) : '');
+          p.no = part ? `${base}/${part}` : base;
+          if(p.no !== was) follow(p, was);
+        });
+
+        byBase.forEach((set, b) => {
+          const groups = new Map();
+          set.forEach(p => {
+            const k = `${p.traineeId || ''}|${p.date || ''}`;
+            if(!groups.has(k)) groups.set(k, []);
+            groups.get(k).push(p);
+          });
+          const order = [...groups.values()].sort((x, y) =>
+            String(x[0].date || '').localeCompare(String(y[0].date || ''))
+            || String(x[0].id || '').localeCompare(String(y[0].id || '')));
+          /* The receipt handed over first keeps the number it was handed
+             under; the rest are given numbers of their own. */
+          move(order[0], b);
+          order.slice(1).forEach(g => move(g, freshNo('receipt', b.split('-')[0])));
+        });
+      })();
+
       Object.keys(NUMBERED).forEach(kind => {
+        /* Done above, as sets rather than as rows. */
+        if(kind === 'receipt') return;
         const rows = d[NUMBERED[kind]];
         if(!Array.isArray(rows)) return;
         const seen = new Set();
@@ -436,18 +520,9 @@ const DB = (() => {
           const no = String(r.no || '');
           if(!no) return;
           if(!seen.has(no)){ seen.add(no); return; }
-          let high = (d.seq && d.seq[kind]) || 0;
-          rows.forEach(x => {
-            const n = parseInt(String(x.no || '').split('-')[2], 10);
-            if(n > high) high = n;
-          });
-          const next = high + 1;
-          d.seq = d.seq || {};
-          d.seq[kind] = next;
           const was = r.no;
-          r.no = `${no.split('-')[0]}-${new Date().getFullYear()}-${String(next).padStart(4, '0')}`;
+          r.no = freshNo(kind, no.split('-')[0]);
           seen.add(r.no);
-          renamed.push({ was, now:r.no });
           /* A voucher's number is written onto every seat it settles — and the
              seats on the voucher that kept the number say the same thing, which
              is the whole trouble. Only this document's own bookings move. */
@@ -457,8 +532,8 @@ const DB = (() => {
               if(mine.has(e.id) && e.remitNo === was) e.remitNo = r.no;
             });
           }
-          /* And onto its own entry in the ledger. */
-          (d.journal || []).forEach(j => { if(j.refId === r.id && j.refNo === was) j.refNo = r.no; });
+          /* And its own entry in the ledger follows it. */
+          follow(r, was);
         });
       });
       if(renamed.length){

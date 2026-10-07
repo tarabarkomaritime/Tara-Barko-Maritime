@@ -2401,6 +2401,106 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---- a receipt is not one row ----
+
+     A trainee who hands over one sum against three trainings is given one
+     receipt, stored as three rows: OR-2026-0042, OR-2026-0042/2 and /3. When two
+     cashiers are handed the same number, renumbering row by row would move the
+     first and leave the suffixed rows behind — one receipt across two numbers,
+     and the trainee's copy agreeing with neither. */
+  console.log('\n- a receipt moves as a set -');
+  {
+    const KEY = 'tbm_is_v1';
+    Object.keys(store).forEach(k => delete store[k]);
+    store[KEY] = JSON.stringify({
+      meta:{ version:1, created:'2026-08-01' },
+      company:{}, users:[], accounts:[], courses:[], trainees:[], enrollments:[],
+      invoices:[],
+      payments:[
+        /* the receipt handed over first */
+        { id:'p_a', no:'OR-2026-0042', traineeId:'t_a', date:'2026-09-28', amount:100,
+          tenders:[{ method:'Cash', ref:'', amount:100 }], voided:false },
+        /* and the other desk's, which covered two bills */
+        { id:'p_b1', no:'OR-2026-0042',   traineeId:'t_b', date:'2026-09-30', amount:200,
+          tenders:[{ method:'Cash', ref:'', amount:200 }], voided:false },
+        { id:'p_b2', no:'OR-2026-0042/2', traineeId:'t_b', date:'2026-09-30', amount:300,
+          tenders:[{ method:'Cash', ref:'', amount:300 }], voided:false },
+        /* a receipt that covers two bills and collides with nothing */
+        { id:'p_c1', no:'OR-2026-0043',   traineeId:'t_c', date:'2026-09-30', amount:50,
+          tenders:[{ method:'Cash', ref:'', amount:50 }], voided:false },
+        { id:'p_c2', no:'OR-2026-0043/2', traineeId:'t_c', date:'2026-09-30', amount:60,
+          tenders:[{ method:'Cash', ref:'', amount:60 }], voided:false },
+      ],
+      expenses:[], refunds:[],
+      journal:[{ id:'j_b1', no:'JV-1', date:'2026-09-30', refId:'p_b1',
+                 refNo:'OR-2026-0042', lines:[], debit:200, credit:200, voided:false }],
+      log:[], applications:[], seq:{ receipt:43 },
+    });
+    run('DB.reload()');
+    const no = id => run(`DB.get().payments.find(p => p.id === '${id}').no`);
+
+    check('the receipt handed over first keeps its number', () =>
+      no('p_a') === 'OR-2026-0042' || 'it became ' + no('p_a'));
+    check('the other desk\'s receipt is given a number of its own', () =>
+      no('p_b1') !== 'OR-2026-0042' || 'it is still OR-2026-0042');
+    check('and its second row moves with it, suffix and all', () => {
+      const base = no('p_b1');
+      return no('p_b2') === base + '/2' || `${no('p_b2')} against ${base}`;
+    });
+    check('the new number is above everything on file', () =>
+      parseInt(no('p_b1').split('-')[2], 10) > 43 || 'it was given ' + no('p_b1'));
+    check('its entry in the ledger follows it', () =>
+      run(`DB.get().journal.find(j => j.id === 'j_b1').refNo`) === no('p_b1')
+      || 'the entry still names ' + run(`DB.get().journal.find(j => j.id === 'j_b1').refNo`));
+    /* The one that matters most: a perfectly good two-row receipt must not be
+       taken apart just because its rows share a base number — which is what
+       they are supposed to do. */
+    check('a receipt covering two bills is left exactly as it was', () =>
+      (no('p_c1') === 'OR-2026-0043' && no('p_c2') === 'OR-2026-0043/2')
+      || `${no('p_c1')} and ${no('p_c2')}`);
+    check('loading it again changes nothing further', () => {
+      const before = run(`DB.get().payments.map(p => p.no).join(',')`);
+      run('DB.reload()');
+      return run(`DB.get().payments.map(p => p.no).join(',')`) === before
+        || 'a second load renumbered something';
+    });
+
+    /* Receipts written before the office could say which training a payment was
+       for have three rows carrying one number and no parts at all. They still
+       have to end up distinct, or the server takes one of them and refuses the
+       rest — which is the job the old by-position relabelling was doing, and the
+       only part of it worth keeping. */
+    Object.keys(store).forEach(k => delete store[k]);
+    store[KEY] = JSON.stringify({
+      meta:{ version:1, created:'2026-08-01' },
+      company:{}, users:[], accounts:[], courses:[], trainees:[], enrollments:[], invoices:[],
+      payments:[
+        { id:'p_o1', no:'OR-2026-0007', traineeId:'t_o', date:'2026-08-10', amount:10,
+          tenders:[{ method:'Cash', ref:'', amount:10 }], voided:false },
+        { id:'p_o2', no:'OR-2026-0007', traineeId:'t_o', date:'2026-08-10', amount:20,
+          tenders:[{ method:'Cash', ref:'', amount:20 }], voided:false },
+        { id:'p_o3', no:'OR-2026-0007', traineeId:'t_o', date:'2026-08-10', amount:30,
+          tenders:[{ method:'Cash', ref:'', amount:30 }], voided:false },
+      ],
+      expenses:[], refunds:[], journal:[], log:[], applications:[], seq:{ receipt:7 },
+    });
+    run('DB.reload()');
+
+    check('an old receipt of three rows is given its parts', () =>
+      run(`DB.get().payments.map(p => p.no).join(',')`)
+        === 'OR-2026-0007,OR-2026-0007/2,OR-2026-0007/3'
+      || run(`DB.get().payments.map(p => p.no).join(',')`));
+    check('it stays one receipt rather than being split across numbers', () =>
+      run(`new Set(DB.get().payments.map(p => p.no.split('/')[0])).size`) === 1
+      || 'it was split');
+    check('and a refresh does not renumber what the trainee was handed', () => {
+      run('DB.reload()'); run('DB.reload()');
+      return run(`DB.get().payments.map(p => p.no).join(',')`)
+        === 'OR-2026-0007,OR-2026-0007/2,OR-2026-0007/3'
+        || 'it drifted to ' + run(`DB.get().payments.map(p => p.no).join(',')`);
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
