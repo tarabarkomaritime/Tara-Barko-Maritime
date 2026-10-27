@@ -916,6 +916,48 @@ const refresh = () => { DB.save(); render(); };
 /* ================= VIEWS ================= */
 const VIEWS = {};
 
+/* One page of a long table.
+
+   Six hundred receipts and two hundred vouchers in one scroll is not a list
+   anybody reads; it is a page the browser has to lay out in full before the
+   office can look at the top of it. Each table that grows without limit is cut
+   into pages and given arrows.
+
+   The page number lives in the query state like every other filter, so it
+   survives a re-render, and it is clamped to what there is — narrow a search
+   while on page five and the last page is shown rather than an empty table. */
+function paged(rows, key, per){
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / per));
+  const want = parseInt(state.q[key], 10);
+  const p = Math.min(Math.max(1, want > 0 ? want : 1), pages);
+  const from = (p - 1) * per;
+  return { rows:rows.slice(from, from + per), p, pages, total, from, key };
+}
+
+/* The arrows, and what they are arrows through. Nothing at all when it fits on
+   one page — a pager under a six-row table is furniture. */
+function pagerBar(g){
+  if(g.pages <= 1) return '';
+  const btn = (n, label, on) => `<button class="btn btn-xs ${
+    on ? 'btn-primary' : 'btn-ghost'}" data-act="page" data-id="${g.key}:${n}"${
+    n < 1 || n > g.pages ? ' disabled' : ''}>${label}</button>`;
+  /* A window of five around where the office is, so two hundred pages do not
+     become two hundred buttons. */
+  const first = Math.max(1, Math.min(g.p - 2, g.pages - 4));
+  const nums = [];
+  for(let n = first; n < first + 5 && n <= g.pages; n++) nums.push(btn(n, n, n === g.p));
+  return `<div class="pager">
+    <span class="muted">Showing ${UI.int(g.from + 1)}–${UI.int(g.from + g.rows.length)} of ${UI.int(g.total)}</span>
+    <span class="spacer"></span>
+    ${btn(g.p - 1, '‹ Prev', false)}
+    ${first > 1 ? `<span class="muted">…</span>` : ''}
+    ${nums.join('')}
+    ${first + 4 < g.pages ? `<span class="muted">…</span>` : ''}
+    ${btn(g.p + 1, 'Next ›', false)}
+  </div>`;
+}
+
 /* ---------- Dashboard ----------
    Built for the two desks that use it. Everything on the top row answers a
    question about *today*, because that is what a registrar or a cashier
@@ -1867,6 +1909,10 @@ VIEWS.payments = () => {
   const collected = rebSum('received');
   const deducted  = rebSum('kept');
 
+  const payPage = paged(rows, 'payPage', 15);
+  const chasePage = paged(chase, 'chasePage', 10);
+  const rebPage = paged(rebates, 'rebPage', 15);
+
   return `
     <div class="toolbar">
       <input type="search" data-q="pay" value="${UI.esc(state.q.pay||'')}" placeholder="Search ref no. or trainee…" style="min-width:230px">
@@ -1885,8 +1931,9 @@ VIEWS.payments = () => {
         { h:'Reference', k:p => `<span class="mono">${UI.esc(p.ref||'—')}</span>` },
         { h:'Amount', k:p => p.voided ? `<s class="muted">${UI.num(p.amount)}</s>` : `<b>${UI.peso(p.amount)}</b>`, cls:'num' },
         { h:'', k:p => p.voided ? UI.tag('Void','muted') : '' },
-      ], rows, { empty:'No collections in this period.', rowClass:'clickable',
-                 rowAttrs:p => `data-act="view-receipt" data-id="${p.id}"` }), { flush:true })}
+      ], payPage.rows, { empty:'No collections in this period.', rowClass:'clickable',
+                 rowAttrs:p => `data-act="view-receipt" data-id="${p.id}"` })
+      + pagerBar(payPage), { flush:true })}
 
         <div style="height:18px"></div>
         ${UI.card('Still To Pay Before Training Ends', UI.table([
@@ -1903,7 +1950,8 @@ VIEWS.payments = () => {
           { h:'', k:r => can('payments')
               ? `<button class="btn btn-accent btn-xs" data-act="remind-pay" data-id="${r.e.id}">Remind</button>`
               : '', w:'100px' },
-        ], chase, { empty:'Nobody is part-paid — every booking that has been started is settled.' }),
+        ], chasePage.rows, { empty:'Nobody is part-paid — every booking that has been started is settled.' })
+          + pagerBar(chasePage),
           { flush:true,
             sub:`${UI.peso(chaseDue)} outstanding across ${chase.length} booking(s), soonest deadline first` })}
 
@@ -1960,14 +2008,15 @@ VIEWS.payments = () => {
                     ? `<button class="btn btn-accent btn-xs" data-act="receive-rebate" data-id="${r.e.id}">Receive</button>`
                     : '<span class="muted">—</span>')) + ' ' + cancel;
             }, w:'190px' },
-        ], rebates, { empty:rebQ
+        ], rebPage.rows, { empty:rebQ
             ? `No rebate matches “${rebQ}” in this tab.`
             : rebTab === 'collect'
             ? (rebPick ? `Nothing left to collect from ${rebPick}.`
                        : 'Nothing to collect — every rebate is in or kept back.')
             : rebTab === 'received'
             ? 'No rebate has been received yet.'
-            : 'No rebate is kept back from a remittance.' }),
+            : 'No rebate is kept back from a remittance.' })
+          + pagerBar(rebPage),
           { flush:true,
             sub:(rebTab === 'collect'
                   ? `${UI.peso(toCollect)} still to collect from ${UI.int(rebCount('collect'))} booking(s)`
@@ -2927,12 +2976,26 @@ VIEWS.payables = () => {
       .some(x => String(x || '').toLowerCase().includes(q))
     || hits(v).length > 0;
 
+  /* The voucher list filters itself.
+
+     It used to be narrowed by the centre picker at the top of the screen, which
+     also hides payables rows — so narrowing to one centre to find its voucher
+     emptied the list of what is still owed to everyone else, and the office had
+     to remember to put it back. Two lists answering two questions get a control
+     each. Every centre that has ever had a voucher is in it, not only those
+     with something outstanding. */
+  const vchPick = state.q.vchCenter || '';
+  const vchCentres = [...new Set(D().expenses
+    .filter(v => v.kind === 'remittance' && v.payee)
+    .map(v => String(v.payee).toUpperCase()))].sort();
+
   const paid = D().expenses.filter(v => v.kind === 'remittance')
-    .filter(v => q || !pick || String(v.payee).toUpperCase() === pick)
+    .filter(v => !vchPick || String(v.payee).toUpperCase() === vchPick)
     .filter(v => q || needsAction(v) || inWindow(v.date))
     .filter(matches)
     .sort((a,b) => b.date.localeCompare(a.date));
   const waiting = paid.filter(needsAction);
+  const vchPage = paged(paid, 'vchPage', 10);
 
   const filtered = !!(from || pick);
   const span = from ? `from ${UI.date(from)}` : 'all dates';
@@ -3116,22 +3179,32 @@ VIEWS.payables = () => {
           }
           return out;
         }, w:'230px' },
-    ], paid, { empty:q
+    ], vchPage.rows, { empty:q
         ? `Nothing matches “${q}” — no trainee of that name is on a voucher, and no voucher`
           + ' carries it as a number or a reference.'
+        : vchPick
+        ? `No voucher has been issued to ${vchPick}.`
         : filtered
         ? 'No voucher was issued in this window.'
-        : 'No remittance voucher has been issued yet.' }),
+        : 'No remittance voucher has been issued yet.' })
+      + pagerBar(vchPage),
       { flush:true,
         sub:q
           ? `${UI.int(paid.length)} voucher(s) matching “${q}” · every centre, every date`
           : `${UI.int(paid.length)} voucher(s) · by date issued · ${span}`
+            + (vchPick ? ` · ${vchPick}` : '')
             + (waiting.length
                 ? ` · ${UI.int(waiting.length)} still to be paid or approved, shown whatever the dates say`
                 : ''),
-        actions:`<input type="search" data-q="vchQ" value="${UI.esc(state.q.vchQ || '')}"
+        actions:`
+          <select data-q="vchCenter" style="min-width:185px;font-size:12.5px;margin:0">
+            <option value="">All training centers</option>
+            ${vchCentres.map(c => `<option value="${UI.esc(c)}" ${
+              c === vchPick ? 'selected' : ''}>${UI.esc(c)}</option>`).join('')}
+          </select>
+          <input type="search" data-q="vchQ" value="${UI.esc(state.q.vchQ || '')}"
             placeholder="Search a trainee, a voucher no. or a reference"
-            style="min-width:280px;margin:0">` })}
+            style="min-width:250px;margin:0">` })}
   `;
 };
 
@@ -8488,7 +8561,8 @@ document.addEventListener('click', ev => {
     'edit-refund':   () => { ev.stopPropagation();
                        refundEditForm(D().refunds.find(r => r.id === id)); },
     'release-holds': () => releaseUnbackedHolds(),
-    'reb-tab':       () => { state.q.rebTab = id; render(); },
+    'reb-tab':       () => { state.q.rebTab = id; state.q.rebPage = 1; render(); },
+    'page':          () => { const [k, n] = id.split(':'); state.q[k] = Number(n); render(); },
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
