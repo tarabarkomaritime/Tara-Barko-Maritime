@@ -96,7 +96,9 @@ const SYNC = (() => {
       table:'expenses', key:'id',
       cols:['id','no','kind','date','payee','account','particulars','amount','method','ref','bookings',
             'lines','state','raised_by','approved_by','approved_on','decided_by','decided_on',
-            'decision_note','self_approved'],
+            /* One row per account the money left from, when it left more than
+               one. Empty means the whole of it went by `method`. */
+            'decision_note','self_approved','tenders'],
       blankToNull:['account','approved_by','approved_on','decided_by','decided_on'],
       blankToDefault:['date'],
       defaults:{ kind:'voucher' },

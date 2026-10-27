@@ -987,17 +987,28 @@ VIEWS.dashboard = () => {
   d.expenses.filter(v => v.date === on
                       && (v.state || 'Approved') === 'Approved'
                       && !wasVoided(v)).forEach(v => {
-    const m = CHANNELS.includes(v.method) ? v.method : CHANNELS[CHANNELS.length-1];
+    /* A voucher settled out of two accounts is two amounts leaving two places.
+       Read whole against one mode, it showed the drawer short by the half that
+       went by transfer, and this table is exactly what the office counts the
+       drawer against. */
+    const parts = ACC.tendersOf(v).map(t => ({
+      m:CHANNELS.includes(t.method) ? t.method : CHANNELS[CHANNELS.length-1],
+      amount:t.amount,
+    }));
     /* A refund from a centre is on this table but it came in, not out. Counting
        it as spending would show the money leaving the account it arrived in. */
     if(isCenterRefund(v)){
-      received[m] = ACC.r2(received[m] + v.amount);
-      receivedTotal = ACC.r2(receivedTotal + v.amount);
+      parts.forEach(p => {
+        received[p.m] = ACC.r2(received[p.m] + p.amount);
+        receivedTotal = ACC.r2(receivedTotal + p.amount);
+      });
       return;
     }
     voucherCount++;
-    paidOut[m] = ACC.r2(paidOut[m] + v.amount);
-    paidTotal = ACC.r2(paidTotal + v.amount);
+    parts.forEach(p => {
+      paidOut[p.m] = ACC.r2(paidOut[p.m] + p.amount);
+      paidTotal = ACC.r2(paidTotal + p.amount);
+    });
   });
 
   /* Money handed back to a trainee leaves the drawer like anything else.
@@ -3591,9 +3602,18 @@ function markVoucherPaid(v){
     title:`Mark ${voucherLabel(v)} paid`,
     sub:`${UI.esc(v.payee)} · ${UI.peso(v.amount)}`,
     body:`
-      ${UI.row(UI.f.date('date','Date paid', DB.today(), { req:true }),
-               UI.f.select('method','Paid from', ACC.methodNames()[0], ACC.methodNames()),
-               UI.f.text('ref','Reference no.','',{ ph:'cheque or transaction no.' }))}
+      ${UI.f.date('date','Date paid', DB.today(), { req:true })}
+      <!-- A centre is often settled out of two accounts at once — what was in
+           the drawer, and the rest by transfer. Written down as one mode, the
+           day's Money By Channel showed the whole amount leaving an account that
+           only part of it left, and that is a figure the office cannot make
+           tally against the bank. -->
+      <div id="tenderRows"></div>
+      <div class="toolbar" style="margin:2px 0 0">
+        <button type="button" class="btn btn-ghost btn-sm" id="addTender">+ Another payment method</button>
+        <span class="spacer"></span>
+        <span class="muted" id="tenderSum" style="font-size:12.5px"></span>
+      </div>
       <div class="note">Nothing is posted yet. Marking it paid sends it to Disbursements for
         the admin to approve, and the entry is made then — dated the day above, not the day
         it is signed.</div>`,
@@ -3604,9 +3624,18 @@ function markVoucherPaid(v){
         UI.toast('That date is in the future — the money cannot have left yet.', 'bad');
         return false;
       }
-      if(ACC.needsRef(fd.method) && !String(fd.ref || '').trim()){
-        UI.toast(`${fd.method} needs its reference number.`, 'bad'); return false;
+      /* The voucher is for one amount; the modes are only how it was made up,
+         so they have to come to exactly that and no more. */
+      const tenders = readTenders();
+      if(!tenders.length){ UI.toast('Say how it was paid.', 'bad'); return false; }
+      const sum = ACC.r2(tenders.reduce((s, t) => s + t.amount, 0));
+      if(Math.abs(sum - ACC.r2(v.amount)) > 0.004){
+        UI.toast(`The modes come to ${UI.peso(sum)} but the voucher is for ${UI.peso(v.amount)}.`
+          + ' The two have to be the same money.', 'bad');
+        return false;
       }
+      const missing = tenders.find(t => ACC.needsRef(t.method) && !t.ref);
+      if(missing){ UI.toast(`${missing.method} needs its reference number.`, 'bad'); return false; }
       const held = v.id;
       /* The number is spent here, on a document that exists — and it is asked
          for from the server, because two counters minting from one sequence is
@@ -3616,8 +3645,12 @@ function markVoucherPaid(v){
       (async () => {
         if(!v.no) v.no = await DB.reserveNo('voucher','DV');
         v.date = paidOn;
-        v.method = fd.method;
-        v.ref = String(fd.ref || '').trim();
+        v.tenders = tenders;
+        /* `method` stays the single answer every other screen reads. With one
+           tender it is that tender; with two there is no single answer, and
+           "Split" is better than naming one of them and being wrong. */
+        v.method = tenders.length > 1 ? 'Split' : tenders[0].method;
+        v.ref = tenders.map(t => t.ref).filter(Boolean).join(' · ');
         v.state = 'Pending';
         /* The seats were held against the voucher's id while it had no number;
            they carry the number now, and the date it was actually paid. */
@@ -3634,6 +3667,62 @@ function markVoucherPaid(v){
         render();
       })();
     }
+  });
+
+  /* One row per account the money left from. The first carries the whole
+     voucher, which is the usual case and means nothing extra to fill in; adding
+     a second splits what is left over to it, so the two always start out adding
+     up to the voucher. */
+  const rows = document.getElementById('tenderRows');
+  const methods = ACC.methodNames();
+  const tenderRow = (m, amt) => {
+    const i = rows.children.length;
+    const d = document.createElement('div');
+    d.className = 'tender-row';
+    d.innerHTML = UI.row(
+      UI.f.select('tm' + i, i ? 'And from' : 'Paid from', m, methods),
+      UI.f.num('ta' + i, 'Amount (₱)', amt, { min:0, step:'0.01' }),
+      UI.f.text('tr' + i, 'Reference no.', '', { ph:'cheque or transaction no.' }))
+      + (i ? `<div style="margin:-6px 0 8px"><button type="button" class="btn btn-ghost btn-xs"
+             data-drop="${i}">Remove this one</button></div>` : '');
+    rows.appendChild(d);
+    return d;
+  };
+
+  /* Read back as whole rows rather than by index, so removing the middle one
+     does not leave a hole the submit has to know about. */
+  const readTenders = () => [...rows.querySelectorAll('.tender-row')].map(d => ({
+      method:(d.querySelector('select') || {}).value || methods[0],
+      amount:ACC.r2((d.querySelectorAll('input')[0] || {}).value || 0),
+      ref:String((d.querySelectorAll('input')[1] || {}).value || '').trim(),
+    })).filter(t => t.amount > 0.004);
+
+  const tally = () => {
+    const sum = ACC.r2(readTenders().reduce((s, t) => s + t.amount, 0));
+    const left = ACC.r2(ACC.r2(v.amount) - sum);
+    const box = document.getElementById('tenderSum');
+    box.textContent = Math.abs(left) < 0.005
+      ? `${UI.peso(sum)} — matches the voucher`
+      : left > 0 ? `${UI.peso(left)} of ${UI.peso(v.amount)} still unaccounted for`
+                 : `${UI.peso(-left)} more than the voucher`;
+    box.style.color = Math.abs(left) < 0.005 ? 'var(--ok)' : 'var(--bad)';
+  };
+
+  tenderRow(methods[0], ACC.r2(v.amount));
+  tally();
+  document.getElementById('addTender').onclick = () => {
+    const left = ACC.r2(ACC.r2(v.amount) - ACC.r2(readTenders().reduce((s, t) => s + t.amount, 0)));
+    tenderRow(methods[1] || methods[0], left > 0.004 ? left : '');
+    tally();
+  };
+  rows.addEventListener('input', tally);
+  rows.addEventListener('change', tally);
+  rows.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-drop]');
+    if(!b) return;
+    ev.preventDefault();
+    b.closest('.tender-row').remove();
+    tally();
   });
 }
 
@@ -4511,7 +4600,8 @@ function approveDoc(kind, id, ok, note){
   const handler = MONEY_OUT.find(m => m.key === kind);
   if(kind === 'expenses' && rec.kind === 'remittance'){
     ACC.postCenterRemittance({ date:rec.date, memo:`Remittance — ${rec.payee} · ${rec.no}`,
-                               refNo:rec.no, refId:rec.id, amount:rec.amount, method:rec.method });
+                               refNo:rec.no, refId:rec.id, amount:rec.amount,
+                               method:rec.method, tenders:rec.tenders });
   }else{
     handler.post(rec);
   }
@@ -4939,7 +5029,7 @@ VIEWS.daily = () => {
      about it. */
   const refundsIn = d.expenses.filter(v => isCenterRefund(v) && v.date === on
     && (v.state || 'Approved') === 'Approved' && !wasVoided(v));
-  refundsIn.forEach(v => put(inBy, v.method, ACC.r2(v.amount)));
+  refundsIn.forEach(v => ACC.tendersOf(v).forEach(t => put(inBy, t.method, t.amount)));
   const totalIn = ACC.r2(Object.values(inBy).reduce((s,v) => s + v, 0));
 
   /* ---- out, approved only ---- */
@@ -4971,7 +5061,12 @@ VIEWS.daily = () => {
   const refunds  = d.refunds.filter(approvedOn);
 
   const outBy = tally();
-  [...vouchers, ...remits, ...refunds].forEach(x => put(outBy, x.method, x.amount));
+  /* Split the same way the posting was: a voucher paid partly in cash and
+     partly by transfer leaves both accounts, and the day has to say so or it
+     cannot be reconciled against either. A refund carries no tenders and falls
+     back to its own mode, which is all it has ever had. */
+  [...vouchers, ...remits, ...refunds].forEach(x =>
+    ACC.tendersOf(x).forEach(t => put(outBy, t.method, t.amount)));
   const totalOut = ACC.r2(Object.values(outBy).reduce((s,v) => s + v, 0));
 
   const sum = list => ACC.r2(list.reduce((s,x) => s + x.amount, 0));

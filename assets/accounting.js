@@ -245,12 +245,12 @@ const ACC = (() => {
      The voucher amount is the sum of what each booking owes, which is already
      net of the rebate on the bookings marked "deduct" and gross on the ones
      marked "do not deduct". Nothing is netted a second time here. */
-  function postCenterRemittance({ date, memo, refNo, refId, amount, method }){
+  function postCenterRemittance({ date, memo, refNo, refId, amount, method, tenders }){
     return post({
       date, memo, refType:'Remittance', refNo, refId,
       lines:[
         { account:'2000', debit:r2(amount), credit:0 },
-        { account:cashAccount(method), debit:0, credit:r2(amount) },
+        ...cashOut({ amount, method, tenders }),
       ],
     });
   }
@@ -407,14 +407,31 @@ const ACC = (() => {
     });
   }
 
+  /* Which accounts a document's money actually left from, and how much from
+     each. A voucher settled partly in cash and partly by transfer has a tender
+     for each; one with nothing recorded went entirely by its `method`, which is
+     every voucher written before a voucher could be split.
+
+     Everything that asks "where did this money go" reads it here, so the
+     posting, the day's report and the channel totals cannot disagree. */
+  function tendersOf(doc){
+    const list = (Array.isArray(doc.tenders) ? doc.tenders : [])
+      .map(t => ({ method:normalMethod(t.method), ref:String(t.ref || '').trim(), amount:r2(t.amount) }))
+      .filter(t => t.amount > 0.004);
+    return list.length
+      ? list
+      : [{ method:normalMethod(doc.method), ref:String(doc.ref || '').trim(), amount:r2(doc.amount) }];
+  }
+
+  /* The credit side of money going out, one line per account it left. */
+  const cashOut = doc => tendersOf(doc)
+    .map(t => ({ account:cashAccount(t.method), debit:0, credit:t.amount }));
+
   function postExpense(v){
     return post({
       date:v.date, memo:`${v.particulars} — ${v.payee}`,
       refType:'Voucher', refNo:v.no, refId:v.id,
-      lines:[
-        { account:v.account, debit:r2(v.amount), credit:0 },
-        { account:cashAccount(v.method), debit:0, credit:r2(v.amount) },
-      ],
+      lines:[{ account:v.account, debit:r2(v.amount), credit:0 }, ...cashOut(v)],
     });
   }
 
@@ -627,6 +644,7 @@ const ACC = (() => {
     postRefund, creditBalance, refundable, splitRefund,
     recomputeInvoice, balanceOf, overpaidOn, cashAccount, paymentLines,
     centerSettlement, postCenterPayable, postCenterRemittance, postCenterRefund, postRebateReceipt,
+    tendersOf,
     trialBalance, incomeStatement, arAging, collections, ledgerFor,
   };
 })();

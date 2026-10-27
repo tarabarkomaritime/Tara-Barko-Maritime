@@ -2541,6 +2541,71 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---- a voucher paid out of two accounts ----
+
+     A centre settled partly from the drawer and partly by transfer leaves both,
+     and Money By Channel is what the office counts each account against. Read
+     whole against one mode it showed the drawer short by the half that went by
+     transfer. */
+  console.log('\n- a voucher can leave two accounts -');
+  {
+    check('a voucher with no tenders still leaves by its own mode', () => {
+      const t = run(`ACC.tendersOf({ amount:1500, method:'GCash', ref:'x' })`);
+      return (t.length === 1 && t[0].method === 'GCash' && t[0].amount === 1500)
+        || JSON.stringify(t);
+    });
+    check('tenders are read as given when there are some', () => {
+      const t = run(`ACC.tendersOf({ amount:5000, method:'Split',
+        tenders:[{ method:'Cash', ref:'', amount:2000 }, { method:'Bank', ref:'A1', amount:3000 }] })`);
+      return (t.length === 2 && t[0].amount === 2000 && t[1].amount === 3000 && t[1].ref === 'A1')
+        || JSON.stringify(t);
+    });
+    check('an empty tender is not an account the money left', () => {
+      const t = run(`ACC.tendersOf({ amount:1000, method:'Cash',
+        tenders:[{ method:'Cash', ref:'', amount:1000 }, { method:'Bank', ref:'', amount:0 }] })`);
+      return t.length === 1 || JSON.stringify(t);
+    });
+
+    check('a split voucher credits each account for its own share', () => {
+      run(`globalThis.SPL = { id:'v_spl', no:'DV-SPL', date:DB.today(), kind:'voucher',
+        payee:'PROBE', account:'5100', particulars:'split test', amount:5000, method:'Split',
+        tenders:[{ method:'Cash', ref:'', amount:2000 }, { method:'Bank', ref:'A1', amount:3000 }] }`);
+      const je = run('ACC.postExpense(SPL)');
+      const cash = je.lines.find(l => l.account === '1000');
+      const bank = je.lines.find(l => l.account === '1010');
+      const exp  = je.lines.find(l => l.account === '5100');
+      return (exp && exp.debit === 5000 && cash && cash.credit === 2000 && bank && bank.credit === 3000)
+        || JSON.stringify(je.lines);
+    });
+    check('and the entry still balances', () => {
+      const je = run(`DB.get().journal.find(j => j.refId === 'v_spl')`);
+      return (je.debit === je.credit && je.debit === 5000) || `${je.debit} vs ${je.credit}`;
+    });
+    check('a split remittance discharges the centre and credits both accounts', () => {
+      /* The debt has to exist before it can be settled, or the trial balance is
+         being asked about a payable nobody ever owed. */
+      run(`ACC.postCenterPayable({ date:DB.today(), memo:'probe seat', refNo:'ENR-SPL',
+        refId:'e_spl', fee:4000, rebate:0, deduct:false })`);
+      const je = run(`ACC.postCenterRemittance({ date:DB.today(), memo:'split remit',
+        refNo:'DV-SPL2', refId:'v_spl2', amount:4000, method:'Split',
+        tenders:[{ method:'Cash', ref:'', amount:1000 }, { method:'GCash', ref:'G9', amount:3000 }] })`);
+      const owed = je.lines.find(l => l.account === '2000');
+      const cash = je.lines.find(l => l.account === '1000');
+      const gc   = je.lines.find(l => l.account === '1020');
+      return (owed && owed.debit === 4000 && cash && cash.credit === 1000 && gc && gc.credit === 3000)
+        || JSON.stringify(je.lines);
+    });
+    /* Line sums, not the trial balance: the fixture above left the chart of
+       accounts empty, and a trial balance can only report accounts it has. */
+    check('the books balance with split vouchers on them', () => {
+      const diff = run(`(() => { let dr = 0, cr = 0;
+        DB.get().journal.filter(x => !x.voided).forEach(e => (e.lines || []).forEach(l => {
+          dr += ACC.r2(l.debit || 0); cr += ACC.r2(l.credit || 0); }));
+        return ACC.r2(dr - cr); })()`);
+      return Math.abs(diff) < 0.005 || 'out by ' + diff;
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();
