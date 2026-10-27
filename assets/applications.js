@@ -446,6 +446,27 @@ const APPS = (() => {
              registrations:out.registrations || [] };
   }
 
+  /* What a seat owes the centre that is running it.
+
+     Three things decide it and they all come off the course as it stands at
+     that centre: the fee, the rebate, and whether the centre lets us keep the
+     rebate back or settles it separately. A seat brought in by marketing
+     carries half the rebate, because half of it is going to whoever brought
+     them.
+
+     This was written out longhand in three places — billing a booking,
+     repricing a course, and the list of seats a reprice would touch — which is
+     three chances for them to disagree about what a seat is worth. */
+  function centreTerms(enr, course){
+    const c = course || D().courses.find(x => x.id === (enr || {}).courseId) || {};
+    const full = ACC.r2(c.rebate || 0);
+    return {
+      fee:    ACC.r2(c.amount || 0),
+      rebate: (enr || {}).source === 'Marketing' ? ACC.r2(full / 2) : full,
+      deduct: !!c.deduct,
+    };
+  }
+
   const registrationsFor = traineeId => D().applications.filter(a => a.traineeId === traineeId);
 
   /* A middle name that is on file in full is written out in full. It used to be
@@ -469,7 +490,7 @@ const APPS = (() => {
 
   return {
     REQUIRED, LABELS,
-    refCode, validate, submit, encode, enroll, billBooking,
+    refCode, validate, submit, encode, enroll, billBooking, centreTerms,
     matchTrainee, upsertTrainee,
     track, findTrainee, enrollmentsFor, registrationsFor,
     forName, course,

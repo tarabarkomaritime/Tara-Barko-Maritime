@@ -2501,6 +2501,46 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---- a seat owes its centre on that centre's terms ----
+
+     The fee, the rebate and whether the rebate is kept back all belong to the
+     centre running the course, not to the seat. Three screens worked them out
+     longhand, which is three chances to disagree; they read it from one place
+     now, and these are the cases that place has to get right. */
+  console.log('\n- what a seat owes its centre -');
+  {
+    const terms = (enr, course) => run(`APPS.centreTerms(${JSON.stringify(enr)}, ${JSON.stringify(course)})`);
+
+    check('a centre that keeps the rebate back is owed the fee less it', () => {
+      const t = terms({}, { amount:1100, rebate:550, deduct:true });
+      const s = run(`ACC.centerSettlement(${JSON.stringify(t)})`);
+      return (s.payable === 550 && s.receivable === 0) || JSON.stringify(s);
+    });
+    check('a centre that settles it separately is owed the whole fee', () => {
+      const t = terms({}, { amount:1100, rebate:550, deduct:false });
+      const s = run(`ACC.centerSettlement(${JSON.stringify(t)})`);
+      return (s.payable === 1100 && s.receivable === 550) || JSON.stringify(s);
+    });
+    /* The case that sent the wrong money: PNTC keeps the rebate back, Nautical
+       Options does not. Moving the seat has to move the terms with it. */
+    check('moving the seat between them changes what is owed', () => {
+      const a = run(`ACC.centerSettlement(${JSON.stringify(terms({}, { amount:5500, rebate:900, deduct:true }))})`);
+      const b = run(`ACC.centerSettlement(${JSON.stringify(terms({}, { amount:5500, rebate:900, deduct:false }))})`);
+      return (a.payable === 4600 && b.payable === 5500)
+        || `kept-back ${a.payable}, separate ${b.payable}`;
+    });
+    check('a seat brought in by marketing carries half the rebate', () =>
+      terms({ source:'Marketing' }, { amount:1100, rebate:550, deduct:true }).rebate === 275
+      || terms({ source:'Marketing' }, { amount:1100, rebate:550, deduct:true }).rebate);
+    check('and a walk-in carries all of it', () =>
+      terms({ source:'Walk-in' }, { amount:1100, rebate:550, deduct:true }).rebate === 550
+      || 'walk-in was halved');
+    check('a course with no rebate owes the centre the whole fee', () => {
+      const t = terms({}, { amount:800 });
+      return (t.rebate === 0 && t.fee === 800 && t.deduct === false) || JSON.stringify(t);
+    });
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

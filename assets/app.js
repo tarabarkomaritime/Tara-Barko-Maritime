@@ -5730,7 +5730,7 @@ function seatsOnOldPrice(course, fee, rebate, deduct){
     const owed = ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee);
     /* A marketing seat carries half the rebate, and half of the new one is what
        it should carry — not the whole. */
-    const want = e.source === 'Marketing' ? ACC.r2(rebate / 2) : ACC.r2(rebate);
+    const want = APPS.centreTerms(e, { rebate }).rebate;
     return owed !== ACC.r2(fee) || ACC.r2(e.rebate || 0) !== want || !!e.deduct !== !!deduct;
   });
 }
@@ -5741,7 +5741,7 @@ function seatsOnOldPrice(course, fee, rebate, deduct){
 function repriceSeats(course, fee, rebate, deduct, reason){
   let n = 0;
   seatsOnOldPrice(course, fee, rebate, deduct).forEach(e => {
-    const want = e.source === 'Marketing' ? ACC.r2(rebate / 2) : ACC.r2(rebate);
+    const want = APPS.centreTerms(e, { rebate }).rebate;
     ACC.reverse(e.id, reason, 'Booking');
     const s = ACC.postCenterPayable({
       date:DB.today(),
@@ -6372,6 +6372,52 @@ function changePanel(rows, opts){
    reason to separate raising from approving is that money leaves on a single
    person's say-so, and here it now does. */
 
+/* Can this seat's figures still be put right?
+
+   Not once the money has gone. A seat already on a remittance, or whose rebate
+   has been banked, is settled — restating it would make the books disagree
+   with what actually left the account. */
+const settleable = e => !!e && !e.remitNo && ACC.r2(e.centerPaid || 0) <= 0.004
+  && !e.rebateReceivedOn && e.status !== 'Void';
+
+/* Settling a seat on the terms of the centre it has moved to.
+
+   What a seat owes its centre, what its rebate is worth, and whether that
+   rebate is kept back or collected separately are all frozen the day the
+   booking is taken — and they are properties of the centre, not of the seat.
+   Move the booking and they stop being true.
+
+   A seat taken at PNTC, where the rebate comes off what we remit, moved to
+   Nautical Options, where the centre is owed the whole fee and the rebate is
+   collected back separately: the voucher went on deducting the rebate, so
+   Nautical Options was short-paid by it and the rebate was never collected
+   either. The money went missing at both ends.
+
+   The old posting is reversed and a new one made on the new centre's terms, so
+   the ledger shows the move rather than a number that quietly changed. What the
+   trainee was billed is not touched — that is a document they hold, and
+   approveChange already says when the bill needs revising. */
+function resettleCentre(e, reason){
+  const c = CRS(e.courseId);
+  if(!c) return false;
+  const t = APPS.centreTerms(e, c);
+  const s0 = ACC.centerSettlement({ fee:t.fee, rebate:t.rebate, deduct:t.deduct });
+  if(ACC.r2(e.centerPayable != null ? e.centerPayable : e.fee) === s0.payable
+     && ACC.r2(e.rebate || 0) === t.rebate && !!e.deduct === t.deduct) return false;
+
+  ACC.reverse(e.id, reason, 'Booking');
+  const s = ACC.postCenterPayable({
+    date:DB.today(),
+    memo:`${c.title}${e.center ? ' — ' + e.center : ''} · ${e.no} · moved (${reason})`,
+    refNo:e.no, refId:e.id, fee:t.fee, rebate:t.rebate, deduct:t.deduct,
+  });
+  e.centerPayable = s.payable;
+  e.rebateReceivable = s.receivable;
+  e.rebate = t.rebate;
+  e.deduct = t.deduct;
+  return true;
+}
+
 function approveChange(id, ok, note){
   const ch = D().changes.find(x => x.id === id);
   if(!ch) return;
@@ -6405,7 +6451,7 @@ function approveChange(id, ok, note){
   }
 
   const gap = feeGap(ch);
-  let billed = null;
+  let billed = null, resettled = false;
   if(ch.kind === 'invoice-void'){
     const inv = INV(ch.to && ch.to.invoiceId);
     if(!inv){ UI.toast('That bill is no longer on file.', 'bad'); return; }
@@ -6424,7 +6470,18 @@ function approveChange(id, ok, note){
        then would leave money collected against nothing. */
     if(!voidEnrollment(e, ch.reason)) return;
   }else{
+    /* Which centre is running it, before the change is written over it. */
+    const movedCentre = !same(e.center, ch.to.center) || !same(e.courseId, ch.to.courseId);
     CHANGE_FIELDS.forEach(f => { e[f.k] = ch.to[f.k]; });
+    /* A move to another centre settles on that centre's terms. Said plainly
+       when it cannot be done, because the alternative is the office remitting
+       on terms that stopped applying and nothing anywhere saying so. */
+    if(movedCentre){
+      if(settleable(e)) resettled = resettleCentre(e, ch.reason || 'moved');
+      else if(!['Void','Cancelled'].includes(e.status))
+        UI.toast(`${e.no} has already been settled with the old centre — what it owes`
+          + ' was left as it was. Put it right against the centre\'s statement.', 'warn');
+    }
     /* Pending is the one state that bills nothing — a seat asked for and not
        yet agreed. This form is where the centre's answer is recorded, so it is
        also the moment the seat becomes chargeable. Left to itself the booking
@@ -6444,7 +6501,13 @@ function approveChange(id, ok, note){
   DB.save();
   DB.activity('Approved a booking change',
     e.no + ' · ' + changeLines(ch).join('; ').replace(/<\/?b>/g, ''));
-  UI.toast(ch.kind === 'invoice-void'
+  /* When a move changed what the centre is owed, the office is told in the
+     same breath — it is the figure the next voucher will pay. */
+  const moved = resettled
+    ? ` ${String(e.center || '').toUpperCase()} is owed ${UI.peso(e.centerPayable)}`
+      + (e.deduct ? ', rebate deducted.' : ', rebate collected separately.')
+    : '';
+  UI.toast((ch.kind === 'invoice-void'
     ? `${(INV(ch.to && ch.to.invoiceId) || {}).no || 'The bill'} voided and reversed.`
     : ch.kind === 'rebate-cancel'
     ? `Rebate on ${e.no} cancelled.`
@@ -6454,7 +6517,7 @@ function approveChange(id, ok, note){
       ? `${e.no} updated. The bill still reads ${UI.peso(gap.was)} — revise it if it should say ${UI.peso(gap.next)}.`
       : billed
       ? `${e.no} updated and billed on ${billed.no} — ${UI.peso(wouldBill(e))} now collectable.`
-      : `${e.no} updated.`, gap ? 'warn' : '');
+      : `${e.no} updated.`) + moved, gap ? 'warn' : '');
   refresh();
 }
 
