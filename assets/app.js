@@ -1820,14 +1820,41 @@ VIEWS.payments = () => {
      a filter that empties its own control cannot be undone. */
   const rebCenters = [...new Set(allRebates.map(r => r.center))].sort();
   const rebPick = state.q.rebCenter || '';
-  const rebates = allRebates.filter(r => !rebPick || r.center === rebPick);
+
+  /* One list was three lists in a trenchcoat.
+
+     A rebate is in one of three states and the office does a different thing
+     with each: one it has to ring the centre about, one is money already in,
+     and one is never going to arrive as a payment at all because it comes off
+     what we remit. Reading them in one table meant scrolling past forty settled
+     rows to find the one to chase, and the Receive button sitting on rows where
+     pressing it would be wrong.
+
+     And a name to search by. Twelve pending across six centres is a list; two
+     hundred is a haystack, and the office is usually looking for one man. */
+  const rebTab = ['collect','received','kept'].includes(state.q.rebTab)
+    ? state.q.rebTab : 'collect';
+  const rebQ = String(state.q.rebQ || '').trim().toLowerCase();
+  const rebBucket = r => r.deduct ? 'kept' : (r.received ? 'received' : 'collect');
+  const rebHit = r => !rebQ || [
+      name(T(r.e.traineeId)), (T(r.e.traineeId) || {}).no,
+      (CRS(r.e.courseId) || {}).title, r.center,
+    ].some(x => String(x || '').toLowerCase().includes(rebQ));
+
+  /* The centre picker and the search narrow every tab; the tab picks which of
+     the three the office is looking at. Counts are of what the tab would hold
+     with the same narrowing, so a tab never says 12 and then shows 3. */
+  const rebShown = allRebates.filter(r => (!rebPick || r.center === rebPick) && rebHit(r));
+  const rebCount = k => rebShown.filter(r => rebBucket(r) === k).length;
+  const rebates = rebShown.filter(r => rebBucket(r) === rebTab);
   /* Three figures, not two. Money still to be chased and money we are simply
      keeping back are both owed to us and neither is the other, so adding them
      into one "still to collect" would overstate what anybody has to ring a
      centre about. */
-  const toCollect = ACC.r2(rebates.filter(r => !r.deduct && !r.received).reduce((s,r) => s + r.amount, 0));
-  const collected = ACC.r2(rebates.filter(r => !r.deduct &&  r.received).reduce((s,r) => s + r.amount, 0));
-  const deducted  = ACC.r2(rebates.filter(r =>  r.deduct).reduce((s,r) => s + r.amount, 0));
+  const rebSum = k => ACC.r2(rebShown.filter(r => rebBucket(r) === k).reduce((s,r) => s + r.amount, 0));
+  const toCollect = rebSum('collect');
+  const collected = rebSum('received');
+  const deducted  = rebSum('kept');
 
   return `
     <div class="toolbar">
@@ -1870,7 +1897,20 @@ VIEWS.payments = () => {
             sub:`${UI.peso(chaseDue)} outstanding across ${chase.length} booking(s), soonest deadline first` })}
 
         <div style="height:18px"></div>
-        ${UI.card('Rebates From Training Centers', UI.table([
+        ${UI.card('Rebates From Training Centers',
+          `<div class="toolbar" style="margin:0 14px 10px">
+             ${[['collect','To collect', toCollect],
+                ['received','Received', collected],
+                ['kept','Kept from remittances', deducted]]
+               .map(([k, label, total]) => `<button class="btn btn-sm ${
+                 k === rebTab ? 'btn-primary' : 'btn-ghost'}" data-act="reb-tab" data-id="${k}">${
+                 label} (${UI.int(rebCount(k))})${
+                 total ? ` · ${UI.peso(total)}` : ''}</button>`).join(' ')}
+             <span class="spacer"></span>
+             <input type="search" data-q="rebQ" value="${UI.esc(state.q.rebQ || '')}"
+               placeholder="Search a trainee, course or centre" style="min-width:250px;margin:0">
+           </div>` +
+          UI.table([
           { h:'Training center', k:r => `<b>${UI.esc(r.center)}</b>` },
           { h:'Trainee', k:r => UI.esc(name(T(r.e.traineeId))) },
           { h:'Course', k:r => UI.esc((CRS(r.e.courseId)||{}).title || '—') },
@@ -1909,14 +1949,22 @@ VIEWS.payments = () => {
                     ? `<button class="btn btn-accent btn-xs" data-act="receive-rebate" data-id="${r.e.id}">Receive</button>`
                     : '<span class="muted">—</span>')) + ' ' + cancel;
             }, w:'190px' },
-        ], rebates, { empty:rebPick
-            ? `Nothing recorded against ${rebPick}.`
-            : 'No booking carries a rebate yet.' }),
+        ], rebates, { empty:rebQ
+            ? `No rebate matches “${rebQ}” in this tab.`
+            : rebTab === 'collect'
+            ? (rebPick ? `Nothing left to collect from ${rebPick}.`
+                       : 'Nothing to collect — every rebate is in or kept back.')
+            : rebTab === 'received'
+            ? 'No rebate has been received yet.'
+            : 'No rebate is kept back from a remittance.' }),
           { flush:true,
-            sub:`${UI.peso(toCollect)} still to collect`
-                + (collected ? ` · ${UI.peso(collected)} already received` : '')
-                + (deducted ? ` · ${UI.peso(deducted)} kept from remittances` : '')
-                + (rebPick ? ` · ${rebPick}` : ''),
+            sub:(rebTab === 'collect'
+                  ? `${UI.peso(toCollect)} still to collect from ${UI.int(rebCount('collect'))} booking(s)`
+                  : rebTab === 'received'
+                  ? `${UI.peso(collected)} received across ${UI.int(rebCount('received'))} booking(s)`
+                  : `${UI.peso(deducted)} kept back — settled on the voucher, never as its own payment`)
+                + (rebPick ? ` · ${rebPick}` : '')
+                + (rebQ ? ` · matching “${rebQ}”` : ''),
             actions:rebCenters.length > 1 ? `
               <select data-q="rebCenter" style="min-width:200px;font-size:12.5px">
                 <option value="">All training centers</option>
@@ -8345,6 +8393,7 @@ document.addEventListener('click', ev => {
     'edit-refund':   () => { ev.stopPropagation();
                        refundEditForm(D().refunds.find(r => r.id === id)); },
     'release-holds': () => releaseUnbackedHolds(),
+    'reb-tab':       () => { state.q.rebTab = id; render(); },
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
     'new-journal':   () => journalForm(),
     'edit-addons':   () => addonsForm(),
