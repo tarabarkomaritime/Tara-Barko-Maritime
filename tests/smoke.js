@@ -2606,6 +2606,136 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---- a bill cannot go up before the booking it is for ----
+
+     violates foreign key constraint "invoices_enrollment_id_fkey". The office
+     saw that and could do nothing with it. Underneath, a day of encoding this
+     browser was holding had been written into the baseline as though the server
+     already had it, so it was never sent \u2014 and the bills that pointed at it
+     went up on their own. */
+  console.log('\n- a reference reaches what it points at -');
+  {
+    const SERVER = {};
+    const sent = [];
+    const TABLES = ['courses','accounts','trainees','enrollments','booking_changes','invoices',
+                    'payments','expenses','refunds','journal','activity_log','cash_counts',
+                    'registrations','staff','doc_seq','roster','company'];
+    let refuse = null;
+
+    const fakeCloud = () => {
+      TABLES.forEach(t => { SERVER[t] = SERVER[t] || []; });
+      run(`CLOUD.__realUpsert = CLOUD.upsert; CLOUD.__realSelectAll = CLOUD.selectAll;
+           CLOUD.__realRest = CLOUD.rest; CLOUD.__realRemove = CLOUD.remove;`);
+      ctx.__server = SERVER;
+      ctx.__sent = sent;
+      ctx.__refused = () => refuse;
+      run(`CLOUD.selectAll = async t => {
+             if(t === __refused()) { const e = new Error('permission denied for table ' + t); e.status = 403; throw e; }
+             return (__server[t] || []).slice(); };
+           CLOUD.rest = async (p, o) => {
+             const t = String(p).split('?')[0];
+             if(!o || !o.method || o.method === 'GET'){
+               if(t === __refused()) { const e = new Error('permission denied for table ' + t); e.status = 403; throw e; }
+               return (__server[t] || []).slice();
+             }
+             return null; };
+           CLOUD.upsert = async (t, rows) => {
+             if(t === __refused()) { const e = new Error('permission denied for table ' + t); e.status = 403; throw e; }
+             __sent.push({ table:t, ids:rows.map(r => r.id != null ? r.id : r.code) });
+             __server[t] = (__server[t] || []).concat(rows);
+             return rows.length; };
+           CLOUD.remove = async () => 0;`);
+    };
+    const unfake = () => run(`CLOUD.upsert = CLOUD.__realUpsert; CLOUD.selectAll = CLOUD.__realSelectAll;
+                              CLOUD.rest = CLOUD.__realRest; CLOUD.remove = CLOUD.__realRemove;`);
+
+    /* A browser holding work the server has never seen. */
+    const strandedStore = () => JSON.stringify({
+      meta:{ v:1 }, seq:{}, company:{}, users:[], roster:[], removed:[],
+      courses:[], accounts:[], log:[], journal:[], expenses:[], refunds:[],
+      payments:[], applications:[], cashCounts:[], changes:[],
+      trainees:[{ id:'t1', no:'TR-1', last:'CALAWAG', first:'J' }],
+      enrollments:[{ id:'e1', no:'ENR-1', traineeId:'t1', date:'2026-10-01', status:'Enrolled' }],
+      invoices:[{ id:'i1', no:'INV-1', enrollmentId:'e1', traineeId:'t1',
+                  date:'2026-10-01', items:[], subtotal:0, discount:0, total:0 }],
+    });
+
+
+    /* Run the asynchronous parts in order, then report. */
+    const results = [];
+    const later = (async () => {
+      /* --- 1. the bug itself --- */
+      Object.keys(store).forEach(k => delete store[k]);
+      TABLES.forEach(t => { SERVER[t] = []; });
+      SERVER.company = [];
+      sent.length = 0; refuse = null;
+      store['tbm_is_v1'] = strandedStore();
+      fakeCloud();
+      try{
+        await run('DB.connect({ role:"owner" })');
+        await run('DB.flush()');
+        const tables = sent.map(x => x.table);
+        const enr = sent.find(x => x.table === 'enrollments' && x.ids.includes('e1'));
+        const inv = sent.find(x => x.table === 'invoices' && x.ids.includes('i1'));
+        results.push(['work this browser was holding is sent, not assumed saved',
+          !!(enr && inv) || 'sent: ' + JSON.stringify(tables)]);
+        results.push(['and the booking is sent before the bill that names it',
+          (enr && inv && tables.indexOf('enrollments') < tables.indexOf('invoices'))
+            || 'order: ' + tables.join(',')]);
+      }catch(e){ results.push(['the stranded save goes through', 'threw: ' + e.message]); }
+
+      /* --- 2. a table the server refuses holds back what points at it --- */
+      Object.keys(store).forEach(k => delete store[k]);
+      TABLES.forEach(t => { SERVER[t] = []; });
+      sent.length = 0; refuse = 'enrollments';
+      store['tbm_is_v1'] = strandedStore();
+      try{
+        await run('DB.connect({ role:"owner" })');
+        await run('DB.flush()');
+        const st = run('DB.cloudStatus()');
+        results.push(['a refused table does not become a foreign key violation',
+          (!sent.some(x => x.table === 'invoices')) || 'the bill was sent anyway']);
+        results.push(['and the office is told which table the server would not take',
+          /enrollments/.test((st.skipped || []).join(',')) || JSON.stringify(st.skipped)]);
+        results.push(['the save is not reported as an error',
+          st.state !== 'error' || 'state: ' + st.state]);
+      }catch(e){ results.push(['a refused parent is held, not thrown', 'threw: ' + e.message]); }
+
+      /* --- 3. a reference to nothing is named, not left to Postgres --- */
+      refuse = null;
+      try{
+        run(`globalThis.__broken = { trainees:[{ id:'t1' }], enrollments:[],
+               invoices:[{ id:'i9', no:'INV-9', enrollmentId:'gone', traineeId:'t1' }] }`);
+        await run('SYNC.push(__broken, {}, { isAdmin:true })');
+        results.push(['a bill pointing at no booking is refused by name', 'it was sent']);
+      }catch(e){
+        results.push(['a bill pointing at no booking is refused by name',
+          (/INV-9/.test(e.message) && /not in the system/.test(e.message)) || e.message]);
+      }
+
+      /* --- 4. a table that cannot be read is not an empty table --- */
+      TABLES.forEach(t => { SERVER[t] = []; });
+      SERVER.enrollments = [];
+      refuse = 'enrollments';
+      try{
+        const pulled = await run('SYNC.pull()');
+        results.push(['a table the server would not hand over is reported, not blanked',
+          (pulled.unread || []).includes('enrollments') || JSON.stringify(pulled.unread)]);
+      }catch(e){ results.push(['pull survives a refused table', 'threw: ' + e.message]); }
+
+      refuse = null;
+      unfake();
+      run('DB.disconnect()');
+      Object.keys(store).forEach(k => delete store[k]);
+
+      results.forEach(([label, r]) => check(label, () => r === true ? true : r));
+      console.log(`\n${pass} passed, ${fail} failed\n`);
+      process.exit(fail ? 1 : 0);
+    })();
+    later.catch(e => { console.log('  FAIL cloud round-trip -> ' + e.stack); process.exit(1); });
+    return;
+  }
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 })();

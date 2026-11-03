@@ -1009,6 +1009,22 @@ const DB = (() => {
     try{ local = JSON.parse(localStorage.getItem(KEY) || 'null'); }catch(e){ local = null; }
 
     const store = await SYNC.pull();
+    const unread = store.unread || [];
+    delete store.unread;
+
+    /* What the server actually had, read before anything of this browser's is
+       put beside it.
+
+       It used to be taken at the end, after carryLocal had already added every
+       local row the server had never seen — so the first thing the baseline
+       said about a day of stranded encoding was that the server already had it.
+       It was therefore never sent. The bookings stayed in this browser, the
+       bills that referred to them went up without them, and Postgres refused
+       the lot: violates foreign key constraint invoices_enrollment_id_fkey.
+       The comment under here always claimed the baseline was what the server
+       had. Now it is. */
+    const served = SYNC.snapshot({ ...store, company:store.company, seq:store.seq });
+
     const brought = carryLocal(local, store);
     /* Kept whether or not anything was carried. The copy used to be written
        only when rows came across, which meant a browser whose only work was in
@@ -1062,8 +1078,17 @@ const DB = (() => {
     migrate(data);
     cloudOn = true;
     /* The baseline is what the server had. Anything the seed just supplied is
-       deliberately not in it, so the first push uploads the catalogue. */
-    baseline = SYNC.snapshot({ ...store, company:store.company, seq:store.seq });
+       deliberately not in it, so the first push uploads the catalogue — and
+       neither is anything carried up out of this browser, so the first push
+       uploads that too. */
+    baseline = served;
+    /* A table nobody could read is a table nobody knows the contents of. Not
+       one row of it counts as seen, or the next save would skip the lot. */
+    unread.forEach(t => {
+      const name = Object.keys(SYNC.MAP).find(k => SYNC.MAP[k].table === t);
+      if(name) delete baseline[name];
+    });
+    if(unread.length) console.warn('Tara Barko: could not be read — ' + unread.join(', '));
     cache();
     setState('ready');
     schedulePush();
@@ -1095,14 +1120,24 @@ const DB = (() => {
       /* A skipped table is not a saved table. Saying 'Saved' over the top of one
          is the same quiet loss this whole layer exists to stop, so the state
          carries the names and the screen says them out loud. */
-      skippedTables = (done.skipped || []).slice();
-      (done.skipped || []).forEach(t => {
-        const name = Object.keys(SYNC.MAP).find(k => SYNC.MAP[k].table === t);
+      /* Held back, not saved — and for a worse reason than skipped: the server
+         refused the write or has no such table yet. These were left out of
+         this list entirely, so the baseline recorded them as sent and they were
+         never tried again. The rows sat in the browser for good while
+         everything that referred to them went up without them. */
+      skippedTables = [...(done.skipped || []), ...(done.missing || [])];
+      skippedTables.forEach(t => {
+        const name = Object.keys(SYNC.MAP).find(k => SYNC.MAP[k].table === t.replace(' (delete)', ''));
         if(name) delete baseline[name]; else if(t === 'company') delete baseline.company;
       });
-      setState('ready', skippedTables.length
-        ? 'not sent, and an admin has to: ' + skippedTables.join(', ')
-        : '');
+      /* Two different reasons to be short of the server, and the office can do
+         something about only one of them. A table that is the admin's wants an
+         admin; a table the server refused wants somebody told. */
+      const note = [
+        (done.skipped || []).length ? 'not sent, and an admin has to: ' + done.skipped.join(', ') : '',
+        (done.missing || []).length ? 'the server would not take: ' + done.missing.join(', ') : '',
+      ].filter(Boolean).join(' · ');
+      setState('ready', note);
     }catch(e){
       /* Put the flag back up. The rows are still in memory and still in the
          cache, so the next save — or the next retry — carries them again. */
@@ -1118,11 +1153,25 @@ const DB = (() => {
   async function refreshFromCloud(){
     if(!cloudOn || dirty || pushing) return false;
     const store = await SYNC.pull();
+    const unread = store.unread || [];
+    delete store.unread;
+    /* Somebody else's work, yes — but only the part of it that was actually
+       read. A table the server would not hand over comes back empty, and
+       letting that empty list stand would wipe this browser's copy of it and
+       leave every record that points into it dangling. */
+    unread.forEach(t => {
+      const name = Object.keys(SYNC.MAP).find(k => SYNC.MAP[k].table === t);
+      if(name) store[name] = data[name] || [];
+    });
     const fresh = blank();
     data = { ...fresh, ...store, meta:fresh.meta };
     if(!data.company || !Object.keys(data.company).length) data.company = { ...DEFAULT_COMPANY };
     migrate(data);
     baseline = SYNC.snapshot(store);
+    unread.forEach(t => {
+      const name = Object.keys(SYNC.MAP).find(k => SYNC.MAP[k].table === t);
+      if(name) delete baseline[name];
+    });
     cache();
     setState('ready');
     return true;

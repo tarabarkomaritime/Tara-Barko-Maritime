@@ -44,6 +44,8 @@ const SYNC = (() => {
       /* `date` is the day it was encoded, which is not the day it runs — the
          column says so even though the field never did. */
       rename:{ date:'date_encoded', start:'start_on', end:'end_on' },
+      /* A booking cannot be stored before the trainee it is for. */
+      refs:{ trainee_id:'trainees', course_id:'courses' },
       cols:['id','no','trainee_id','course_id','center','room','instructor','start_on','end_on',
             'date_encoded','status','result','certificate_no','invoice_id','fee','discount',
             'discount_note','rebate','deduct','center_payable','rebate_receivable','center_paid',
@@ -70,6 +72,7 @@ const SYNC = (() => {
       patchOnly:['state','approvedBy','approvedOn','decidedBy','decidedOn','decisionNote','selfApproved'],
       /* `to` is a reserved word in Postgres and `was` reads like one. */
       rename:{ was:'was_state', to:'to_state' },
+      refs:{ enrollment_id:'enrollments', trainee_id:'trainees' },
       cols:['id','no','kind','enrollment_id','trainee_id','date','raised_by','was_state','to_state','reason',
             'state','approved_by','approved_on','decided_by','decided_on','decision_note','self_approved'],
       blankToNull:['approved_by','approved_on','decided_by','decided_on'],
@@ -82,12 +85,14 @@ const SYNC = (() => {
          voided; `status` is a reading of it. Both are recomputed from the
          receipts on the way in, which cannot drift. */
       derived:['paid','status'],
+      refs:{ enrollment_id:'enrollments', trainee_id:'trainees' },
       cols:['id','no','enrollment_id','trainee_id','date','terms','items','subtotal','discount','total','voided'],
       blankToNull:['enrollment_id'],
       blankToDefault:['date'],
     },
     payments:{
       table:'payments', key:'id',
+      refs:{ invoice_id:'invoices', enrollment_id:'enrollments', trainee_id:'trainees' },
       cols:['id','no','invoice_id','enrollment_id','trainee_id','date','amount','tenders','method','ref','note','voided','taken_by'],
       blankToNull:['invoice_id','enrollment_id'],
       blankToDefault:['date'],
@@ -105,6 +110,7 @@ const SYNC = (() => {
     },
     refunds:{
       table:'refunds', key:'id',
+      refs:{ trainee_id:'trainees' },
       cols:['id','no','date','trainee_id','amount','from_credit','from_over','method','ref','reason',
             'state','raised_by','approved_by','approved_on','decided_by','decided_on','decision_note',
             /* Stamped by the same approval code that stamps a voucher. Without
@@ -268,6 +274,18 @@ const SYNC = (() => {
       store[name] = rows.map(r => fromRow(name, r));
     }
 
+    /* Which of them could not be read at all.
+
+       This list was built and then thrown away, and that was the whole of the
+       damage. A table the server would not hand over came back as `[]`, which
+       does not mean "there are none" — it means "nobody asked, or nobody was
+       allowed". The caller could not tell the difference, so it replaced a
+       browser full of bookings with nothing, every invoice was left pointing at
+       a booking that no longer existed anywhere, and the next save was refused
+       by Postgres for a foreign key the office has never heard of. Absence is
+       not an answer, and it is reported as such. */
+    store.unread = missing;
+
     /* What each invoice has actually been paid, summed from the receipts that
        still stand. This is the number the whole billing screen turns on, and
        deriving it here is why it can no longer disagree with the receipts. */
@@ -374,9 +392,37 @@ const SYNC = (() => {
   async function push(store, base, opts){
     const admin = !opts || opts.isAdmin !== false;
     const done = { upserts:0, deletes:0, tables:[], skipped:[] };
+    /* Collections whose rows did not reach the server on this pass. A table
+       skipped because it is the admin's is not one of these: those rows are
+       already up there, and the only reason this browser is not sending them is
+       that it has nothing new to say about them. */
+    const heldBack = new Set();
+    const hold = name => {
+      heldBack.add(name);
+      done.missing = done.missing || [];
+      done.missing.push(MAP[name].table);
+    };
+
+    /* Every id this push can count on the server having once it is finished:
+       what it is sending, and what the last read already found there. A
+       reference to anything else points nowhere. */
+    const reachable = name => {
+      const set = new Set(Object.keys((base && base[name]) || {}));
+      (store[name] || []).forEach(r => set.add(keyer(name)(r)));
+      return set;
+    };
+
     for(const name of Object.keys(MAP)){
       const m = MAP[name];
       if(m.adminOnly && !admin){ done.skipped.push(m.table); continue; }
+
+      /* A record cannot be stored before the record it points at. Sending it
+         anyway turns a table quietly held back into a foreign key violation —
+         which is a hard error, so it takes the whole save down and the office
+         sees a red bar naming a constraint instead of the one table that is
+         actually stuck. */
+      const parent = Object.values(m.refs || {}).find(p => heldBack.has(p));
+      if(parent){ hold(name); continue; }
       const now = fingerprint(store[name], name);
       const was = (base && base[name]) || {};
       const key = keyer(name);
@@ -386,6 +432,32 @@ const SYNC = (() => {
       const changed = (store[name] || []).filter(r =>
         m.insertOnly ? !(key(r) in was) : now[key(r)] !== was[key(r)]);
       const gone = m.insertOnly ? [] : Object.keys(was).filter(k => !(k in now));
+
+      /* A reference to a record that is in neither this store nor the server's
+         is broken before it is sent, and Postgres will say so in its own words:
+         violates foreign key constraint invoices_enrollment_id_fkey. Nobody at
+         a desk can act on that. Say which document and which record, here,
+         while the names are still to hand. */
+      if(changed.length && m.refs){
+        const have = {};
+        Object.values(m.refs).forEach(p => { if(!have[p]) have[p] = reachable(p); });
+        const broken = [];
+        changed.forEach(r => {
+          Object.entries(m.refs).forEach(([col, p]) => {
+            const field = Object.keys(r).find(k => ((m.rename || {})[k] || snake(k)) === col);
+            const v = field ? r[field] : undefined;
+            if(v === undefined || v === null || v === '') return;
+            if(!have[p].has(String(v)))
+              broken.push(`${r.no || r.id} → ${p.replace(/s$/, '')} ${v}`);
+          });
+        });
+        if(broken.length){
+          throw new Error(
+            `${m.table}: ${broken.slice(0, 3).join('; ')}` +
+            (broken.length > 3 ? ` and ${broken.length - 3} more` : '') +
+            ` — the record it points at is not in the system. Nothing was saved.`);
+        }
+      }
 
       if(changed.length){
         try{
@@ -399,8 +471,7 @@ const SYNC = (() => {
              policy allows it — the fingerprint of what the server has seen is
              only advanced by a write that actually landed, so nothing is lost
              by waiting. */
-          done.missing = done.missing || [];
-          done.missing.push(m.table);
+          hold(name);
           continue;
         }
       }
