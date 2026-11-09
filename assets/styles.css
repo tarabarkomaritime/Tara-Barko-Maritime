@@ -82,6 +82,13 @@ body{
    what they hold rather than the width of the dialog — a mode picker as wide as
    a page reads as the most important thing on it, and it is not. */
 .tender-row{display:grid;grid-template-columns:150px 150px minmax(0,1fr);gap:8px;margin-bottom:8px}
+/* A split row whose fields are built with UI.row brings its own grid. Leaving
+   the columns above switched on put all three of them inside the first 150px,
+   so the amount box — the one field typed into every single time — had room for
+   about four digits. The mode needs only its longest name; the amount and the
+   reference take what is left. */
+.tender-row.tender-split{display:block}
+.tender-row.tender-split > .grid{grid-template-columns:135px minmax(0,1.3fr) minmax(0,1.2fr);gap:10px}
 .tender-row .t-amt{text-align:right;font-family:var(--mono)}
 @media(max-width:560px){ .tender-row{grid-template-columns:1fr 1fr;} .tender-row .t-ref{grid-column:1/-1} }
 

@@ -1493,6 +1493,8 @@ VIEWS.enrollments = () => {
     seats:onDay.filter(e => e.traineeId === id),
   })).filter(x => x.t).sort((a, b) => name(a.t).localeCompare(name(b.t)));
 
+  const enrPage = paged(rows, 'enrPage', 10);
+
   return `
     ${changePanel(pendingChanges())}
     <div class="toolbar">
@@ -1556,8 +1558,9 @@ VIEWS.enrollments = () => {
           return billableUnbilled(e)
             ? `<span class="muted">${UI.peso(wouldBill(e))} unbilled</span>`
             : '<span class="muted">—</span>'; }, cls:'num' },
-    ], rows, { empty:'No enrollments recorded.', rowClass:'clickable',
-               rowAttrs:e => `data-act="view-enrollment" data-id="${e.id}"` }), { flush:true })}
+    ], enrPage.rows, { empty:'No enrollments recorded.', rowClass:'clickable',
+               rowAttrs:e => `data-act="view-enrollment" data-id="${e.id}"` })
+      + pagerBar(enrPage), { flush:true })}
 
     <!-- The seats somebody was sent to us for, and what is owed on them. The
          same table appears under Disbursements, because it answers one question
@@ -3146,7 +3149,7 @@ VIEWS.payables = () => {
     ${approvalPanel(pendingRemittances(), { title:'Vouchers Waiting For Approval',
         sub:'Raised against the bookings below — no money has left until these are signed' })}
 
-    ${centers.length > 1 ? UI.card('Payables', UI.table([
+    ${centers.length && !pick ? UI.card('Payables', UI.table([
       { h:'Training center', k:c => `<b>${UI.esc(c.key)}</b>` },
       { h:'Bookings', k:c => UI.int(c.rows.length), cls:'num' },
       { h:'Oldest', k:c => c.oldest === '9999-12-31' ? '—' : UI.date(c.oldest) },
@@ -3160,10 +3163,19 @@ VIEWS.payables = () => {
       { h:'', k:c => `<button class="btn btn-ghost btn-xs" data-act="paya-only"
             data-id="${UI.esc(c.key)}">Open</button>`, w:'90px' },
     ], centers, { foot:['TOTAL', UI.int(bookings), '', UI.num(totalDue), ''] }),
-      { flush:true, sub:`By training date · ${span}` }) + '<div style="height:18px"></div>' : ''}
+      { flush:true, sub:`Open a centre to see its bookings · by training date · ${span}` })
+      + '<div style="height:18px"></div>' : ''}
 
-    ${centers.length
-      ? centers.map(c => section(c) + '<div style="height:18px"></div>').join('')
+    ${/* One centre's bookings at a time.
+
+          Every centre was printed out in full, one under the other: twenty-four
+          seats for JVV, then every seat for eight more centres, and the office
+          scrolled past all of it to reach the one it had come to settle. The
+          summary above is the way in — Open, or the picker, chooses a centre,
+          and Show everything goes back to the list. Nothing is hidden that was
+          not already a click away. */
+      centers.length
+      ? (pick ? centers.map(c => section(c) + '<div style="height:18px"></div>').join('') : '')
       : UI.card('Outstanding Bookings',
           `<div class="empty"><span class="big">⚓</span>${filtered
             ? 'Nothing outstanding in this window. Widen the dates, or show everything.'
@@ -3796,7 +3808,11 @@ function markVoucherPaid(v){
   const tenderRow = (m, amt) => {
     const i = rows.children.length;
     const d = document.createElement('div');
-    d.className = 'tender-row';
+    /* tender-split because the fields below are built with UI.row, which is a
+       grid of its own. Nested inside .tender-row's columns the whole row landed
+       in the first 150px of them, and the amount box — the one field typed into
+       every time — had room for about four digits. */
+    d.className = 'tender-row tender-split';
     d.innerHTML = UI.row(
       UI.f.select('tm' + i, i ? 'And from' : 'Paid from', m, methods),
       UI.f.num('ta' + i, 'Amount (₱)', amt, { min:0, step:'0.01' }),
@@ -8663,11 +8679,19 @@ document.addEventListener('click', ev => {
   if(A){ ev.preventDefault(); A(); }
 });
 
+/* Narrowing a list puts you back at the start of it. Searching while on page
+   five and being handed page five of three results is the pager answering a
+   question nobody asked. The page buttons set their own key through a click
+   action and are not touched by this. */
+const resetPages = () => Object.keys(state.q)
+  .filter(k => /Page$/.test(k)).forEach(k => { delete state.q[k]; });
+
 /* Filter inputs re-render their view without losing focus. */
 document.addEventListener('input', ev => {
   const el = ev.target.closest('[data-q]');
   if(!el) return;
   state.q[el.dataset.q] = el.value;
+  resetPages();
   const key = el.dataset.q, pos = el.selectionStart;
   render();
   const again = document.querySelector(`[data-q="${key}"]`);
@@ -8683,6 +8707,7 @@ document.addEventListener('change', ev => {
      mousedown and mouseup, and the element it started on no longer exists. */
   if(state.q[el.dataset.q] === el.value) return;
   state.q[el.dataset.q] = el.value;
+  resetPages();
   render();
 });
 
