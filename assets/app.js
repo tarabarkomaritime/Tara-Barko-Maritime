@@ -454,6 +454,24 @@ const billCourses = i => {
     })
     .filter(x => x.trim());
 };
+/* Money handed over above what a bill asked for, across a window.
+
+   It is posted to 4300 the moment it is taken — the office keeps it, so it is
+   income — and then appeared on no screen at all. The books knew; the office
+   did not, and the month's takings read short by it. Read off the ledger rather
+   than off the invoices so that a refund of an overpayment takes it back off
+   again on the day it went out. */
+function overpaidIn(from, to){
+  return ACC.r2(D().journal
+    /* An empty bound is no bound. Sales opens on "all dates", where both are
+       blank — compared as strings that excluded every entry, so the line was
+       missing from precisely the view the office looks at most. */
+    .filter(j => !j.voided && (!from || j.date >= from) && (!to || j.date <= to))
+    .flatMap(j => j.lines || [])
+    .filter(l => l.account === '4300')
+    .reduce((s, l) => s + (l.credit || 0) - (l.debit || 0), 0));
+}
+
 function traineeBalance(tid){
   return ACC.r2(D().invoices.filter(i => i.traineeId === tid && !i.voided)
     .reduce((s,i) => s + ACC.balanceOf(ACC.recomputeInvoice(i)), 0));
@@ -1610,12 +1628,30 @@ VIEWS.invoices = () => {
   ].sort((a, b) => String(b.date).localeCompare(String(a.date))
                 || String(b.no).localeCompare(String(a.no)));
 
+  /* How many bills are in each state, counted across everything the search
+     matched rather than what the current tab is showing — a tab that reported
+     its own filtered count would read "Paid (0)" while standing on Void. */
+  const searched = D().invoices
+    .map(i => (ACC.recomputeInvoice(i), i))
+    .filter(i => !q || [i.no, name(T(i.traineeId)), (i.items || []).map(x => x.desc).join(' ')]
+      .join(' ').toLowerCase().includes(q));
+  const invCount = s => s ? searched.filter(i => invStatus(i) === s).length : searched.length;
+  const INV_TABS = [['', 'All'], ['Unpaid', 'Unpaid'], ['Partial', 'Partial'],
+                    ['Paid', 'Paid'], ['Void', 'Void']];
+
+  const invPage = paged(rows, 'invPage', 10);
+
   const live = invRows.filter(i => !i.voided);
   const tot  = ACC.r2(live.reduce((s, i) => s + i.total, 0));
   const paid = ACC.r2(live.reduce((s, i) => s + (i.paid || 0), 0));
   const booked = ACC.r2(unbilled.reduce((s, e) => s + wouldBill(e), 0));
 
   return `
+    <div class="toolbar">
+      ${INV_TABS.map(([k, label]) => `<button class="btn btn-sm ${
+        k === f ? 'btn-primary' : 'btn-ghost'}" data-act="inv-tab" data-id="${k}">${
+        label} (${UI.int(invCount(k))})</button>`).join(' ')}
+    </div>
     <div class="toolbar">
       <input type="search" data-q="inv" value="${UI.esc(state.q.inv||'')}" placeholder="Search invoice no., trainee or course…" style="min-width:250px">
       <select data-q="invStatus" style="min-width:180px">
@@ -1667,10 +1703,11 @@ VIEWS.invoices = () => {
             : (b > 0.004 ? `<b style="color:var(--bad)">${UI.num(b)}</b>`
                          : `<span style="color:var(--ok)">0.00</span>`); }, cls:'num' },
       { h:'Status', k:r => UI.statusTag(r.kind === 'inv' ? invStatus(r.i) : r.e.status) },
-    ], rows, { empty:'Nothing billed or booked under that.', rowClass:'clickable',
+    ], invPage.rows, { empty:'Nothing billed or booked under that.', rowClass:'clickable',
                rowAttrs:r => r.kind === 'inv'
                  ? `data-act="view-invoice" data-id="${r.i.id}"`
-                 : `data-act="view-enrollment" data-id="${r.e.id}"` }), { flush:true })}
+                 : `data-act="view-enrollment" data-id="${r.e.id}"` })
+      + pagerBar(invPage), { flush:true })}
   `;
 };
 
@@ -2189,7 +2226,11 @@ VIEWS.sales = () => {
       const byAcct = {};
       spent.forEach(v => { byAcct[v.account] = ACC.r2((byAcct[v.account] || 0) + v.amount); });
       const expenses = ACC.r2(spent.reduce((s, v) => s + v.amount, 0));
-      const net = ACC.r2(earned - expenses);
+      /* The rebate is what the office earns on a seat. It is not everything the
+         office earns: money handed over above a bill is kept, and was missing
+         from every figure on this screen. */
+      const over = overpaidIn(from, to);
+      const net = ACC.r2(earned + over - expenses);
       const line = (label, amount, opts = {}) => `
         <tr${opts.strong ? ' style="font-weight:700"' : ''}${opts.sub ? ' class="muted"' : ''}>
           <td style="padding:6px 0${opts.sub ? ' 6px 22px' : ''}">${UI.esc(label)}</td>
@@ -2202,6 +2243,7 @@ VIEWS.sales = () => {
             ${line('Gross rebate earned', gross)}
             ${discounts > 0.004 ? line('Less: discounts given', discounts, { neg:true }) : ''}
             ${line('Net rebate earned', earned, { strong:true })}
+            ${over > 0.004 ? line('Add: overpayments kept', over) : ''}
             ${line('Less: operating expenses', expenses, { neg:true })}
             ${Object.entries(byAcct).sort((a, b) => b[1] - a[1]).map(([c, v]) =>
               line(ACC.acct(c).name, v, { sub:true })).join('')}
@@ -2338,6 +2380,8 @@ VIEWS.expenses = () => {
   const byAcct = {};
   posted.forEach(v => byAcct[v.account] = ACC.r2((byAcct[v.account]||0) + v.amount));
 
+  const expPage = paged(rows, 'expPage', 10);
+
   return `
     <div class="toolbar">
       <label class="muted" style="font-size:12px">From</label><input type="date" data-q="expFrom" value="${from}">
@@ -2410,7 +2454,8 @@ VIEWS.expenses = () => {
                 /* A fixed width: `v` is the row, and the column's width is
                    settled once for the table rather than per row. */
                 : ''), w:'190px' },
-      ], rows, { empty:'No disbursements in this period.' }), { flush:true })}</div>
+      ], expPage.rows, { empty:'No disbursements in this period.' })
+        + pagerBar(expPage), { flush:true })}</div>
       <div>${UI.card('Expenses By Account',
         UI.barChart(Object.entries(byAcct).map(([c,v]) => ({ label:ACC.acct(c).name, value:v }))
           .sort((a,b) => b.value - a.value), { money:true }))}
@@ -5104,6 +5149,7 @@ VIEWS.daily = () => {
     && (v.state || 'Approved') === 'Approved' && !wasVoided(v));
   refundsIn.forEach(v => ACC.tendersOf(v).forEach(t => put(inBy, t.method, t.amount)));
   const totalIn = ACC.r2(Object.values(inBy).reduce((s,v) => s + v, 0));
+  const overToday = overpaidIn(on, on);
 
   /* ---- out, approved only ---- */
   /* The day the money left, which is the date the office wrote on the document
@@ -5177,7 +5223,11 @@ VIEWS.daily = () => {
     <div class="grid g4" style="margin-bottom:18px">
       ${UI.kpi('Received', UI.peso(totalIn),
                `${receipts.length} payment(s)${rebatesIn.length ? ` · ${rebatesIn.length} rebate(s)` : ''}`
-               + (refundsIn.length ? ` · ${refundsIn.length} refund(s) from centres` : ''), 'ok')}
+               + (refundsIn.length ? ` · ${refundsIn.length} refund(s) from centres` : '')
+               /* Part of the figure above, named. It is in the drawer and in
+                  the day's takings either way; saying so is what stops the desk
+                  counting it as a trainee's money still to be returned. */
+               + (overToday > 0.004 ? ` · ${UI.peso(overToday)} over the bills, kept` : ''), 'ok')}
       ${UI.kpi('Paid out', UI.peso(totalOut),
                `${vouchers.length + remits.length + refunds.length} approved document(s)`, totalOut ? 'warn' : '')}
       ${UI.kpi('Net movement', UI.peso(ACC.r2(totalIn - totalOut)),
@@ -7910,19 +7960,31 @@ function receiptModal(p){
         <section class="ar-panel ar-sum">
           <h4>PAYMENT SUMMARY</h4>
           <table>
-            <tr><td>Amount Received</td><td class="num">${UI.num(total)}</td></tr>
-            ${settles.length === 1 && settles[0].inv ? (() => {
-              const inv = settles[0].inv;
-              ACC.recomputeInvoice(inv);
-              /* What came in over the bill is the office's business, not
-                 something to hand the trainee a claim on. The receipt states
-                 the money received and that the bill is settled, and stops. */
-              return `<tr><td>Invoice Total</td><td class="num">${UI.num(inv.total)}</td></tr>
+            ${(() => {
+              const inv = settles.length === 1 ? settles[0].inv : null;
+              if(inv) ACC.recomputeInvoice(inv);
+              /* More was handed over than the bill asked for.
+
+                 Then the paper says what was received and stops. Setting the
+                 training fee and the excess side by side invites the trainee to
+                 read the difference as money owed back to them across the
+                 counter, and it is not — the office keeps it, and the word
+                 "overpayment" on a document somebody carries to a manning
+                 agency starts an argument nobody intended.
+
+                 Paid as billed, the breakdown is the whole point of the
+                 receipt: what the training cost, what has been paid against it,
+                 what is left. That is unchanged. */
+              const over = inv ? ACC.overpaidOn(inv) : 0;
+              if(!inv || over > 0.004)
+                return `<tr class="grand"><td>TOTAL RECEIVED</td>
+                          <td class="num">${UI.peso(total)}</td></tr>`;
+              return `<tr><td>Amount Received</td><td class="num">${UI.num(total)}</td></tr>
+                <tr><td>Invoice Total</td><td class="num">${UI.num(inv.total)}</td></tr>
                 <tr><td>Total Paid To Date</td><td class="num">${UI.num(inv.paid||0)}</td></tr>
                 <tr class="grand"><td>REMAINING BALANCE</td>
                   <td class="num">${UI.peso(ACC.balanceOf(inv))}</td></tr>`;
-            })() : `<tr class="grand"><td>TOTAL RECEIVED</td>
-                      <td class="num">${UI.peso(total)}</td></tr>`}
+            })()}
           </table>
         </section>
       </div>
@@ -8562,6 +8624,7 @@ document.addEventListener('click', ev => {
                        refundEditForm(D().refunds.find(r => r.id === id)); },
     'release-holds': () => releaseUnbackedHolds(),
     'reb-tab':       () => { state.q.rebTab = id; state.q.rebPage = 1; render(); },
+    'inv-tab':       () => { state.q.invStatus = id; state.q.invPage = 1; render(); },
     'page':          () => { const [k, n] = id.split(':'); state.q[k] = Number(n); render(); },
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
     'new-journal':   () => journalForm(),
