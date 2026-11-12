@@ -70,7 +70,7 @@ const COURSE_CATALOGUE = [
   {"code":"BT","title":"BT - PSSR","center":"FAREAST","amount":1500,"rebate":200,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
   {"code":"BT","title":"BT - PSSR","center":"GRANDLINE","amount":1500,"rebate":375,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
   {"code":"BT","title":"BT - PSSR","center":"GREAT SEAS","amount":1300,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
-  {"code":"BT","title":"BT - PSSR","center":"MARIANA","amount":1700,"rebate":600,"days":1,"duration":"1 day","modes":["Distance Learning"]},
+  {"code":"BT","title":"BT - PSSR","center":"MARIANA","amount":1600,"rebate":500,"days":1,"duration":"1 day","modes":["Distance Learning"]},
   {"code":"BT","title":"BT - PSSR","center":"NAUTICAL OPTIONS","amount":1500,"rebate":100,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
   {"code":"BT","title":"BT - PSSR","center":"NEW WAVE","amount":1300,"rebate":300,"days":1,"duration":"1 day","modes":["Face-to-Face"]},
   {"code":"BT","title":"BT - PSSR","center":"RAJ","amount":1500,"rebate":400,"days":1,"duration":"1 day","modes":["Face-to-Face"]},

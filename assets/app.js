@@ -1260,6 +1260,135 @@ VIEWS.trainees = () => {
    charged. Deducted, the rebate comes off the payable; not deducted, we pay the
    full fee and the center settles the rebate separately. Getting that switch
    wrong misstates what we owe a partner, so it is a column, not a footnote. */
+/* The same training, sold twice.
+
+   A catalogue seeded more than once carries every course two or three times
+   over, and the office is then shown three PSSR rows for MARIANA when it
+   encodes a seat — three different answers, depending on which one the mouse
+   landed on, and three different amounts owed to the same centre.
+
+   The same offering is the same course code and title, at the same centre, over
+   the same days, delivered the same way. What two rows of one offering may
+   differ on is the money, and where they do somebody has to say which figures
+   are right: that is the price the office charges, and no rule here can guess
+   it. So the identical ones merge on one button and the rest are put in front
+   of an admin to choose. */
+function courseKey(c){
+  return [c.code, c.title, c.center, c.duration, [...(c.modes || [])].sort().join('+')]
+    .map(x => String(x == null ? '' : x).trim().toUpperCase()).join('|');
+}
+
+function courseGroups(){
+  const d = D();
+  /* Counted once rather than per comparison — a thousand courses against a
+     thousand bookings inside a sort is a screen that stops responding. */
+  const usage = {};
+  d.enrollments.forEach(e => { usage[e.courseId] = (usage[e.courseId] || 0) + 1; });
+  const money = c => `${ACC.r2(c.amount || 0)}|${ACC.r2(c.rebate || 0)}|${c.deduct ? 1 : 0}`;
+
+  const by = {};
+  d.courses.forEach(c => { const k = courseKey(c); (by[k] = by[k] || []).push(c); });
+
+  return Object.entries(by)
+    .filter(([, g]) => g.length > 1)
+    .map(([key, g]) => ({
+      key,
+      /* The busiest row first: merging into the one already in use moves the
+         fewest bookings, and it is the figure the office has been charging. */
+      rows:[...g].sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0)
+                              || ACC.r2(b.amount || 0) - ACC.r2(a.amount || 0)),
+      same:g.every(c => money(c) === money(g[0])),
+      used:id => usage[id] || 0,
+      total:g.length,
+    }))
+    .sort((a, b) => (a.same === b.same ? 0 : a.same ? 1 : -1)
+                 || String(a.rows[0].code).localeCompare(String(b.rows[0].code))
+                 || String(a.rows[0].center).localeCompare(String(b.rows[0].center)));
+}
+
+/* Fold a group into the one row that survives.
+
+   The bookings only have their pointer moved. What each of them agreed to pay
+   and owes the centre was frozen on the day it was taken and is not touched
+   here — restating a seat already remitted would make the books disagree with
+   the money that actually went out. */
+function mergeCourseGroup(key, keepId){
+  const d = D();
+  const group = d.courses.filter(c => courseKey(c) === key);
+  const keep = group.find(c => c.id === keepId);
+  if(!keep || group.length < 2) return { moved:0, dropped:0 };
+  let moved = 0, dropped = 0;
+  group.forEach(c => {
+    if(c.id === keep.id) return;
+    d.enrollments.forEach(e => { if(e.courseId === c.id){ e.courseId = keep.id; moved++; } });
+    d.courses = d.courses.filter(x => x.id !== c.id);
+    DB.forget('courses', c.id);
+    dropped++;
+  });
+  DB.activity('Merged course',
+    `${keep.code} — ${keep.center} · ${dropped + 1} rows into one, ${moved} booking(s) moved`);
+  return { moved, dropped };
+}
+
+function courseDupesPanel(){
+  const groups = courseGroups();
+  const identical = groups.filter(g => g.same);
+  const conflicting = groups.filter(g => !g.same);
+  const spare = groups.reduce((s, g) => s + g.total - 1, 0);
+
+  if(!groups.length)
+    return UI.card('Duplicate Courses',
+      `<div class="empty"><span class="big">✓</span>Every course in the price list is
+        the only row for its centre, mode and duration.</div>`, { flush:true });
+
+  const figures = c => `${UI.num(c.amount || 0)} · rebate ${UI.num(c.rebate || 0)} · ${
+    c.rebate ? (c.deduct ? 'deduct' : 'do not deduct') : 'no rebate'}`;
+
+  return UI.card('Duplicate Courses', `
+    <div class="note warn" style="margin:0 0 14px">
+      <b>${UI.int(spare)} spare row(s)</b> across ${UI.int(groups.length)} training(s).
+      Merging moves every booking onto the row that survives and takes the others
+      off the price list. What each booking already agreed to pay, and what it owes
+      its centre, does not change.
+    </div>
+
+    ${identical.length ? `
+      <h4 style="margin:0 0 6px;font-size:13px">Identical — nothing to choose</h4>
+      <p class="muted" style="margin:0 0 10px;font-size:12.5px">
+        ${UI.int(identical.length)} training(s) listed more than once at exactly the same
+        amount, rebate and treatment. Nothing is lost by folding them together.</p>
+      <button class="btn btn-primary btn-sm" data-act="merge-identical"
+        style="margin-bottom:18px">Merge all ${UI.int(identical.length)} identical training(s)</button>
+    ` : ''}
+
+    ${conflicting.length ? `
+      <h4 style="margin:0 0 6px;font-size:13px">Same training, different money — pick the right one</h4>
+      <p class="muted" style="margin:0 0 10px;font-size:12.5px">
+        These are the same course at the same centre, priced two different ways. Keep the
+        row that is correct; the others go, and their bookings move onto it.</p>
+      ${conflicting.map(g => `
+        <div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+          <div style="font-weight:600;font-size:13px">${UI.esc(String(g.rows[0].code).toUpperCase())}
+            — ${UI.esc(String(g.rows[0].title).toUpperCase())}</div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px">${UI.esc(g.rows[0].center || '—')}
+            · ${UI.esc((g.rows[0].duration || '—').toUpperCase())}
+            · ${UI.esc((g.rows[0].modes || []).join(', ').toUpperCase())}</div>
+          <table class="tbl" style="width:100%"><tbody>
+            ${g.rows.map(c => `<tr>
+              <td>${UI.esc(figures(c))}</td>
+              <td class="num muted" style="font-size:12px;white-space:nowrap">${
+                g.used(c.id) ? `${UI.int(g.used(c.id))} booking(s)` : 'never used'}</td>
+              <td class="num" style="width:120px">
+                <button class="btn btn-accent btn-xs" data-act="merge-course"
+                  data-id="${UI.esc(g.key)}::${UI.esc(c.id)}">Keep this one</button></td>
+            </tr>`).join('')}
+          </tbody></table>
+        </div>`).join('')}
+    ` : ''}`,
+    { flush:true, sub:'Only an admin can merge. Every merge is written to the activity log.' })
+    + '<div style="height:18px"></div>';
+}
+
 VIEWS.courses = () => {
   const q = (state.q.crs || '').toLowerCase();
   const all = D().courses;
@@ -1273,8 +1402,11 @@ VIEWS.courses = () => {
              placeholder="Search course, code, center or delivery…" style="min-width:300px">
       <span class="muted">${rows.length} of ${all.length} course(s)</span>
       <span class="spacer"></span>
+      ${admin ? `<button class="btn btn-ghost btn-sm" data-act="crs-dupes">${
+        state.q.crsDupes ? 'Hide duplicates' : 'Find duplicates'}</button>` : ''}
       ${admin ? `<button class="btn btn-primary btn-sm" data-act="new-course">+ Add course</button>` : ''}
     </div>
+    ${admin && state.q.crsDupes ? courseDupesPanel() : ''}
     ${UI.card('', UI.table([
       { h:'Course ID', k:c => `<b class="mono">${UI.esc(c.code)}</b>`, w:'100px' },
       { h:'Course Title', k:c => UI.esc(c.title.toUpperCase())
@@ -1293,7 +1425,8 @@ VIEWS.courses = () => {
           : '<span class="muted">—</span>' },
       { h:'', k:c => admin
           ? `<button class="btn btn-ghost btn-xs" data-act="edit-course" data-id="${c.id}">Edit</button>`
-          : '', w:'70px' },
+            + ` <button class="btn btn-ghost btn-xs" data-act="merge-course" data-id="${c.id}">Merge</button>`
+          : '', w:'145px' },
     ], rows, { empty:'No course matches that search.',
         /* Nine columns means the Edit button sits off the right edge on most
            screens, so the row opens it too — every other list here works that
@@ -6039,6 +6172,91 @@ function repriceSeats(course, fee, rebate, deduct, reason){
   return n;
 }
 
+/* The same training, sitting in the price list twice.
+
+   A centre's course gets typed in a second time — BT one day, PSSR the next,
+   BT - PSSR the week after — and from then on the same training is booked
+   against whichever row the desk happened to pick. The payables screen reads
+   as three courses, the rebate is right on one of them and wrong on the other
+   two, and no screen in the system says they are the same thing, because
+   nothing in the data says so.
+
+   Merging moves every booking onto the course that is being kept and takes the
+   duplicate out of the price list. What each booking is worth does not move
+   with it: a seat froze its fee, its rebate and its rebate treatment on the day
+   it was taken, and those are what the centre is owed and what has in many
+   cases already been remitted. Restating them here would make the books
+   disagree with money that has gone out. The keeper's price applies to what is
+   booked from now on, and a booking already taken can be put on it through
+   Edit, which asks first and leaves settled seats alone.
+
+   Not offered for a course nothing is booked against either — there the
+   duplicate is simply wrong and can be edited into whatever it should have
+   been. */
+function mergeCourseForm(c){
+  if(!c){ UI.toast('That course is gone.', 'bad'); return; }
+  if(!can('settings')){ UI.toast('Only an admin can merge courses.', 'bad'); return; }
+
+  const seatsOf = id => D().enrollments.filter(e => e.courseId === id);
+  const mine = seatsOf(c.id);
+
+  /* Same centre first, because that is what a duplicate almost always is, then
+     everything else — a training wrongly filed under the wrong centre is a
+     real case and the list should not hide it. */
+  const others = D().courses.filter(x => x.id !== c.id)
+    .sort((a, b) => (a.center === c.center ? 0 : 1) - (b.center === c.center ? 0 : 1)
+                 || String(a.center).localeCompare(String(b.center))
+                 || String(a.code).localeCompare(String(b.code)));
+  if(!others.length){ UI.toast('There is no other course to merge this into.', 'bad'); return; }
+
+  const label = x => `${x.code} — ${x.title}${x.center ? ' · ' + x.center : ''}`
+    + ` · ${UI.peso(x.amount || 0)}`
+    + (x.rebate ? ` less ${UI.peso(x.rebate)}` : '')
+    + ` · ${UI.int(seatsOf(x.id).length)} booking(s)`;
+
+  UI.modal({
+    title:`Merge ${c.code} into another course`,
+    sub:`${c.title}${c.center ? ' · ' + c.center : ''} · ${UI.int(mine.length)} booking(s)`,
+    wide:true,
+    body:`
+      <label class="fld"><span>Keep this course</span>
+        <select name="keep" required>
+          <option value="">Choose the course that stays…</option>
+          ${others.map(x => `<option value="${UI.esc(x.id)}">${UI.esc(label(x))}</option>`).join('')}
+        </select></label>
+      <div class="note warn">
+        <b>${UI.esc(c.code)} — ${UI.esc(c.title)}</b> is removed from the price list
+        and its ${UI.int(mine.length)} booking(s) move to the course above.
+        What each booking is worth does not change: a seat keeps the fee, the
+        rebate and the rebate treatment it was taken on, which is what has been
+        billed and in many cases already remitted. To put them on the keeper's
+        price as well, open it in Edit afterwards — that asks first, and leaves
+        a settled seat alone.
+      </div>`,
+    submitLabel:'Merge them',
+    onSubmit: fd => {
+      const keep = CRS(String(fd.keep || ''));
+      if(!keep){ UI.toast('Choose the course that stays.', 'bad'); return false; }
+      if(keep.id === c.id){ UI.toast('That is the same course.', 'bad'); return false; }
+
+      const moved = seatsOf(c.id);
+      moved.forEach(e => { e.courseId = keep.id; });
+      const i = D().courses.findIndex(x => x.id === c.id);
+      if(i >= 0) D().courses.splice(i, 1);
+      /* Absence is not an instruction anywhere else in this system, so the
+         removal is recorded rather than inferred from the row being gone. */
+      DB.forget('courses', c.id);
+      DB.activity('Merged course',
+        `${c.code} — ${c.title} into ${keep.code} — ${keep.title}`
+        + ` · ${moved.length} booking(s) moved`);
+      UI.toast(moved.length
+        ? `${UI.int(moved.length)} booking(s) moved to ${keep.code}.`
+        : `${c.code} removed — it had no bookings.`);
+      refresh();
+    },
+  });
+}
+
 function courseForm(c){
   const isNew = !c;
   c = c || { code:'', title:'', duration:'', days:null, center:'', amount:0, rebate:0,
@@ -8575,6 +8793,7 @@ document.addEventListener('click', ev => {
     'enroll-trainee':() => { ev.stopPropagation(); enrollmentForm(null, id); },
     'new-course':    () => courseForm(),
     'edit-course':   () => { ev.stopPropagation(); courseForm(CRS(id)); },
+    'merge-course':  () => { ev.stopPropagation(); mergeCourseForm(CRS(id)); },
     'new-enrollment':() => enrollmentForm(),
     'enr-today':     () => { state.q.enrDay = DB.today(); render(); },
     'enr-any':       () => { state.q.enrDay = ''; render(); },
@@ -8641,6 +8860,45 @@ document.addEventListener('click', ev => {
     'release-holds': () => releaseUnbackedHolds(),
     'reb-tab':       () => { state.q.rebTab = id; state.q.rebPage = 1; render(); },
     'inv-tab':       () => { state.q.invStatus = id; state.q.invPage = 1; render(); },
+    'crs-dupes':     () => { state.q.crsDupes = state.q.crsDupes ? '' : '1'; render(); },
+    'merge-course':  () => {
+      const [key, keepId] = id.split('::');
+      const g = courseGroups().find(x => x.key === key);
+      const keep = g && g.rows.find(c => c.id === keepId);
+      if(!keep) return UI.toast('That training has already been merged.', 'bad');
+      const others = g.rows.filter(c => c.id !== keepId);
+      const moving = others.reduce((s, c) => s + g.used(c.id), 0);
+      UI.confirm(`Keep ${keep.code} at ${UI.num(keep.amount || 0)}?`, () => {
+        const r = mergeCourseGroup(key, keepId);
+        DB.save();
+        UI.toast(`${keep.code} — ${keep.center}: ${r.dropped} row(s) removed${
+          r.moved ? `, ${r.moved} booking(s) moved` : ''}.`);
+        render();
+      }, { danger:true, yes:'Keep this one',
+           detail:`${others.length} other row(s) for this training are removed from the price list`
+                  + (moving ? `, and ${moving} booking(s) move onto the row you are keeping.` : '.')
+                  + ' What those bookings already agreed to pay does not change.' });
+    },
+    'merge-identical': () => {
+      const same = courseGroups().filter(g => g.same);
+      if(!same.length) return UI.toast('Nothing identical left to merge.');
+      const spare = same.reduce((s, g) => s + g.total - 1, 0);
+      UI.confirm(`Merge ${same.length} identical training(s)?`, () => {
+        let dropped = 0, moved = 0;
+        /* Read the groups once and work from that list: merging rewrites
+           D().courses, so re-grouping inside the loop would walk a list that is
+           changing underneath it. */
+        same.forEach(g => {
+          const r = mergeCourseGroup(g.key, g.rows[0].id);
+          dropped += r.dropped; moved += r.moved;
+        });
+        DB.save();
+        UI.toast(`${dropped} spare row(s) removed${moved ? `, ${moved} booking(s) moved` : ''}.`);
+        render();
+      }, { danger:true, yes:'Merge them',
+           detail:`${spare} spare row(s) go. Every one of them is identical to the row that `
+                  + 'stays — same amount, same rebate, same treatment — so no price changes.' });
+    },
     'page':          () => { const [k, n] = id.split(':'); state.q[k] = Number(n); render(); },
     'void-voucher':  () => { ev.stopPropagation(); voidVoucherAsk(id); },
     'new-journal':   () => journalForm(),

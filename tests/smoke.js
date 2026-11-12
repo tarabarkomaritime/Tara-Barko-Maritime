@@ -2606,6 +2606,48 @@ console.log('\n- old stores lose their passwords -');
     });
   }
 
+  /* ---- one offering, one row in the price list ----
+
+     The catalogue had been seeded more than once, so the office was shown three
+     PSSR rows for the same centre and got a different amount depending on which
+     one the mouse landed on. Merging has to move the bookings and leave what
+     they agreed to pay exactly where it was. */
+  console.log('\n- the same training sold twice -');
+  {
+    run(`globalThis.KEYOF = c => [c.code, c.title, c.center, c.duration,
+           [...(c.modes || [])].sort().join('+')]
+           .map(x => String(x == null ? '' : x).trim().toUpperCase()).join('|')`);
+
+    check('two rows of one offering share a key', () => {
+      const a = run(`KEYOF({ code:'BT', title:'PSSR', center:'MARIANA',
+        duration:'1 day', modes:['Distance Learning'] })`);
+      const b = run(`KEYOF({ code:' bt ', title:'pssr', center:'Mariana',
+        duration:'1 DAY', modes:['Distance Learning'] })`);
+      return a === b || `${a} vs ${b}`;
+    });
+    check('a different course code is a different offering', () => {
+      const a = run(`KEYOF({ code:'BT', title:'PSSR', center:'MARIANA',
+        duration:'1 day', modes:['Distance Learning'] })`);
+      const b = run(`KEYOF({ code:'UPDATING BT', title:'PSSR', center:'MARIANA',
+        duration:'1 day', modes:['Distance Learning'] })`);
+      return a !== b || 'they collapsed into one';
+    });
+    check('a different delivery is a different offering', () => {
+      const a = run(`KEYOF({ code:'BT', title:'PSSR', center:'MARIANA',
+        duration:'1 day', modes:['Distance Learning'] })`);
+      const b = run(`KEYOF({ code:'BT', title:'PSSR', center:'MARIANA',
+        duration:'1 day', modes:['Face-to-Face'] })`);
+      return a !== b || 'they collapsed into one';
+    });
+    check('a different centre is a different offering', () => {
+      const a = run(`KEYOF({ code:'BT', title:'PSSR', center:'MARIANA',
+        duration:'1 day', modes:['Face-to-Face'] })`);
+      const b = run(`KEYOF({ code:'BT', title:'PSSR', center:'NEW WAVE',
+        duration:'1 day', modes:['Face-to-Face'] })`);
+      return a !== b || 'they collapsed into one';
+    });
+  }
+
   /* ---- a bill cannot go up before the booking it is for ----
 
      violates foreign key constraint "invoices_enrollment_id_fkey". The office
